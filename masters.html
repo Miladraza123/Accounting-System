@@ -1,0 +1,832 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Masters — Party &amp; Item</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Serif:wght@600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink:#1F2933; --slate:#3E4C59; --mute:#7B8794; --line:#CBD2D9; --hair:#E4E7EB;
+    --paper:#FFFFFF; --desk:#DDE1E6; --panel:#F5F7F8;
+    --debit:#9B2C2C; --credit:#14614A; --accent:#A67C2E; --cash:#0B6E99;
+  }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { margin:0; height:100%; }
+  body { font-family:'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
+         background:var(--desk); color:var(--ink); display:flex; flex-direction:column;
+         overflow:hidden; font-size:14px; }
+  button, input, select, textarea { font:inherit; color:inherit; }
+  button { cursor:pointer; }
+
+  /* ---------- appbar ---------- */
+  .appbar { flex:none; background:var(--ink); color:#fff; display:flex; align-items:center; gap:10px;
+            padding:0 10px; height:calc(54px + env(safe-area-inset-top));
+            padding-top:env(safe-area-inset-top); }
+  .brand { display:flex; align-items:center; gap:8px; font-weight:600; font-size:14px; letter-spacing:.4px; }
+  .brand .mark { width:25px; height:25px; border:1.5px solid var(--accent); border-radius:5px;
+                 display:grid; place-items:center; font-size:11px; color:var(--accent); font-weight:700; }
+  .spacer { flex:1; }
+  .abtn { background:#2C3742; border:1px solid #3E4C59; color:#DDE1E6; border-radius:7px;
+          padding:7px 11px; font-size:12.5px; font-weight:500; }
+  .abtn:hover { background:#374350; }
+
+  /* ---------- tabs ---------- */
+  .tabs { flex:none; display:flex; background:var(--paper); border-bottom:1px solid var(--line); }
+  .tab { flex:1; padding:12px 8px 10px; background:none; border:none; font-size:13px; font-weight:600;
+         letter-spacing:.4px; color:var(--mute); border-bottom:3px solid transparent; }
+  .tab.on { color:var(--ink); border-bottom-color:var(--accent); }
+  .tab .n { font-family:'IBM Plex Mono',monospace; font-size:11.5px; color:var(--mute); font-weight:500; }
+
+  /* ---------- toolbar ---------- */
+  .tools { flex:none; display:flex; gap:8px; align-items:center; padding:10px;
+           background:var(--paper); border-bottom:1px solid var(--hair); }
+  .search { flex:1; position:relative; }
+  .search input { width:100%; padding:9px 32px 9px 32px; border:1px solid var(--line);
+                  border-radius:8px; background:var(--panel); font-size:14px; }
+  .search input:focus { outline:none; border-color:var(--cash); background:#fff;
+                        box-shadow:0 0 0 3px rgba(11,110,153,.12); }
+  .search .ico { position:absolute; left:10px; top:50%; transform:translateY(-50%);
+                 color:var(--mute); font-size:14px; pointer-events:none; }
+  .search .clr { position:absolute; right:6px; top:50%; transform:translateY(-50%);
+                 background:none; border:none; color:var(--mute); font-size:17px; padding:2px 6px;
+                 display:none; }
+  .search.has .clr { display:block; }
+  .newbtn { flex:none; background:var(--ink); color:#fff; border:none; border-radius:8px;
+            padding:9px 14px; font-size:13px; font-weight:600; white-space:nowrap; }
+  .newbtn:hover { background:#2C3742; }
+
+  /* ---------- list ---------- */
+  .wrap { flex:1; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch;
+          padding-bottom:calc(20px + env(safe-area-inset-bottom)); }
+  .rows { background:var(--paper); }
+  .row { display:flex; align-items:center; gap:10px; padding:11px 12px;
+         border-bottom:1px solid var(--hair); cursor:pointer; }
+  .row:hover { background:#FAFBFC; }
+  .row:active { background:#F2F4F5; }
+  .row .av { flex:none; width:32px; height:32px; border-radius:8px; display:grid; place-items:center;
+             font-size:13px; font-weight:700; background:var(--panel); color:var(--slate);
+             border:1px solid var(--hair); }
+  .row .mid { flex:1; min-width:0; }
+  .row .nm { font-weight:600; font-size:14px; white-space:nowrap; overflow:hidden;
+             text-overflow:ellipsis; }
+  .row .sub { font-size:11.5px; color:var(--mute); margin-top:2px; white-space:nowrap;
+              overflow:hidden; text-overflow:ellipsis; }
+  .row .amt { flex:none; text-align:right; font-family:'IBM Plex Mono',monospace;
+              font-size:13px; font-weight:600; }
+  .row .amt .tag { display:block; font-family:'IBM Plex Sans',sans-serif; font-size:9.5px;
+                   font-weight:600; letter-spacing:.7px; color:var(--mute); margin-top:1px; }
+  .amt.dr { color:var(--debit); } .amt.cr { color:var(--credit); } .amt.zero { color:var(--mute); }
+  .row.off { opacity:.5; }
+  .row.off .nm::after { content:' — band'; font-weight:500; font-size:11px; color:var(--mute); }
+
+  .kind { display:inline-block; font-size:9.5px; font-weight:700; letter-spacing:.6px;
+          padding:2px 6px; border-radius:4px; text-transform:uppercase; margin-right:6px;
+          background:var(--panel); color:var(--slate); border:1px solid var(--hair); }
+  .kind.customer { background:#E8F2F7; color:#0B6E99; border-color:#C5DEEA; }
+  .kind.supplier { background:#EDF3EF; color:#14614A; border-color:#CADCD2; }
+  .kind.both     { background:#F4EFE3; color:#7A5C1E; border-color:#E2D5B8; }
+  .kind.expense  { background:#F7EDED; color:#9B2C2C; border-color:#E6CFCF; }
+
+  .letter { position:sticky; top:0; z-index:2; background:var(--panel); color:var(--mute);
+            font-size:10.5px; font-weight:700; letter-spacing:1.2px; padding:5px 12px;
+            border-bottom:1px solid var(--hair); border-top:1px solid var(--hair); }
+
+  .empty { padding:56px 26px; text-align:center; color:var(--mute); }
+  .empty .big { font-family:'IBM Plex Serif',Georgia,serif; font-size:17px; color:var(--slate);
+                margin-bottom:7px; }
+  .empty .sm { font-size:13px; line-height:1.55; }
+
+  /* ---------- editor ---------- */
+  .scrim { position:fixed; inset:0; background:rgba(31,41,51,.42); z-index:50; display:none; }
+  .scrim.on { display:block; }
+  .sheet { position:fixed; z-index:60; background:var(--paper); display:none; flex-direction:column;
+           right:0; top:0; bottom:0; width:400px; max-width:100%;
+           box-shadow:-6px 0 26px rgba(0,0,0,.17); }
+  .sheet.on { display:flex; }
+  .sheet header { flex:none; display:flex; align-items:center; gap:10px; padding:14px 14px 12px;
+                  border-bottom:1px solid var(--line); }
+  .sheet header h3 { margin:0; font-family:'IBM Plex Serif',Georgia,serif; font-size:16px; font-weight:600; }
+  .sheet .body { flex:1; min-height:0; overflow-y:auto; padding:14px;
+                 padding-bottom:calc(14px + env(safe-area-inset-bottom)); }
+  .sheet footer { flex:none; display:flex; gap:8px; padding:12px 14px;
+                  padding-bottom:calc(12px + env(safe-area-inset-bottom));
+                  border-top:1px solid var(--line); background:var(--panel); }
+
+  .f { margin-bottom:13px; }
+  .f label { display:block; font-size:10.5px; font-weight:700; letter-spacing:.9px;
+             text-transform:uppercase; color:var(--mute); margin-bottom:5px; }
+  .f input, .f select, .f textarea { width:100%; padding:9px 10px; border:1px solid var(--line);
+                                     border-radius:7px; background:var(--paper); font-size:14px; }
+  .f textarea { resize:vertical; min-height:52px; }
+  .f input:focus, .f select:focus, .f textarea:focus { outline:none; border-color:var(--cash);
+                                     box-shadow:0 0 0 3px rgba(11,110,153,.12); }
+  .f .hint { font-size:11.5px; color:var(--mute); margin-top:4px; line-height:1.45; }
+  .f.bad input { border-color:var(--debit); background:#FDF6F6; }
+  .f.bad .hint { color:var(--debit); font-weight:500; }
+  .f.warn input { border-color:var(--accent); background:#FDFAF2; }
+  .f.warn .hint { color:#8A6620; font-weight:500; }
+  .f2 { display:flex; gap:9px; } .f2 > * { flex:1; min-width:0; }
+  .num input { font-family:'IBM Plex Mono',monospace; text-align:right; font-weight:600; }
+  .grp { font-size:10.5px; font-weight:700; letter-spacing:1.1px; text-transform:uppercase;
+         color:var(--slate); padding:6px 0 9px; margin-top:6px; border-top:1px solid var(--hair); }
+  .grp:first-child { border-top:none; margin-top:0; }
+  .swrow { display:flex; align-items:center; gap:9px; padding:9px 0; }
+  .swrow .lbl { flex:1; font-size:13.5px; }
+  .swrow .sub { font-size:11.5px; color:var(--mute); margin-top:2px; }
+  .sw { flex:none; width:44px; height:25px; border-radius:13px; background:var(--line);
+        border:none; position:relative; transition:background .16s; }
+  .sw::after { content:''; position:absolute; top:3px; left:3px; width:19px; height:19px;
+               border-radius:50%; background:#fff; transition:left .16s;
+               box-shadow:0 1px 3px rgba(0,0,0,.25); }
+  .sw.on { background:var(--credit); } .sw.on::after { left:22px; }
+
+  .btn { border:1px solid var(--line); background:var(--paper); border-radius:8px;
+         padding:10px 14px; font-size:13.5px; font-weight:600; }
+  .btn:hover { background:var(--panel); }
+  .btn.pri { background:var(--ink); color:#fff; border-color:var(--ink); flex:1; }
+  .btn.pri:hover { background:#2C3742; }
+  .btn.pri:disabled { background:var(--line); border-color:var(--line); color:#94A0AC; cursor:not-allowed; }
+  .btn.dgr { color:var(--debit); border-color:#E6CFCF; }
+  .btn.dgr:hover { background:#FDF3F3; }
+  .icb { background:none; border:none; color:var(--mute); font-size:20px; padding:4px 8px; line-height:1; }
+
+  /* ---------- gate ---------- */
+  .gate { position:fixed; inset:0; z-index:90; background:var(--desk); display:none;
+          align-items:center; justify-content:center; padding:20px; overflow-y:auto; }
+  .gate.on { display:flex; }
+  .card { background:var(--paper); border:1px solid var(--line); border-radius:12px;
+          padding:26px 22px; width:100%; max-width:400px; box-shadow:0 8px 30px rgba(31,41,51,.11); }
+  .card h1 { margin:0 0 4px; font-family:'IBM Plex Serif',Georgia,serif; font-size:20px; font-weight:600; }
+  .card .lede { font-size:13px; color:var(--mute); line-height:1.55; margin-bottom:18px; }
+  .card .note { font-size:12px; color:var(--mute); line-height:1.55; margin-top:14px;
+                padding-top:13px; border-top:1px solid var(--hair); }
+  .err { background:#FDF3F3; border:1px solid #E6CFCF; color:var(--debit); border-radius:7px;
+         padding:9px 11px; font-size:12.5px; line-height:1.5; margin-bottom:13px; display:none; }
+  .err.on { display:block; }
+
+  /* ---------- toast + status ---------- */
+  .toast { position:fixed; left:50%; bottom:26px; transform:translate(-50%,14px); z-index:80;
+           background:var(--ink); color:#fff; padding:10px 17px; border-radius:9px; font-size:13px;
+           font-weight:500; opacity:0; pointer-events:none; transition:opacity .2s, transform .2s;
+           box-shadow:0 5px 18px rgba(0,0,0,.24); max-width:88vw; text-align:center; }
+  .toast.on { opacity:1; transform:translate(-50%,0); }
+  .toast.bad { background:var(--debit); }
+  .sync { font-family:'IBM Plex Mono',monospace; font-size:11px; color:#9AA5B1; white-space:nowrap; }
+
+  /* ---------- ask ---------- */
+  .ask { position:fixed; inset:0; z-index:95; background:rgba(31,41,51,.45); display:none;
+         align-items:center; justify-content:center; padding:22px; }
+  .ask.on { display:flex; }
+  .ask .box { background:var(--paper); border-radius:12px; padding:20px; width:100%; max-width:370px;
+              box-shadow:0 10px 34px rgba(0,0,0,.26); }
+  .ask h4 { margin:0 0 7px; font-size:15.5px; font-weight:600; }
+  .ask p { margin:0 0 17px; font-size:13.5px; color:var(--slate); line-height:1.55; }
+  .ask .acts { display:flex; gap:8px; justify-content:flex-end; }
+
+  @media (max-width:560px) {
+    .sheet { top:auto; left:0; right:0; bottom:0; width:100%; max-height:92%;
+             border-radius:14px 14px 0 0; box-shadow:0 -6px 26px rgba(0,0,0,.2); }
+    .newbtn { padding:9px 12px; }
+    .row .amt { font-size:12.5px; }
+  }
+  @media (prefers-reduced-motion:reduce) { * { transition:none !important; } }
+</style>
+<script>if(window.self!==window.top)document.documentElement.classList.add('emb');</script>
+<style>
+  html.emb .brand { display:none; }
+  html.emb #outBtn { display:none; }
+  html.emb .appbar { padding-left:4px; }
+</style>
+</head>
+<body>
+
+<!-- ══════════ connect ══════════ -->
+<div class="gate on" id="gateConnect">
+  <div class="card">
+    <h1>Connect to your data</h1>
+    <div class="lede">Same Supabase project as your Daily Ledger. Paste the two values from
+      Project&nbsp;Settings → API.</div>
+    <div class="err" id="cErr"></div>
+    <div class="f"><label>Project URL</label>
+      <input id="cUrl" type="url" placeholder="https://xxxx.supabase.co" autocomplete="off"></div>
+    <div class="f"><label>Publishable / anon key</label>
+      <input id="cKey" type="text" placeholder="eyJhbGciOi…" autocomplete="off">
+      <div class="hint">Use the publishable (anon) key only — never the secret or service_role key.</div>
+    </div>
+    <button class="btn pri" id="cGo" style="width:100%">Connect</button>
+    <div class="note">Stored only in this browser. Open this file from the same folder as the
+      ledger and it will connect on its own.</div>
+  </div>
+</div>
+
+<!-- ══════════ login ══════════ -->
+<div class="gate" id="gateLogin">
+  <div class="card">
+    <h1>Sign in</h1>
+    <div class="lede">Use the same email and password as the Daily Ledger.</div>
+    <div class="err" id="lErr"></div>
+    <div class="f"><label>Email</label><input id="lMail" type="email" autocomplete="username"></div>
+    <div class="f"><label>Password</label>
+      <input id="lPass" type="password" autocomplete="current-password"></div>
+    <button class="btn pri" id="lGo" style="width:100%">Sign in</button>
+    <div class="note"><button class="icb" id="cfgReset"
+      style="font-size:12px;padding:0;color:var(--mute);text-decoration:underline">
+      Use a different project</button></div>
+  </div>
+</div>
+
+<!-- ══════════ app ══════════ -->
+<div class="appbar">
+  <div class="brand"><span class="mark">OHT</span><span>Masters</span></div>
+  <div class="spacer"></div>
+  <span class="sync" id="syncNote"></span>
+  <button class="abtn" id="outBtn">Sign out</button>
+</div>
+
+<div class="tabs">
+  <button class="tab on" id="tabParties" data-t="parties">Parties <span class="n" id="nParties"></span></button>
+  <button class="tab" id="tabItems" data-t="items">Items <span class="n" id="nItems"></span></button>
+</div>
+
+<div class="tools">
+  <div class="search" id="searchWrap">
+    <span class="ico">⌕</span>
+    <input id="q" type="search" placeholder="Search by name…" autocomplete="off">
+    <button class="clr" id="qClr" aria-label="Clear search">×</button>
+  </div>
+  <button class="newbtn" id="newBtn">+ New</button>
+</div>
+
+<div class="wrap"><div class="rows" id="rows"></div></div>
+
+<!-- ══════════ editor ══════════ -->
+<div class="scrim" id="scrim"></div>
+<div class="sheet" id="sheet">
+  <header>
+    <h3 id="edTitle">New party</h3>
+    <div class="spacer"></div>
+    <button class="icb" id="edClose" aria-label="Close">×</button>
+  </header>
+  <div class="body" id="edBody"></div>
+  <footer>
+    <button class="btn dgr" id="edDel" style="display:none">Delete</button>
+    <button class="btn pri" id="edSave">Save</button>
+  </footer>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<div class="ask" id="ask">
+  <div class="box">
+    <h4 id="askTitle"></h4>
+    <p id="askBody"></p>
+    <div class="acts">
+      <button class="btn" id="askNo">Cancel</button>
+      <button class="btn dgr" id="askYes">Delete</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+
+  /* ---------- storage ---------- */
+  var CFG = 'ledger-cfg';                 // ledger ke saath wahi key — dobara paste na karna pare
+  var store = {
+    get: function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+    set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} },
+    del: function (k) { try { localStorage.removeItem(k); } catch (e) {} }
+  };
+
+  var sb = null, tab = 'parties', editing = null, dirty = false;
+  var db = { parties: [], items: [] };
+
+  /* ---------- helpers ---------- */
+  function fmt(n) {
+    n = Number(n) || 0;
+    return n.toLocaleString('en-PK', { maximumFractionDigits: 2 });
+  }
+  function norm(s) { return String(s == null ? '' : s).trim().toLowerCase().replace(/\s+/g, ' '); }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
+    });
+  }
+  var toastT = null;
+  function toast(msg, bad) {
+    var t = $('toast');
+    t.textContent = msg;
+    t.classList.toggle('bad', !!bad);
+    t.classList.add('on');
+    clearTimeout(toastT);
+    toastT = setTimeout(function () { t.classList.remove('on'); }, 2600);
+  }
+  var syncT = null;
+  function syncNote(msg, col) {
+    var el = $('syncNote');
+    el.textContent = msg || '';
+    el.style.color = col || '#9AA5B1';
+    clearTimeout(syncT);
+    if (msg && col === '#7DC9A9') syncT = setTimeout(function () { el.textContent = ''; }, 2200);
+  }
+  function confirmBox(title, body, yes) {
+    return new Promise(function (res) {
+      $('askTitle').textContent = title;
+      $('askBody').textContent = body;
+      $('askYes').textContent = yes || 'Delete';
+      $('ask').classList.add('on');
+      function done(v) {
+        $('ask').classList.remove('on');
+        $('askYes').onclick = null; $('askNo').onclick = null;
+        res(v);
+      }
+      $('askYes').onclick = function () { done(true); };
+      $('askNo').onclick = function () { done(false); };
+    });
+  }
+  // net band hone ki ghalti aur asli cloud ghalti me farq
+  function isNetErr(e) {
+    if (!e) return false;
+    if (!navigator.onLine) return true;
+    if (e.name === 'TypeError') return true;
+    var m = ((e.message || '') + ' ' + (e.details || '') + ' ' + (e.code || '')).toLowerCase();
+    return /failed to fetch|networkerror|network error|load failed|fetch failed|timeout|aborted|err_/.test(m);
+  }
+  function sayErr(e, what) {
+    if (isNetErr(e)) { toast('No internet — ' + what + ' not saved', true); syncNote('Offline', '#B08A3E'); return; }
+    if (e && String(e.code) === '23505') { toast('That name already exists', true); return; }
+    console.error(e);
+    toast((e && e.message) || ('Could not ' + what), true);
+  }
+
+  /* ---------- shapes ---------- */
+  var KINDS = [['customer','Customer'], ['supplier','Supplier'], ['both','Customer & Supplier'],
+               ['expense','Expense head'], ['other','Other']];
+  var UNITS = ['pcs','ctn','bag','kg','gm','ltr','ml','mtr','ft','doz','set','box','roll','pair'];
+
+  function blankParty() {
+    return { name:'', kind:'customer', phone:'', city:'', address:'', ntn:'',
+             opening:0, opening_side:'dr', notes:'', active:true };
+  }
+  function blankItem() {
+    return { name:'', unit:'pcs', sale_rate:0, buy_rate:0, tax_pct:0,
+             opening_qty:0, opening_rate:0, hs_code:'', notes:'', active:true };
+  }
+
+  /* ---------- list ---------- */
+  function matches(r, q) {
+    if (!q) return true;
+    var hay = norm(r.name) + ' ' + norm(r.phone) + ' ' + norm(r.city) + ' ' + norm(r.unit);
+    return hay.indexOf(q) !== -1;
+  }
+  function render() {
+    var q = norm($('q').value);
+    var list = db[tab].filter(function (r) { return matches(r, q); });
+    list.sort(function (a, b) { return norm(a.name) < norm(b.name) ? -1 : 1; });
+
+    $('nParties').textContent = db.parties.length ? '(' + db.parties.length + ')' : '';
+    $('nItems').textContent   = db.items.length   ? '(' + db.items.length   + ')' : '';
+    $('searchWrap').classList.toggle('has', !!$('q').value);
+
+    var box = $('rows');
+    if (!list.length) {
+      box.innerHTML = '<div class="empty">' +
+        (q ? '<div class="big">Nothing matched “' + esc($('q').value) + '”</div>' +
+             '<div class="sm">Try a shorter word, or add it as a new ' +
+             (tab === 'parties' ? 'party' : 'item') + '.</div>'
+           : tab === 'parties'
+             ? '<div class="big">No parties yet</div><div class="sm">Add the people and firms you ' +
+               'buy from and sell to. Only the name is required — the rest can wait.</div>'
+             : '<div class="big">No items yet</div><div class="sm">Add what you buy and sell. ' +
+               'Name and unit are enough to start; rates can come later.</div>') + '</div>';
+      return;
+    }
+
+    var html = '', letter = '';
+    list.forEach(function (r) {
+      var first = (r.name || '?').trim().charAt(0).toUpperCase();
+      if (first !== letter) { letter = first; html += '<div class="letter">' + esc(letter) + '</div>'; }
+      html += '<div class="row' + (r.active ? '' : ' off') + '" data-id="' + r.id + '">' +
+              '<div class="av">' + esc(first) + '</div><div class="mid">' +
+              '<div class="nm">' + esc(r.name) + '</div><div class="sub">' +
+              (tab === 'parties' ? partySub(r) : itemSub(r)) + '</div></div>' +
+              (tab === 'parties' ? partyAmt(r) : itemAmt(r)) + '</div>';
+    });
+    box.innerHTML = html;
+  }
+  function partySub(p) {
+    var k = KINDS.filter(function (x) { return x[0] === p.kind; })[0];
+    var bits = [];
+    if (p.phone) bits.push(esc(p.phone));
+    if (p.city)  bits.push(esc(p.city));
+    return '<span class="kind ' + esc(p.kind) + '">' + esc(k ? k[1] : p.kind) + '</span>' +
+           (bits.length ? bits.join(' · ') : '<span style="color:#AEB6BF">no phone</span>');
+  }
+  function partyAmt(p) {
+    var v = Number(p.opening) || 0;
+    if (!v) return '<div class="amt zero">—<span class="tag">no opening</span></div>';
+    var dr = p.opening_side === 'dr';
+    return '<div class="amt ' + (dr ? 'dr' : 'cr') + '">' + fmt(v) +
+           '<span class="tag">' + (dr ? 'THEY OWE' : 'WE OWE') + '</span></div>';
+  }
+  function itemSub(i) {
+    var bits = ['per ' + esc(i.unit || 'pcs')];
+    if (Number(i.tax_pct)) bits.push(fmt(i.tax_pct) + '% tax');
+    if (Number(i.opening_qty)) bits.push('opening ' + fmt(i.opening_qty));
+    return bits.join(' · ');
+  }
+  function itemAmt(i) {
+    var v = Number(i.sale_rate) || 0;
+    if (!v) return '<div class="amt zero">—<span class="tag">no rate</span></div>';
+    return '<div class="amt">' + fmt(v) + '<span class="tag">SALE RATE</span></div>';
+  }
+
+  /* ---------- editor ---------- */
+  function opt(list, cur) {
+    return list.map(function (o) {
+      var v = Array.isArray(o) ? o[0] : o, t = Array.isArray(o) ? o[1] : o;
+      return '<option value="' + esc(v) + '"' + (String(cur) === String(v) ? ' selected' : '') +
+             '>' + esc(t) + '</option>';
+    }).join('');
+  }
+  function fieldset(r) {
+    if (tab === 'parties') {
+      return '' +
+      '<div class="grp">Who they are</div>' +
+      '<div class="f" id="fName"><label>Name</label>' +
+        '<input id="eName" type="text" value="' + esc(r.name) + '" placeholder="Gupta Traders" ' +
+        'autocomplete="off" enterkeyhint="done">' +
+        '<div class="hint" id="hName">Write it once, the way you want to see it everywhere.</div></div>' +
+      '<div class="f"><label>They are a</label><select id="eKind">' + opt(KINDS, r.kind) + '</select></div>' +
+      '<div class="f2">' +
+        '<div class="f"><label>Phone</label><input id="ePhone" type="tel" value="' + esc(r.phone) + '" autocomplete="off"></div>' +
+        '<div class="f"><label>City</label><input id="eCity" type="text" value="' + esc(r.city) + '" autocomplete="off"></div>' +
+      '</div>' +
+      '<div class="f"><label>Address</label><textarea id="eAddr">' + esc(r.address) + '</textarea></div>' +
+      '<div class="f"><label>NTN / STRN</label><input id="eNtn" type="text" value="' + esc(r.ntn) + '" autocomplete="off">' +
+        '<div class="hint">Only needed on a sales tax invoice.</div></div>' +
+
+      '<div class="grp">Opening balance</div>' +
+      '<div class="f2">' +
+        '<div class="f num"><label>Amount</label><input id="eOpen" type="text" inputmode="decimal" value="' +
+          (Number(r.opening) ? fmt(r.opening) : '') + '" placeholder="0"></div>' +
+        '<div class="f"><label>Side</label><select id="eSide">' +
+          opt([['dr','They owe us'], ['cr','We owe them']], r.opening_side) + '</select></div>' +
+      '</div>' +
+      '<div class="f"><div class="hint">What was already outstanding before you started using this ' +
+        'system. Leave it empty if nothing is pending.</div></div>' +
+
+      '<div class="grp">Other</div>' +
+      '<div class="f"><label>Notes</label><textarea id="eNotes">' + esc(r.notes) + '</textarea></div>' +
+      swActive(r);
+    }
+    return '' +
+    '<div class="grp">What it is</div>' +
+    '<div class="f" id="fName"><label>Name</label>' +
+      '<input id="eName" type="text" value="' + esc(r.name) + '" placeholder="Sugar 50 kg bag" ' +
+      'autocomplete="off" enterkeyhint="done">' +
+      '<div class="hint" id="hName">Include the size or pack, so two similar items never get mixed up.</div></div>' +
+    '<div class="f"><label>Unit</label><select id="eUnit">' + opt(UNITS, r.unit) + '</select>' +
+      '<div class="hint">How you count it — bags, cartons, kilos.</div></div>' +
+
+    '<div class="grp">Rates</div>' +
+    '<div class="f2">' +
+      '<div class="f num"><label>Sale rate</label><input id="eSale" type="text" inputmode="decimal" value="' +
+        (Number(r.sale_rate) ? fmt(r.sale_rate) : '') + '" placeholder="0"></div>' +
+      '<div class="f num"><label>Purchase rate</label><input id="eBuy" type="text" inputmode="decimal" value="' +
+        (Number(r.buy_rate) ? fmt(r.buy_rate) : '') + '" placeholder="0"></div>' +
+    '</div>' +
+    '<div class="f num"><label>Sales tax %</label><input id="eTax" type="text" inputmode="decimal" value="' +
+      (Number(r.tax_pct) ? fmt(r.tax_pct) : '') + '" placeholder="0">' +
+      '<div class="hint">Leave at 0 for a plain bill. You can still switch tax on per bill later.</div></div>' +
+    '<div class="f"><label>HS code</label><input id="eHs" type="text" value="' + esc(r.hs_code) + '" autocomplete="off">' +
+      '<div class="hint">Only needed on a sales tax invoice.</div></div>' +
+
+    '<div class="grp">Opening stock</div>' +
+    '<div class="f2">' +
+      '<div class="f num"><label>Quantity</label><input id="eOQty" type="text" inputmode="decimal" value="' +
+        (Number(r.opening_qty) ? fmt(r.opening_qty) : '') + '" placeholder="0"></div>' +
+      '<div class="f num"><label>Cost rate</label><input id="eORate" type="text" inputmode="decimal" value="' +
+        (Number(r.opening_rate) ? fmt(r.opening_rate) : '') + '" placeholder="0"></div>' +
+    '</div>' +
+    '<div class="f"><div class="hint">What is lying in the godown today. Leave empty if you are ' +
+      'starting from zero.</div></div>' +
+
+    '<div class="grp">Other</div>' +
+    '<div class="f"><label>Notes</label><textarea id="eNotes">' + esc(r.notes) + '</textarea></div>' +
+    swActive(r);
+  }
+  function swActive(r) {
+    return '<div class="swrow"><div class="lbl">In use' +
+           '<div class="sub">Turn off to hide it from new bills. Old records stay.</div></div>' +
+           '<button class="sw' + (r.active ? ' on' : '') + '" id="eActive" role="switch" aria-checked="' +
+           (r.active ? 'true' : 'false') + '"></button></div>';
+  }
+
+  function openEditor(rec) {
+    editing = rec ? JSON.parse(JSON.stringify(rec)) : (tab === 'parties' ? blankParty() : blankItem());
+    dirty = false;
+    $('edTitle').textContent = (rec ? 'Edit ' : 'New ') + (tab === 'parties' ? 'party' : 'item');
+    $('edBody').innerHTML = fieldset(editing);
+    $('edDel').style.display = rec ? '' : 'none';
+    $('edBody').scrollTop = 0;
+    $('scrim').classList.add('on');
+    $('sheet').classList.add('on');
+
+    var sw = $('eActive');
+    sw.onclick = function () {
+      var on = !sw.classList.contains('on');
+      sw.classList.toggle('on', on);
+      sw.setAttribute('aria-checked', on ? 'true' : 'false');
+      dirty = true;
+    };
+    $('edBody').addEventListener('input', function () { dirty = true; });
+    $('eName').addEventListener('input', checkName);
+    checkName();
+    if (!rec) setTimeout(function () { $('eName').focus(); }, 90);
+  }
+  function closeEditor() {
+    $('scrim').classList.remove('on');
+    $('sheet').classList.remove('on');
+    editing = null; dirty = false;
+  }
+  function twin() {                        // bilkul wohi naam pehle se to nahi?
+    var n = norm($('eName').value);
+    if (!n) return null;
+    return db[tab].filter(function (r) {
+      return norm(r.name) === n && r.id !== (editing && editing.id);
+    })[0] || null;
+  }
+
+  /* milte julte naam — rokte nahi, sirf agaah karte hain */
+  var NOISE = /\b(and|co|company|traders|trading|enterprises|enterprise|brothers|bros|sons|store|stores|shop|the|pvt|ltd|limited|corporation|corp|agency|agencies|associates|industries|international|general|kirana|kg|pcs)\b/g;
+  function tight(s) { return norm(s).replace(/[^a-z0-9\u0600-\u06FF]/g, ''); }
+  function core(s) {
+    return norm(s).replace(/&/g, ' and ').replace(NOISE, ' ')
+                  .replace(/[^a-z0-9\u0600-\u06FF]/g, '');
+  }
+  function lookalike() {
+    var v = $('eName').value;
+    if (!norm(v)) return null;
+    var t = tight(v), c = core(v);
+    if (t.length < 3) return null;
+    return db[tab].filter(function (r) {
+      if (r.id === (editing && editing.id)) return false;
+      if (norm(r.name) === norm(v)) return false;        // wo exact wala alag pakra jata hai
+      if (tight(r.name) === t) return true;              // sirf space ya nuqta ka farq
+      var rc = core(r.name);
+      return !!(c && rc && c === rc);                    // sirf aam lafz ka farq
+    })[0] || null;
+  }
+  function checkName() {
+    var v = $('eName').value.trim();
+    var dup = twin();
+    var f = $('fName'), h = $('hName');
+    f.classList.toggle('bad', !!dup);
+    $('edSave').disabled = !v || !!dup;
+    if (dup) {
+      f.classList.remove('warn');
+      h.textContent = '“' + dup.name + '” is already on the list.';
+      return;
+    }
+    var near = lookalike();
+    f.classList.toggle('warn', !!near);
+    if (near) {
+      h.textContent = 'Close to “' + near.name + '”, already on the list. Same one? Use that instead.';
+      return;
+    }
+    if (tab === 'parties') h.textContent = 'Write it once, the way you want to see it everywhere.';
+    else h.textContent = 'Include the size or pack, so two similar items never get mixed up.';
+  }
+  function readNum(id) {
+    var el = $(id); if (!el) return 0;
+    var v = parseFloat(String(el.value).replace(/[^0-9.\-]/g, ''));
+    return isFinite(v) ? v : 0;
+  }
+  function readVal(id) { var el = $(id); return el ? el.value.trim() : ''; }
+
+  function collect() {
+    var act = $('eActive').classList.contains('on');
+    if (tab === 'parties') {
+      return { name:readVal('eName'), kind:readVal('eKind'), phone:readVal('ePhone'),
+               city:readVal('eCity'), address:readVal('eAddr'), ntn:readVal('eNtn'),
+               opening:readNum('eOpen'), opening_side:readVal('eSide'),
+               notes:readVal('eNotes'), active:act };
+    }
+    return { name:readVal('eName'), unit:readVal('eUnit'), sale_rate:readNum('eSale'),
+             buy_rate:readNum('eBuy'), tax_pct:readNum('eTax'), opening_qty:readNum('eOQty'),
+             opening_rate:readNum('eORate'), hs_code:readVal('eHs'),
+             notes:readVal('eNotes'), active:act };
+  }
+
+  /* ---------- cloud ---------- */
+  function loadAll() {
+    if (!sb) return Promise.resolve();
+    syncNote('Loading…');
+    return Promise.all([
+      sb.from('parties').select('*'),
+      sb.from('items').select('*')
+    ]).then(function (r) {
+      if (r[0].error) throw r[0].error;
+      if (r[1].error) throw r[1].error;
+      db.parties = r[0].data || [];
+      db.items   = r[1].data || [];
+      syncNote('');
+      render();
+    }).catch(function (e) {
+      if (isNetErr(e)) { syncNote('Offline', '#B08A3E'); toast('No internet — showing nothing yet', true); }
+      else { console.error(e); toast((e && e.message) || 'Could not load', true); syncNote('Error', '#E89A9A'); }
+      render();
+    });
+  }
+
+  function saveRec() {
+    if ($('edSave').disabled) return;
+    var body = collect();
+    if (!body.name) { toast('Name is needed', true); return; }
+    var isNew = !(editing && editing.id);
+    var q = isNew ? sb.from(tab).insert(body).select()
+                  : sb.from(tab).update(body).eq('id', editing.id).select();
+    $('edSave').disabled = true;
+    syncNote('Saving…');
+    q.then(function (res) {
+      if (res.error) throw res.error;
+      var row = (res.data || [])[0];
+      if (isNew) { if (row) db[tab].push(row); }
+      else {
+        db[tab] = db[tab].map(function (r) { return r.id === editing.id ? (row || r) : r; });
+      }
+      syncNote('Saved', '#7DC9A9');
+      toast(isNew ? 'Added ' + body.name : 'Saved ' + body.name);
+      closeEditor(); render();
+    }).catch(function (e) {
+      $('edSave').disabled = false;
+      syncNote('');
+      sayErr(e, 'save');
+    });
+  }
+
+  function delRec() {
+    if (!editing || !editing.id) return;
+    confirmBox('Delete ' + editing.name + '?',
+      'It disappears from the list for everyone. If it has been used on a bill, turn it off ' +
+      'instead — that keeps old records readable.',
+      'Delete').then(function (ok) {
+      if (!ok) return;
+      syncNote('Deleting…');
+      sb.from(tab).delete().eq('id', editing.id).then(function (res) {
+        if (res.error) throw res.error;
+        var gone = editing.name;
+        db[tab] = db[tab].filter(function (r) { return r.id !== editing.id; });
+        syncNote('');
+        closeEditor(); render();
+        toast('Deleted ' + gone);
+      }).catch(function (e) { syncNote(''); sayErr(e, 'delete'); });
+    });
+  }
+
+  /* ---------- wiring ---------- */
+  document.querySelectorAll('.tab').forEach(function (b) {
+    b.addEventListener('click', function () {
+      document.querySelectorAll('.tab').forEach(function (x) { x.classList.remove('on'); });
+      b.classList.add('on');
+      tab = b.getAttribute('data-t');
+      $('q').value = '';
+      $('q').placeholder = tab === 'parties' ? 'Search by name, phone or city…' : 'Search by name…';
+      $('newBtn').textContent = tab === 'parties' ? '+ Party' : '+ Item';
+      render();
+    });
+  });
+  $('q').addEventListener('input', render);
+  $('qClr').addEventListener('click', function () { $('q').value = ''; render(); $('q').focus(); });
+  $('newBtn').addEventListener('click', function () { openEditor(null); });
+  $('rows').addEventListener('click', function (e) {
+    var row = e.target.closest('.row'); if (!row) return;
+    var id = row.getAttribute('data-id');
+    var rec = db[tab].filter(function (r) { return String(r.id) === id; })[0];
+    if (rec) openEditor(rec);
+  });
+  $('edSave').addEventListener('click', saveRec);
+  $('edDel').addEventListener('click', delRec);
+  $('edClose').addEventListener('click', tryClose);
+  $('scrim').addEventListener('click', tryClose);
+  function tryClose() {
+    if (!dirty) { closeEditor(); return; }
+    confirmBox('Leave without saving?', 'The changes on this screen will be lost.', 'Discard')
+      .then(function (ok) { if (ok) closeEditor(); });
+  }
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && $('sheet').classList.contains('on')) { e.preventDefault(); tryClose(); }
+    if (e.key === 'Enter' && $('sheet').classList.contains('on') &&
+        e.target.tagName !== 'TEXTAREA' && !e.shiftKey) { e.preventDefault(); saveRec(); }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'k') { e.preventDefault(); $('q').focus(); $('q').select(); }
+  });
+  window.addEventListener('online', function () { syncNote(''); loadAll(); });
+  window.addEventListener('offline', function () { syncNote('Offline', '#B08A3E'); });
+
+  /* ---------- gates ---------- */
+  function showErr(id, msg) {
+    var el = $(id); el.textContent = msg; el.classList.toggle('on', !!msg);
+  }
+  function makeClient(url, key) {
+    return window.supabase.createClient(url, key, {
+      auth: { persistSession: true, autoRefreshToken: true }
+    });
+  }
+  $('cGo').addEventListener('click', function () {
+    var url = $('cUrl').value.trim().replace(/\/+$/, '');
+    var key = $('cKey').value.trim();
+    showErr('cErr', '');
+    if (!/^https:\/\/.+/.test(url)) { showErr('cErr', 'The URL should start with https://'); return; }
+    if (!key) { showErr('cErr', 'Paste the publishable (anon) key.'); return; }
+    if (/service_role|^sb_secret/i.test(key)) {
+      showErr('cErr', 'That is the secret key. Use the publishable (anon) key instead.'); return;
+    }
+    $('cGo').disabled = true; $('cGo').textContent = 'Connecting…';
+    try { sb = makeClient(url, key); } catch (e) {
+      $('cGo').disabled = false; $('cGo').textContent = 'Connect';
+      showErr('cErr', 'Could not use those values. Check both and try again.'); return;
+    }
+    sb.auth.getSession().then(function () {
+      store.set(CFG, JSON.stringify({ url: url, key: key }));
+      $('cGo').disabled = false; $('cGo').textContent = 'Connect';
+      $('gateConnect').classList.remove('on');
+      afterConnect();
+    }).catch(function (e) {
+      $('cGo').disabled = false; $('cGo').textContent = 'Connect';
+      showErr('cErr', isNetErr(e) ? 'No internet. Connect and try again.'
+                                  : 'Could not reach that project. Check the URL and key.');
+    });
+  });
+  $('lGo').addEventListener('click', function () {
+    var mail = $('lMail').value.trim(), pass = $('lPass').value;
+    showErr('lErr', '');
+    if (!mail || !pass) { showErr('lErr', 'Enter both email and password.'); return; }
+    $('lGo').disabled = true; $('lGo').textContent = 'Signing in…';
+    sb.auth.signInWithPassword({ email: mail, password: pass }).then(function (res) {
+      $('lGo').disabled = false; $('lGo').textContent = 'Sign in';
+      if (res.error) {
+        showErr('lErr', isNetErr(res.error) ? 'No internet. Connect and try again.'
+                                            : 'That email and password did not match.');
+        return;
+      }
+      $('lPass').value = '';
+      $('gateLogin').classList.remove('on');
+      start();
+    }).catch(function (e) {
+      $('lGo').disabled = false; $('lGo').textContent = 'Sign in';
+      showErr('lErr', isNetErr(e) ? 'No internet. Connect and try again.' : 'Could not sign in.');
+    });
+  });
+  $('lPass').addEventListener('keydown', function (e) { if (e.key === 'Enter') $('lGo').click(); });
+  $('cKey').addEventListener('keydown', function (e) { if (e.key === 'Enter') $('cGo').click(); });
+  $('cfgReset').addEventListener('click', function () {
+    store.del(CFG);
+    $('gateLogin').classList.remove('on');
+    $('gateConnect').classList.add('on');
+  });
+  $('outBtn').addEventListener('click', function () {
+    confirmBox('Sign out?', 'You will need your email and password to get back in.', 'Sign out')
+      .then(function (ok) {
+        if (!ok) return;
+        sb.auth.signOut().then(function () { location.reload(); });
+      });
+  });
+
+  function afterConnect() {
+    sb.auth.getSession().then(function (res) {
+      if (res.data && res.data.session) { start(); }
+      else { $('gateLogin').classList.add('on'); }
+    }).catch(function () { $('gateLogin').classList.add('on'); });
+  }
+  function start() {
+    $('gateConnect').classList.remove('on');
+    $('gateLogin').classList.remove('on');
+    $('newBtn').textContent = '+ Party';
+    $('q').placeholder = 'Search by name, phone or city…';
+    loadAll();
+  }
+
+  /* ---------- boot ---------- */
+  (function boot() {
+    var raw = store.get(CFG);
+    if (!raw) { $('gateConnect').classList.add('on'); return; }
+    var cfg;
+    try { cfg = JSON.parse(raw); } catch (e) { cfg = null; }
+    if (!cfg || !cfg.url || !cfg.key) { $('gateConnect').classList.add('on'); return; }
+    try { sb = makeClient(cfg.url, cfg.key); } catch (e) {
+      $('gateConnect').classList.add('on'); return;
+    }
+    $('gateConnect').classList.remove('on');
+    afterConnect();
+  })();
+})();
+</script>
+</body>
+</html>
