@@ -1737,6 +1737,21 @@
   } catch (e) {}
 
   /* ─── start the ledger once signed in ─── */
+  /* masters se bulawa — us din ki sheet kholo */
+  function gotoArg(arg) {
+    var m = String(arg || '').match(/date=(\d{4}-\d{2}-\d{2})/);
+    if (!m) return;
+    var iso = m[1];
+    if (!ready) { setTimeout(function () { gotoArg(arg); }, 260); return; }
+    if (!data.sheets[iso]) data.sheets[iso] = { opening:'', side:'cr', page:'', rows:[] };
+    openSheet(iso);
+    var sh = document.querySelector('.sheet');
+    if (sh) sh.scrollIntoView({ block:'start' });
+  }
+  window.addEventListener('message', function (e) {
+    if (e.data && e.data.oht === 'goto') gotoArg(e.data.arg);
+  });
+
   function startApp() {
     $('gate').style.display = 'none';
     store.get(KEY).then(function (raw) {

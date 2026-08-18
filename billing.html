@@ -847,7 +847,7 @@
       bills.forEach(function (b) {
         b.lines = (byV[b.id] || []).sort(function (a, c) { return (a.line_no || 0) - (c.line_no || 0); });
       });
-      syncNote(''); render();
+      syncNote(''); render(); tryOpenWanted();
       if (!parties.length || !items.length) {
         toast(!parties.length && !items.length ? 'Add parties and items in Masters first'
               : (!parties.length ? 'No parties yet — add them in Masters' : 'No items yet — add them in Masters'), true);
@@ -963,6 +963,33 @@
       if (res.data && res.data.session) start(); else $('gateLogin').classList.add('on');
     }).catch(function () { $('gateLogin').classList.add('on'); });
   }
+  var wanted = null;
+  function gotoArg(arg) {
+    var m = String(arg || '').match(/bill=([0-9a-fA-F-]+)/);
+    if (!m) return;
+    wanted = m[1];
+    tryOpenWanted();
+  }
+  function tryOpenWanted() {
+    if (!wanted) return;
+    var b = bills.filter(function (x) { return String(x.id) === wanted; })[0];
+    if (!b) return;                       // abhi load nahi hui — loadAll ke baad dobara
+    wanted = null;
+    var t = b.vtype;
+    if (t !== vtype) {
+      vtype = t;
+      document.querySelectorAll('.tab').forEach(function (x) {
+        x.classList.toggle('on', x.getAttribute('data-t') === t);
+      });
+      $('newBtn').textContent = t === 'purchase' ? '+ Purchase' : '+ Sale';
+      render();
+    }
+    openBill(b);
+  }
+  window.addEventListener('message', function (e) {
+    if (e.data && e.data.oht === 'goto') gotoArg(e.data.arg);
+  });
+
   function start() {
     $('gateConnect').classList.remove('on'); $('gateLogin').classList.remove('on');
     $('newBtn').textContent = '+ Purchase';
