@@ -278,9 +278,9 @@
     @page { size:A4 portrait; margin:12mm 10mm; }
     .psheet { display:block !important; font-size:10pt; color:#000;
               -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-    .psheet .hd { display:flex; align-items:flex-start; gap:6mm; border-bottom:1.2mm solid #1F2933;
+    .psheet .hd { display:flex; align-items:flex-start; gap:4mm; border-bottom:1.2mm solid #1F2933;
                   padding-bottom:3mm; margin-bottom:4mm; }
-    .psheet .hd img { width:40mm; height:18mm; object-fit:contain; object-position:left center; }
+    .psheet .hd img { max-height:18mm; max-width:29mm; object-fit:contain; align-self:center; }
     .psheet .hd .firm { font-family:'IBM Plex Serif',Georgia,serif; font-size:17pt; font-weight:600; }
     .psheet .hd .adr { font-size:9pt; color:#3E4C59; margin-top:1mm; line-height:1.45; }
     .psheet .hd .rt { margin-left:auto; text-align:right; font-size:9.5pt; }
