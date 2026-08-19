@@ -92,9 +92,6 @@
 
   .sh-head { display:flex; justify-content:space-between; align-items:flex-end;
              border-bottom:0.5mm solid var(--ink); padding-bottom:2mm; }
-  .sh-firmrow { display:flex; align-items:center; gap:3mm; }
-  .sh-logo { max-height:12mm; max-width:34mm; object-fit:contain; display:none; }
-  .sh-logo.on { display:block; }
   .sh-firm { font-family:'IBM Plex Serif',serif; font-size:16pt; font-weight:600; }
   .sh-sub { font-size:7.5pt; letter-spacing:1.8px; text-transform:uppercase; color:var(--mute); margin-top:1mm; }
   .sh-date { text-align:right; }
@@ -428,13 +425,8 @@
 
         <div class="sh-head">
           <div>
-            <div class="sh-firmrow">
-              <img class="sh-logo" id="shLogo" alt="">
-              <div>
-                <div class="sh-firm" id="shFirm">Daily Register</div>
-                <div class="sh-sub">Debit &amp; Credit Sheet</div>
-              </div>
-            </div>
+            <div class="sh-firm" id="shFirm">Daily Register</div>
+            <div class="sh-sub">Debit &amp; Credit Sheet</div>
           </div>
           <div class="sh-date">
             <div class="l">Date</div>
@@ -804,7 +796,7 @@
     syncTimer = setTimeout(pushPending, 1200);
   }
 
-  window.addEventListener('online',  function () { online = true;  pushPending(); pullAll(); loadParties(); loadFirmLogo(); });
+  window.addEventListener('online',  function () { online = true;  pushPending(); pullAll(); loadParties(); });
   window.addEventListener('offline', function () { online = false; syncNote('Offline', '#B08A3E'); });
 
   function ask(title, body, yesLabel, infoOnly) {
@@ -887,20 +879,6 @@
   }
 
   /* firm ka logo — optional. Companies table na bani ho to bilkul khamoshi se chhor deta hai */
-  function loadFirmLogo() {
-    if (!sb) return Promise.resolve();
-    return sb.from('companies').select('logo,is_default,active').then(function (res) {
-      var img = $('shLogo');
-      if (res.error) {
-        console.error('loadFirmLogo:', res.error);         // wajah console me dekhi ja sake
-        img.classList.remove('on'); return;
-      }
-      var list = (res.data || []).filter(function (c) { return c.active !== false; });
-      var co = list.filter(function (c) { return c.is_default; })[0] || list[0];
-      if (co && co.logo) { img.src = co.logo; img.classList.add('on'); }
-      else { img.classList.remove('on'); img.removeAttribute('src'); }
-    }).catch(function (e) { console.error('loadFirmLogo:', e); $('shLogo').classList.remove('on'); });
-  }
   function partyById(id) {
     if (!id) return null;
     return parties.filter(function (p) { return String(p.id) === String(id); })[0] || null;
@@ -1790,7 +1768,6 @@
       pullAll().then(function (ok) {
         if (ok) { renderList(); openSheet(active || todayISO()); }
         loadParties();
-        loadFirmLogo();
       });
     });
   }
