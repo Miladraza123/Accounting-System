@@ -175,8 +175,8 @@
   .stmt-inner { max-width:100%; }
 
   .stmt-letter { display:flex; align-items:center; gap:11px; margin-bottom:10px; }
-  .stmt-letter img { max-width:52px; max-height:52px; border-radius:7px; object-fit:contain;
-                     border:1px solid var(--hair); background:var(--paper); }
+  .stmt-letter img { width:52px; height:52px; border-radius:7px; object-fit:contain;
+                     border:1px solid var(--hair); background:var(--paper); flex:none; }
   .stmt-mark { width:44px; height:44px; border:1.5px solid var(--accent); border-radius:8px;
                display:grid; place-items:center; font-size:16px; font-weight:700; color:var(--accent);
                font-family:'IBM Plex Serif',Georgia,serif; flex:none; }
@@ -265,7 +265,7 @@
   .logobox { display:flex; gap:11px; align-items:center; }
   .logopv { flex:none; width:66px; height:66px; border:1px solid var(--line); border-radius:9px;
             display:grid; place-items:center; background:var(--panel); overflow:hidden; }
-  .logopv img { max-width:100%; max-height:100%; display:block; }
+  .logopv img { width:100%; height:100%; object-fit:contain; display:block; }
   .logopv .no { font-size:9.5px; color:var(--mute); text-align:center; padding:4px; line-height:1.35; }
   .logoacts { flex:1; display:flex; flex-direction:column; gap:6px; align-items:flex-start; }
   .logoacts .btn { padding:7px 11px; font-size:12.5px; }
@@ -280,7 +280,7 @@
               -webkit-print-color-adjust:exact; print-color-adjust:exact; }
     .psheet .hd { display:flex; align-items:flex-start; gap:6mm; border-bottom:1.2mm solid #1F2933;
                   padding-bottom:3mm; margin-bottom:4mm; }
-    .psheet .hd img { max-height:18mm; max-width:44mm; }
+    .psheet .hd img { height:18mm; width:auto; max-width:44mm; object-fit:contain; }
     .psheet .hd .firm { font-family:'IBM Plex Serif',Georgia,serif; font-size:17pt; font-weight:600; }
     .psheet .hd .adr { font-size:9pt; color:#3E4C59; margin-top:1mm; line-height:1.45; }
     .psheet .hd .rt { margin-left:auto; text-align:right; font-size:9.5pt; }
@@ -644,7 +644,7 @@
       if (first !== letter) { letter = first; html += '<div class="letter">' + esc(letter) + '</div>'; }
       var av = (tab === 'companies' && r.logo)
              ? '<div class="av" style="padding:2px;background:#fff"><img src="' + esc(r.logo) +
-               '" alt="" style="max-width:100%;max-height:100%"></div>'
+               '" alt="" style="width:100%;height:100%;object-fit:contain"></div>'
              : '<div class="av">' + esc(first) + '</div>';
       html += '<div class="row' + (r.active ? '' : ' off') + '" data-id="' + r.id + '">' +
               av + '<div class="mid">' +
