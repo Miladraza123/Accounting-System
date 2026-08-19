@@ -168,28 +168,48 @@
   .accfilt .two { display:flex; gap:6px; flex:1; min-width:0; }
   .accfilt .two input { flex:1; min-width:0; }
   .accwrap { flex:1; min-height:0; overflow:auto; -webkit-overflow-scrolling:touch;
-             padding:11px 11px calc(24px + env(safe-area-inset-bottom)); }
+             background:var(--paper); padding:0; }
 
-  .accsum { border:1px solid var(--line); border-radius:10px; padding:13px 14px;
-            margin-bottom:11px; background:var(--panel); display:flex; align-items:baseline;
-            gap:12px; flex-wrap:wrap; }
-  .accsum .k { font-size:10.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase;
-               color:var(--mute); }
-  .accsum .v { font-family:'IBM Plex Mono',monospace; font-size:24px; font-weight:600;
-               margin-left:auto; }
-  .accsum.dr { background:#FDF6F6; border-color:#E6CFCF; }
-  .accsum.dr .v { color:var(--debit); } .accsum.dr .k { color:#A45151; }
-  .accsum.cr { background:#EDF3EF; border-color:#CADCD2; }
-  .accsum.cr .v { color:var(--credit); } .accsum.cr .k { color:#3F7A63; }
-  .accsum.nil .v { color:var(--mute); }
+  /* the statement "document" — flush on phones, a centred paper card on wider screens */
+  .stmt-doc { padding:16px 16px calc(28px + env(safe-area-inset-bottom)); }
+  .stmt-inner { max-width:100%; }
+
+  .stmt-letter { display:flex; align-items:center; gap:11px; margin-bottom:10px; }
+  .stmt-letter img { max-width:52px; max-height:52px; border-radius:7px; object-fit:contain;
+                     border:1px solid var(--hair); background:var(--paper); }
+  .stmt-mark { width:44px; height:44px; border:1.5px solid var(--accent); border-radius:8px;
+               display:grid; place-items:center; font-size:16px; font-weight:700; color:var(--accent);
+               font-family:'IBM Plex Serif',Georgia,serif; flex:none; }
+  .stmt-firm { font-family:'IBM Plex Serif',Georgia,serif; font-size:16px; font-weight:600; color:var(--ink); }
+  .stmt-adr { font-size:11px; color:var(--mute); margin-top:2px; }
+  .stmt-hr { border-top:1px solid var(--hair); margin:12px 0; }
+  .stmt-hr.thin { margin:10px 0; }
+
+  .stmt-title-row { display:flex; align-items:baseline; justify-content:space-between;
+                    gap:10px; flex-wrap:wrap; }
+  .stmt-title-row h2 { margin:0; font-family:'IBM Plex Serif',Georgia,serif; font-size:21px;
+                       font-weight:600; color:var(--ink); }
+  .stmt-period { font-size:12px; color:var(--mute); white-space:nowrap; }
+  .stmt-party { font-size:13.5px; font-weight:700; color:var(--slate); margin-top:6px; }
+  .stmt-rule { border-top:2px solid var(--ink); margin:11px 0 12px; }
+
+  .stmt-balrow { display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
+  .stmt-balrow .k { font-size:10.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase;
+                    color:var(--mute); }
+  .stmt-balrow .v { font-family:'IBM Plex Mono',monospace; font-size:19px; font-weight:600; }
+  .stmt-balrow .v.dr { color:var(--debit); } .stmt-balrow .v.cr { color:var(--credit); }
+  .stmt-balrow .v.nil { color:var(--mute); }
 
   table.acct { width:100%; border-collapse:collapse; background:var(--paper);
-               border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+               border:1px solid var(--line); }
   table.acct th { font-size:9.5px; letter-spacing:.9px; text-transform:uppercase; color:var(--mute);
                   font-weight:700; text-align:left; padding:8px 9px; background:var(--panel);
-                  border-bottom:1px solid var(--line); white-space:nowrap; }
+                  border-bottom:1px solid var(--slate); white-space:nowrap;
+                  border-right:1px solid var(--hair); }
+  table.acct th:last-child { border-right:none; }
   table.acct td { padding:9px; border-bottom:1px solid var(--hair); font-size:13px;
-                  vertical-align:top; }
+                  vertical-align:top; border-right:1px solid var(--hair); }
+  table.acct td:last-child { border-right:none; }
   table.acct tbody tr:last-child td { border-bottom:none; }
   table.acct .r { text-align:right; font-family:'IBM Plex Mono',monospace; white-space:nowrap; }
   table.acct .dt { font-family:'IBM Plex Mono',monospace; font-size:11.5px; color:var(--slate);
@@ -207,13 +227,38 @@
                         border-bottom:none; font-size:13.5px; }
   .amtcol { display:none; }
   .accempty { padding:44px 20px; text-align:center; color:var(--mute); font-size:13px; line-height:1.6; }
-  .accnote { font-size:11.5px; color:var(--mute); line-height:1.5; margin-top:11px; }
+  .stmt-note { font-size:11.5px; color:var(--mute); line-height:1.5; margin-top:11px; }
+
+  .stkform { background:var(--panel); border:1px solid var(--line); border-radius:9px;
+             padding:12px 13px; margin-bottom:13px; }
+  .stkform-ttl { font-size:10.5px; font-weight:700; letter-spacing:.9px; text-transform:uppercase;
+                 color:var(--mute); margin-bottom:8px; }
+  .stkform-row { display:flex; gap:8px; flex-wrap:wrap; }
+  .stkform-row input { padding:8px 9px; border:1px solid var(--line); border-radius:7px;
+                       background:var(--paper); font-size:13px; }
+  .stkform-row input#stkQty { width:110px; font-family:'IBM Plex Mono',monospace; text-align:right; }
+  .stkform-row input#stkReason { flex:1; min-width:140px; }
+  .stkform-row .btn { flex:none; }
+  .stkform-hint { font-size:11px; color:var(--mute); margin-top:7px; line-height:1.5; }
+  @media (max-width:520px) {
+    .stkform-row input#stkQty { width:90px; }
+  }
+  .stmt-note.dim { color:#A9B2BB; }
 
   @media (max-width:640px) {
     .drcol, .crcol { display:none; }
     .amtcol { display:table-cell; }
     table.acct td, table.acct th { padding:8px 7px; }
     .accfilt select { flex:1; min-width:0; }
+  }
+
+  /* wider screens: the statement becomes a centred paper card on a desk backdrop */
+  @media (min-width:760px) {
+    .accwrap { background:var(--desk); display:flex; justify-content:center; padding:22px 16px; }
+    .stmt-doc { background:var(--paper); max-width:840px; width:100%; padding:30px 34px 26px;
+               border-radius:11px; border:1px solid var(--line);
+               box-shadow:0 6px 26px rgba(31,41,51,.09); height:fit-content; }
+    table.acct { border-radius:8px; overflow:hidden; }
   }
 
   /* logo */
@@ -265,6 +310,14 @@
                color:var(--mute); }
   .totbar .v { font-family:'IBM Plex Mono',monospace; font-size:14px; font-weight:600; margin-top:2px; }
   .totbar .seg.dr .v { color:var(--debit); } .totbar .seg.cr .v { color:var(--credit); }
+
+  .agingbar { display:none; align-items:center; gap:10px; padding:7px 12px;
+              background:var(--paper); border-bottom:1px solid var(--hair); flex-wrap:wrap;
+              font-size:11px; }
+  .ag-lbl { font-weight:700; letter-spacing:.6px; text-transform:uppercase; color:var(--mute);
+            font-size:9.5px; }
+  .ag-seg { font-family:'IBM Plex Mono',monospace; color:var(--slate); }
+  .ag-seg.warn { color:var(--debit); font-weight:600; }
   .btn:hover { background:var(--panel); }
   .btn.pri { background:var(--ink); color:#fff; border-color:var(--ink); flex:1; }
   .btn.pri:hover { background:#2C3742; }
@@ -363,6 +416,7 @@
   <div class="brand"><span class="mark">OHT</span><span>Masters</span></div>
   <div class="spacer"></div>
   <span class="sync" id="syncNote"></span>
+  <button class="abtn" id="bkBtn">Backup</button>
   <button class="abtn" id="outBtn">Sign out</button>
 </div>
 
@@ -384,6 +438,13 @@
 <div class="totbar" id="totbar" style="display:none">
   <div class="seg dr"><div class="k">To collect</div><div class="v" id="totDr">—</div></div>
   <div class="seg cr"><div class="k">To pay</div><div class="v" id="totCr">—</div></div>
+</div>
+<div class="agingbar" id="agingbar" style="display:none">
+  <span class="ag-lbl">Receivables age</span>
+  <span class="ag-seg" id="ag0"></span>
+  <span class="ag-seg" id="ag30"></span>
+  <span class="ag-seg" id="ag60"></span>
+  <span class="ag-seg warn" id="ag90"></span>
 </div>
 
 <div class="wrap"><div class="rows" id="rows"></div></div>
@@ -515,6 +576,13 @@
   function sayErr(e, what) {
     if (isNetErr(e)) { toast('No internet — ' + what + ' not saved', true); syncNote('Offline', '#B08A3E'); return; }
     if (e && String(e.code) === '23505') { toast('That name already exists', true); return; }
+    if (e && String(e.code) === '23503' && what === 'delete') {
+      var label = tab === 'parties' ? 'This party has bills or ledger entries'
+                : tab === 'items'   ? 'This item is used on a bill'
+                : 'This firm is used on a bill';
+      toast(label + ' — turn off "In use" instead.', true);
+      return;
+    }
     console.error(e);
     toast((e && e.message) || ('Could not ' + what), true);
   }
@@ -589,16 +657,37 @@
     drawTotals();
   }
   function drawTotals() {
-    var bar = $('totbar');
-    if (tab !== 'parties' || !db.parties.length || !led.loaded) { bar.style.display = 'none'; return; }
+    var bar = $('totbar'), abar = $('agingbar');
+    if (tab !== 'parties' || !db.parties.length || !led.loaded) {
+      bar.style.display = 'none'; abar.style.display = 'none'; return;
+    }
     var dr = 0, cr = 0;
+    var buckets = { b0:0, b30:0, b60:0, b90:0 };
+    var today = new Date();
     db.parties.forEach(function (p) {
-      var v = buildAccount(p).balance;
+      var acc = buildAccount(p);
+      var v = acc.balance;
       if (v > 0) dr += v; else cr += -v;
+      if (v > 0) {
+        var lastDate = '';
+        acc.events.forEach(function (e) { if (e.date && e.date > lastDate) lastDate = e.date; });
+        var days = lastDate ? Math.floor((today - new Date(lastDate + 'T00:00:00')) / 86400000) : 9999;
+        var key = days <= 30 ? 'b0' : days <= 60 ? 'b30' : days <= 90 ? 'b60' : 'b90';
+        buckets[key] += v;
+      }
     });
     $('totDr').textContent = dr ? money(dr) : '\u2014';
     $('totCr').textContent = cr ? money(cr) : '\u2014';
     bar.style.display = 'flex';
+
+    if (!dr) { abar.style.display = 'none'; }
+    else {
+      $('ag0').textContent  = '0\u201330d: '  + (buckets.b0  ? money(buckets.b0)  : '\u2014');
+      $('ag30').textContent = '31\u201360d: ' + (buckets.b30 ? money(buckets.b30) : '\u2014');
+      $('ag60').textContent = '61\u201390d: ' + (buckets.b60 ? money(buckets.b60) : '\u2014');
+      $('ag90').textContent = '90d+: '        + (buckets.b90 ? money(buckets.b90) : '\u2014');
+      abar.style.display = 'flex';
+    }
   }
   function firmSub(c) {
     var bits = [];
@@ -628,14 +717,39 @@
   }
   function itemSub(i) {
     var bits = ['per ' + esc(i.unit || 'pcs')];
+    if (Number(i.sale_rate)) bits.push('Rs ' + fmt(i.sale_rate));
     if (Number(i.tax_pct)) bits.push(fmt(i.tax_pct) + '% tax');
-    if (Number(i.opening_qty)) bits.push('opening ' + fmt(i.opening_qty));
     return bits.join(' · ');
   }
+  /* opening + saari purchase - saari sale = abhi ka stock */
+  function stockOf(itemId) {
+    var qty = 0;
+    var it = db.items.filter(function (x) { return x.id === itemId; })[0];
+    if (it) qty += Number(it.opening_qty) || 0;
+    if (!led.loaded) return null;                    // abhi bill ka data nahi aaya
+    led.lines.forEach(function (ln) {
+      if (String(ln.item_id) !== String(itemId)) return;
+      var v = led.vouchers.filter(function (x) { return x.id === ln.voucher_id; })[0];
+      if (!v) return;
+      var q = Number(ln.qty) || 0;
+      if (v.vtype === 'purchase') qty += q; else if (v.vtype === 'sale') qty -= q;
+    });
+    led.adjustments.forEach(function (a) {
+      if (String(a.item_id) !== String(itemId)) return;
+      qty += Number(a.qty) || 0;
+    });
+    return r2(qty);
+  }
   function itemAmt(i) {
-    var v = Number(i.sale_rate) || 0;
-    if (!v) return '<div class="amt zero">—<span class="tag">no rate</span></div>';
-    return '<div class="amt">' + fmt(v) + '<span class="tag">SALE RATE</span></div>';
+    var s = stockOf(i.id);
+    if (s === null) {
+      var v = Number(i.sale_rate) || 0;
+      return v ? '<div class="amt zero">' + fmt(v) + '<span class="tag">RATE</span></div>'
+               : '<div class="amt zero">\u2014</div>';
+    }
+    var cls = s < 0 ? 'dr' : (s === 0 ? 'zero' : '');
+    return '<div class="amt ' + cls + '">' + fmt(s) + ' ' + esc(i.unit || '') +
+           '<span class="tag">' + (s < 0 ? 'OVER-SOLD' : 'IN STOCK') + '</span></div>';
   }
 
   /* ---------- editor ---------- */
@@ -747,7 +861,8 @@
         (Number(r.opening_rate) ? fmt(r.opening_rate) : '') + '" placeholder="0"></div>' +
     '</div>' +
     '<div class="f"><div class="hint">What is lying in the godown today. Leave empty if you are ' +
-      'starting from zero.</div></div>' +
+      'starting from zero.' + (r.id ? ' The running stock shown on the list adds every purchase and ' +
+      'subtracts every sale from this number — it isn\u2019t edited directly.' : '') + '</div></div>' +
 
     '<div class="grp">Other</div>' +
     '<div class="f"><label>Notes</label><textarea id="eNotes">' + esc(r.notes) + '</textarea></div>' +
@@ -761,7 +876,7 @@
   }
 
   /* ══════════ party ka khata ══════════ */
-  var led = { loaded:false, loading:false, vouchers:[], lines:[], sheets:[] };
+  var led = { loaded:false, loading:false, vouchers:[], lines:[], sheets:[], adjustments:[] };
   var edView = 'details';
 
   function loadLedgerData() {
@@ -770,12 +885,14 @@
     return Promise.all([
       sb.from('vouchers').select('*'),
       sb.from('voucher_lines').select('*'),
-      sb.from('sheets').select('sheet_date,rows')
+      sb.from('sheets').select('sheet_date,rows'),
+      sb.from('stock_adjustments').select('*')
     ]).then(function (r) {
-      r.forEach(function (x) { if (x.error) throw x.error; });
-      led.vouchers = r[0].data || [];
-      led.lines    = r[1].data || [];
-      led.sheets   = r[2].data || [];
+      r.slice(0, 3).forEach(function (x) { if (x.error) throw x.error; });
+      led.vouchers    = r[0].data || [];
+      led.lines       = r[1].data || [];
+      led.sheets      = r[2].data || [];
+      led.adjustments = r[3].error ? [] : (r[3].data || []);   // SQL na chali ho to bhi chale
       led.loaded = true; led.loading = false;
     }).catch(function (e) {
       led.loading = false;
@@ -791,6 +908,211 @@
   function dayText(iso) {
     if (!iso) return '';
     return new Date(iso + 'T00:00:00').toLocaleDateString('en-PK', { day:'2-digit', month:'short', year:'numeric' });
+  }
+
+  /* ══════ item ka stock khata ══════ */
+  function partyNameForBill(pid) {
+    var p = db.parties.filter(function (x) { return x.id === pid; })[0];
+    return p ? p.name : '';
+  }
+  function buildStockAccount(it) {
+    var ev = [];
+    var op = n(it.opening_qty);
+    if (op) ev.push({ kind:'open', date:'', label:'Opening stock', delta:op });
+
+    led.lines.filter(function (ln) { return String(ln.item_id) === String(it.id); })
+      .forEach(function (ln) {
+        var v = led.vouchers.filter(function (x) { return x.id === ln.voucher_id; })[0];
+        if (!v) return;
+        var q = n(ln.qty);
+        var isPur = v.vtype === 'purchase';
+        ev.push({ kind:'bill', date:v.vdate, id:v.id, vtype:v.vtype,
+                  label:(isPur ? 'Purchase' : 'Sale') + ' ' + (v.vno || ''),
+                  sub:partyNameForBill(v.party_id), delta:isPur ? q : -q });
+      });
+
+    led.adjustments.filter(function (a) { return String(a.item_id) === String(it.id); })
+      .forEach(function (a) {
+        ev.push({ kind:'adj', date:a.adj_date, label:'Stock adjustment',
+                  sub:a.reason || '', delta:n(a.qty) });
+      });
+
+    ev.sort(function (a, b) {
+      if (a.kind === 'open') return -1;
+      if (b.kind === 'open') return 1;
+      if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+      return 0;
+    });
+    var run = 0;
+    ev.forEach(function (e) { run = r2(run + e.delta); e.bal = run; });
+    return { events:ev, balance:run };
+  }
+
+  function itemLedgerHtml(it) {
+    var acc = buildStockAccount(it);
+    var kind = $('accRange').value;
+    var b = rangeBounds(kind), from = b[0], to = b[1];
+    var co = defaultCompany();
+
+    var head = '<div class="stmt-doc"><div class="stmt-inner">';
+    if (co) {
+      head += '<div class="stmt-letter">' +
+        (co.logo ? '<img src="' + esc(co.logo) + '" alt="">' : '<div class="stmt-mark">' +
+          esc((co.name || '?').trim().charAt(0).toUpperCase()) + '</div>') +
+        '<div><div class="stmt-firm">' + esc(co.name) + '</div>' +
+        '<div class="stmt-adr">' + [co.address, co.city].filter(Boolean).map(esc).join('  \u00B7  ') +
+        '</div></div></div><div class="stmt-hr"></div>';
+    }
+    head += '<div class="stmt-title-row"><h2>Stock Statement</h2>' +
+      '<span class="stmt-period">' + esc(periodLabel(kind, from, to)) + '</span></div>' +
+      '<div class="stmt-party">' + esc(it.name) + '</div>' +
+      '<div class="stmt-rule"></div>';
+
+    var before = 0, shown = [];
+    acc.events.forEach(function (e) {
+      var dt = e.date || '';
+      if (from && (!dt || dt < from)) { before = r2(before + e.delta); return; }
+      if (to && dt && dt > to) return;
+      shown.push(e);
+    });
+
+    var v = acc.balance;
+    head += '<div class="stmt-balrow"><span class="k">Current stock</span>' +
+      '<span class="v ' + (v < 0 ? 'dr' : '') + '">' + fmt(v) + ' ' + esc(it.unit || '') +
+      (v < 0 ? '  \u2014 over-sold' : '') + '</span></div>' +
+      '<div class="stmt-hr thin"></div>' +
+      stockFormHtml(it, v);
+
+    if (!acc.events.length) {
+      return head + '<div class="accempty">No stock movements yet. Purchases, sales and ' +
+             'adjustments for ' + esc(it.name) + ' will appear here.</div></div></div>';
+    }
+    if (!shown.length) {
+      return head + '<div class="accempty">Nothing in this period.<br>Stock carried forward is ' +
+             fmt(before) + ' ' + esc(it.unit || '') + '.</div></div></div>';
+    }
+
+    var totIn = 0, totOut = 0, rows = '';
+    if (from && before) {
+      rows += '<tr class="bf"><td class="dt">\u2014</td><td class="pt">Brought forward</td>' +
+              '<td class="r"></td><td class="r"></td>' +
+              '<td class="r bal">' + fmt(before) + '</td></tr>';
+    }
+    var run = from ? before : 0;
+    shown.forEach(function (e) {
+      run = r2(run + e.delta);
+      var isIn = e.delta >= 0;
+      if (isIn) totIn += e.delta; else totOut += -e.delta;
+      var tap = e.kind === 'bill' ? ' data-bill="' + e.id + '"' : '';
+      rows += '<tr class="' + (tap ? 'tap' : '') + '"' + tap + '>' +
+        '<td class="dt">' + esc(e.date ? dayText(e.date) : '\u2014') + '</td>' +
+        '<td class="pt"><div class="l">' + esc(e.label) + '</div>' +
+          (e.sub ? '<div class="s">' + esc(e.sub.slice(0, 60)) + '</div>' : '') + '</td>' +
+        '<td class="r" style="color:var(--credit)">' + (isIn ? fmt(e.delta) : '') + '</td>' +
+        '<td class="r" style="color:var(--debit)">' + (!isIn ? fmt(-e.delta) : '') + '</td>' +
+        '<td class="r bal">' + fmt(run) + '</td></tr>';
+    });
+
+    head += '<table class="acct"><thead><tr>' +
+      '<th style="width:76px">Date</th><th>Particulars</th>' +
+      '<th class="r" style="width:80px">In</th><th class="r" style="width:80px">Out</th>' +
+      '<th class="r" style="width:90px">Balance</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody><tfoot><tr>' +
+      '<td></td><td>Closing stock</td>' +
+      '<td class="r">' + fmt(totIn) + '</td><td class="r">' + fmt(totOut) + '</td>' +
+      '<td class="r">' + fmt(run) + '</td></tr></tfoot></table>' +
+      '<div class="stmt-note">Tap a purchase or sale to open the bill.</div>' +
+      '</div></div>';
+    return head;
+  }
+
+  /* stock theek karne wala chhota form — ginti ka farq, kharabi, waghera */
+  function stockFormHtml(it, current) {
+    return '<div class="stkform" id="stkForm" data-item="' + it.id + '">' +
+      '<div class="stkform-ttl">Adjust stock</div>' +
+      '<div class="stkform-row">' +
+        '<input id="stkQty" type="text" inputmode="decimal" placeholder="e.g. -3 or 10">' +
+        '<input id="stkReason" type="text" placeholder="Reason \u2014 count, damage, loss\u2026">' +
+        '<button class="btn" id="stkApply">Apply</button>' +
+      '</div>' +
+      '<div class="stkform-hint">Positive number adds stock, negative removes it. This is logged ' +
+      'below with today\u2019s date.</div>' +
+      '</div>';
+  }
+  function wireStockForm() {
+    var btn = $('stkApply'); if (!btn) return;
+    btn.addEventListener('click', function () {
+      var wrap = $('stkForm'), itemId = wrap.getAttribute('data-item');
+      var qty = n($('stkQty').value);
+      var reason = $('stkReason').value.trim();
+      if (!qty) { toast('Enter how much to add or remove', true); return; }
+      btn.disabled = true; btn.textContent = 'Applying\u2026';
+      sb.from('stock_adjustments').insert({
+        item_id:itemId, qty:qty, reason:reason, adj_date:new Date().toISOString().slice(0, 10)
+      }).select().then(function (res) {
+        btn.disabled = false; btn.textContent = 'Apply';
+        if (res.error) throw res.error;
+        led.adjustments.push((res.data || [])[0] || { item_id:itemId, qty:qty, reason:reason,
+          adj_date:new Date().toISOString().slice(0, 10) });
+        toast((qty > 0 ? 'Added ' : 'Removed ') + fmt(Math.abs(qty)) + ' ' + (it2Unit(itemId) || ''));
+        redrawLedger();
+      }).catch(function (e) {
+        btn.disabled = false; btn.textContent = 'Apply';
+        sayErr(e, 'apply the adjustment');
+      });
+    });
+  }
+  function it2Unit(id) {
+    var i = db.items.filter(function (x) { return x.id === id; })[0];
+    return i ? i.unit : '';
+  }
+  function printItemAccount() {
+    var it = accParty; if (!it || !led.loaded) return;
+    var acc = buildStockAccount(it);
+    var kind = $('accRange').value, b = rangeBounds(kind), from = b[0], to = b[1];
+    var before = 0, shown = [];
+    acc.events.forEach(function (e) {
+      var dt = e.date || '';
+      if (from && (!dt || dt < from)) { before = r2(before + e.delta); return; }
+      if (to && dt && dt > to) return;
+      shown.push(e);
+    });
+    if (!shown.length) { toast('Nothing to print in this period', true); return; }
+
+    var c = defaultCompany();
+    var rows = '', run = from ? before : 0, totIn = 0, totOut = 0;
+    if (from && before) {
+      rows += '<tr><td>\u2014</td><td>Brought forward</td><td class="r"></td><td class="r"></td>' +
+              '<td class="r">' + fmt(before) + '</td></tr>';
+    }
+    shown.forEach(function (e) {
+      run = r2(run + e.delta);
+      var isIn = e.delta >= 0;
+      if (isIn) totIn += e.delta; else totOut += -e.delta;
+      rows += '<tr><td>' + esc(e.date ? dayText(e.date) : '\u2014') + '</td>' +
+        '<td>' + esc(e.label) + (e.sub ? ' \u2014 ' + esc(e.sub.slice(0, 60)) : '') + '</td>' +
+        '<td class="r">' + (isIn ? fmt(e.delta) : '') + '</td>' +
+        '<td class="r">' + (!isIn ? fmt(-e.delta) : '') + '</td>' +
+        '<td class="r">' + fmt(run) + '</td></tr>';
+    });
+    var period = from || to ? (from ? dayText(from) : 'start') + '  to  ' + (to ? dayText(to) : 'today')
+                             : 'All entries';
+
+    $('psheet').innerHTML =
+      '<div class="hd">' + (c && c.logo ? '<img src="' + esc(c.logo) + '" alt="">' : '') +
+      '<div><div class="firm">' + esc(c ? c.name : 'Stock Statement') + '</div>' +
+      (c ? '<div class="adr">' + [c.address, c.city].filter(Boolean).map(esc).join('<br>') + '</div>' : '') +
+      '</div><div class="rt"><div class="ttl">Stock Statement</div><div>' + esc(period) + '</div></div></div>' +
+      '<div class="who"><div class="lb">Item</div><div class="nm">' + esc(it.name) + '</div>' +
+      '<div>' + esc(it.unit || '') + (Number(it.sale_rate) ? '  \u00B7  Rs ' + fmt(it.sale_rate) : '') + '</div></div>' +
+      '<table><thead><tr><th style="width:26mm">Date</th><th>Particulars</th>' +
+      '<th class="r" style="width:26mm">In</th><th class="r" style="width:26mm">Out</th>' +
+      '<th class="r" style="width:30mm">Balance</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody><tfoot><tr><td></td><td>Closing stock</td>' +
+      '<td class="r">' + fmt(totIn) + '</td><td class="r">' + fmt(totOut) + '</td>' +
+      '<td class="r">' + fmt(run) + ' ' + esc(it.unit || '') + '</td></tr></tfoot></table>' +
+      '<div class="foot">Printed ' + dayText(new Date().toISOString().slice(0, 10)) + '.</div>';
+    window.print();
   }
 
   /* + = humara lena (they owe us)   − = humara dena (we owe them) */
@@ -853,10 +1175,32 @@
     return ['', ''];
   }
 
+  function periodLabel(kind, from, to) {
+    if (kind === 'all') return 'All entries';
+    if (from || to) return (from ? dayText(from) : 'Start') + '  \u2013  ' + (to ? dayText(to) : 'Today');
+    return '';
+  }
+
   function ledgerHtml(p) {
     var acc = buildAccount(p);
     var kind = $('accRange').value;
     var b = rangeBounds(kind), from = b[0], to = b[1];
+    var co = defaultCompany();
+
+    var head = '<div class="stmt-doc"><div class="stmt-inner">';
+    if (co) {
+      head += '<div class="stmt-letter">' +
+        (co.logo ? '<img src="' + esc(co.logo) + '" alt="">' : '<div class="stmt-mark">' +
+          esc((co.name || '?').trim().charAt(0).toUpperCase()) + '</div>') +
+        '<div><div class="stmt-firm">' + esc(co.name) + '</div>' +
+        '<div class="stmt-adr">' + [co.address, co.city, co.ntn ? 'NTN ' + co.ntn : '']
+          .filter(Boolean).map(esc).join('  \u00B7  ') + '</div></div></div>' +
+        '<div class="stmt-hr"></div>';
+    }
+    head += '<div class="stmt-title-row"><h2>Statement of Account</h2>' +
+      '<span class="stmt-period">' + esc(periodLabel(kind, from, to)) + '</span></div>' +
+      '<div class="stmt-party">' + esc(p.name) + '</div>' +
+      '<div class="stmt-rule"></div>';
 
     // hadd se pehle ka sab jama kar ke "aage laaya gaya" ki ek line
     var before = 0, shown = [];
@@ -868,17 +1212,19 @@
     });
 
     var v = acc.balance, dr = v > 0;
-    var h = '<div class="accsum ' + (v ? (dr ? 'dr' : 'cr') : 'nil') + '">' +
-      '<div class="k">' + (v ? (dr ? 'To collect from them' : 'Payable to them') : 'Nothing outstanding') +
-      '</div><div class="v">' + money(Math.abs(v)) + '</div></div>';
+    head += '<div class="stmt-balrow"><span class="k">' +
+      (v ? (dr ? 'Balance due' : 'Payable to them') : 'Balance due') + '</span>' +
+      '<span class="v ' + (v ? (dr ? 'dr' : 'cr') : 'nil') + '">' +
+      (v ? money(Math.abs(v)) + '  ' + (dr ? 'Dr' : 'Cr') : '\u2014') + '</span></div>' +
+      '<div class="stmt-hr thin"></div>';
 
     if (!acc.events.length) {
-      return h + '<div class="accempty">No entries yet. Bills and ledger lines for ' +
-             esc(p.name) + ' will appear here.</div>';
+      return head + '<div class="accempty">No entries yet. Bills and ledger lines for ' +
+             esc(p.name) + ' will appear here.</div></div></div>';
     }
     if (!shown.length) {
-      return h + '<div class="accempty">Nothing in this period.<br>Balance carried forward is ' +
-             money(Math.abs(before)) + ' ' + (before >= 0 ? 'Dr' : 'Cr') + '.</div>';
+      return head + '<div class="accempty">Nothing in this period.<br>Balance carried forward is ' +
+             money(Math.abs(before)) + ' ' + (before >= 0 ? 'Dr' : 'Cr') + '.</div></div></div>';
     }
 
     var totDr = 0, totCr = 0;
@@ -907,7 +1253,7 @@
         '<td class="r bal">' + money(Math.abs(run)) + ' ' + (run >= 0 ? 'Dr' : 'Cr') + '</td></tr>';
     });
 
-    h += '<table class="acct"><thead><tr>' +
+    head += '<table class="acct"><thead><tr>' +
       '<th style="width:76px">Date</th><th>Particulars</th>' +
       '<th class="r drcol" style="width:92px">Debit</th>' +
       '<th class="r crcol" style="width:92px">Credit</th>' +
@@ -920,31 +1266,40 @@
       '<td class="r amtcol"></td>' +
       '<td class="r">' + money(Math.abs(run)) + ' ' + (run >= 0 ? 'Dr' : 'Cr') + '</td>' +
       '</tr></tfoot></table>' +
-      '<div class="accnote">Tap a bill to open it. Tap a received or paid line to see that day\u2019s sheet.</div>';
-    return h;
+      '<div class="stmt-note">Dr = amount receivable from this party \u00B7 Cr = amount payable to this party.</div>' +
+      '<div class="stmt-note dim">Tap a sale or purchase to open the bill. Tap a received or paid line to see that day\u2019s sheet.</div>' +
+      '</div></div>';
+    return head;
   }
 
-  /* ---- khata kholna ---- */
-  var accParty = null;
-  function showLedger(p) {
-    accParty = p;
-    $('accName').textContent = p.name;
-    var bits = [p.city, p.phone].filter(Boolean).join('  \u00B7  ');
-    $('accSub').textContent = bits || 'Account';
-    $('accWrap').innerHTML = '<div class="accempty">Loading the account\u2026</div>';
+  /* ---- khata kholna (party ya item, dono isi overlay se) ---- */
+  var accParty = null, accKind = 'party';
+  function showLedger(rec, kind) {
+    accParty = rec; accKind = kind || 'party';
+    $('accName').textContent = rec.name;
+    var bits = accKind === 'item'
+      ? ['per ' + (rec.unit || 'pcs'), Number(rec.sale_rate) ? 'Rs ' + fmt(rec.sale_rate) : '']
+          .filter(Boolean).join('  \u00B7  ')
+      : [rec.city, rec.phone].filter(Boolean).join('  \u00B7  ');
+    $('accSub').textContent = bits || (accKind === 'item' ? 'Stock' : 'Account');
+    $('accWrap').innerHTML = '<div class="stmt-doc"><div class="stmt-inner">' +
+      '<div class="accempty">Loading\u2026</div></div></div>';
     $('acc').classList.add('on');
     loadLedgerData().then(function () {
-      if (accParty !== p) return;
-      $('accWrap').innerHTML = ledgerHtml(p);
+      if (accParty !== rec) return;
+      $('accWrap').innerHTML = accKind === 'item' ? itemLedgerHtml(rec) : ledgerHtml(rec);
+      wireStockForm();
     }).catch(function () {
-      if (accParty === p) $('accWrap').innerHTML =
-        '<div class="accempty">Could not load the account. Check the connection and try again.</div>';
+      if (accParty === rec) $('accWrap').innerHTML =
+        '<div class="stmt-doc"><div class="stmt-inner"><div class="accempty">' +
+        'Could not load. Check the connection and try again.</div></div></div>';
     });
   }
   function redrawLedger() {
     if (!accParty || !led.loaded) return;
-    $('accWrap').innerHTML = ledgerHtml(accParty);
+    $('accWrap').innerHTML = accKind === 'item' ? itemLedgerHtml(accParty) : ledgerHtml(accParty);
     $('accWrap').scrollTop = 0;
+    wireStockForm();
   }
   $('accBack').addEventListener('click', function () {
     $('acc').classList.remove('on'); accParty = null;
@@ -962,6 +1317,7 @@
     return list.filter(function (c) { return c.is_default; })[0] || list[0] || null;
   }
   function printAccount() {
+    if (accKind === 'item') { printItemAccount(); return; }
     var p = accParty; if (!p || !led.loaded) return;
     var acc = buildAccount(p);
     var kind = $('accRange').value, b = rangeBounds(kind), from = b[0], to = b[1];
@@ -1041,8 +1397,10 @@
     $('edTitle').textContent = (rec ? 'Edit ' : 'New ') +
       (tab === 'parties' ? 'party' : tab === 'companies' ? 'firm' : 'item');
     edView = 'details';
-    var isParty = (tab === 'parties') && !!rec;
-    $('edTabs').style.display = isParty ? 'flex' : 'none';
+    var showTabs = (tab === 'parties' || tab === 'items') && !!rec;
+    $('edTabs').style.display = showTabs ? 'flex' : 'none';
+    var lbl = $('edTabs').querySelector('[data-v="ledger"]');
+    if (lbl) lbl.textContent = tab === 'items' ? 'Stock' : 'Account';
     document.querySelectorAll('.et').forEach(function (x) {
       x.classList.toggle('on', x.getAttribute('data-v') === 'details');
     });
@@ -1098,7 +1456,7 @@
       document.querySelectorAll('.et').forEach(function (x) {
         x.classList.toggle('on', x.getAttribute('data-v') === 'details');
       });
-      showLedger(editing);                      // khata poori screen par
+      showLedger(editing, tab === 'items' ? 'item' : 'party');   // khata poori screen par
       return;
     } else {
       $('edSave').style.display = ''; $('edDel').style.display = editing && editing.id ? '' : 'none';
@@ -1355,6 +1713,9 @@
       $('q').placeholder = tab === 'items' ? 'Search by name…' : 'Search by name, phone or city…';
       $('newBtn').textContent = tab === 'parties' ? '+ Party' : tab === 'companies' ? '+ Firm' : '+ Item';
       render();
+      if (tab === 'items' && db.items.length) {
+        loadLedgerData().then(render).catch(function () {});
+      }
     });
   });
   $('q').addEventListener('input', render);
@@ -1445,6 +1806,97 @@
     $('gateLogin').classList.remove('on');
     $('gateConnect').classList.add('on');
   });
+  /* ══════ backup — sab kuch aik Excel file me, khud parh-likh sakein ══════ */
+  var xlsxReady = null;
+  function loadXlsxLib() {
+    if (window.XLSX) return Promise.resolve();
+    if (xlsxReady) return xlsxReady;
+    xlsxReady = new Promise(function (res, rej) {
+      var s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+      s.onload = function () { res(); };
+      s.onerror = function () { rej(new Error('Could not load the Excel library')); };
+      document.head.appendChild(s);
+    });
+    return xlsxReady;
+  }
+  function ymd(iso) { return iso ? iso : ''; }
+  function backupNow() {
+    var btn = $('bkBtn');
+    btn.disabled = true; btn.textContent = 'Preparing\u2026';
+    Promise.all([
+      loadXlsxLib(),
+      sb.from('parties').select('*'),
+      sb.from('items').select('*'),
+      sb.from('companies').select('*'),
+      sb.from('vouchers').select('*'),
+      sb.from('voucher_lines').select('*')
+    ]).then(function (r) {
+      var P = r[1].error ? [] : (r[1].data || []);
+      var I = r[2].error ? [] : (r[2].data || []);
+      var C = r[3].error ? [] : (r[3].data || []);
+      var V = r[4].error ? [] : (r[4].data || []);
+      var L = r[5].error ? [] : (r[5].data || []);
+      var partyName = {}; P.forEach(function (p) { partyName[p.id] = p.name; });
+      var itemName = {};  I.forEach(function (i) { itemName[i.id] = i.name; });
+      var firmName2 = {}; C.forEach(function (c) { firmName2[c.id] = c.name; });
+      var voNo = {};       V.forEach(function (v) { voNo[v.id] = v.vno || v.id; });
+
+      var wb = XLSX.utils.book_new();
+      function addSheet(name, rows) {
+        var ws = XLSX.utils.json_to_sheet(rows);
+        XLSX.utils.book_append_sheet(wb, ws, name);
+      }
+
+      addSheet('Parties', P.map(function (p) {
+        return { Name:p.name, Type:p.kind, Phone:p.phone, City:p.city, Address:p.address,
+                 NTN:p.ntn, 'Opening Amount':Number(p.opening) || 0,
+                 'Opening Side':(p.opening_side === 'dr' ? 'They owe us' : 'We owe them'),
+                 Notes:p.notes, Active:p.active === false ? 'No' : 'Yes' };
+      }));
+
+      addSheet('Items', I.map(function (i) {
+        return { Name:i.name, Unit:i.unit, 'Sale Rate':Number(i.sale_rate) || 0,
+                 'Purchase Rate':Number(i.buy_rate) || 0, 'Tax %':Number(i.tax_pct) || 0,
+                 'Opening Qty':Number(i.opening_qty) || 0, 'Opening Cost Rate':Number(i.opening_rate) || 0,
+                 'HS Code':i.hs_code, Notes:i.notes, Active:i.active === false ? 'No' : 'Yes' };
+      }));
+
+      addSheet('Firms', C.map(function (c) {
+        return { Name:c.name, Address:c.address, City:c.city, Phone:c.phone, Email:c.email,
+                 NTN:c.ntn, STRN:c.strn, 'Has Logo':c.logo ? 'Yes' : 'No',
+                 Default:c.is_default ? 'Yes' : 'No', Notes:c.notes,
+                 Active:c.active === false ? 'No' : 'Yes' };
+      }));
+
+      addSheet('Bills', V.map(function (v) {
+        return { Type:v.vtype === 'sale' ? 'Sale' : 'Purchase', 'Bill No':v.vno, Date:ymd(v.vdate),
+                 Party:partyName[v.party_id] || '', Firm:firmName2[v.company_id] || '',
+                 Note:v.narration, 'With Tax':v.tax_on ? 'Yes' : 'No',
+                 'Items Total':Number(v.sub_total) || 0, Discount:Number(v.discount) || 0,
+                 Tax:Number(v.tax_total) || 0, 'Bill Total':Number(v.grand_total) || 0,
+                 Paid:Number(v.paid) || 0 };
+      }));
+
+      addSheet('Bill Items', L.map(function (l) {
+        var v = V.filter(function (x) { return x.id === l.voucher_id; })[0];
+        return { Bill:voNo[l.voucher_id] || '', Date:v ? ymd(v.vdate) : '',
+                 Item:itemName[l.item_id] || '', Qty:Number(l.qty) || 0, Rate:Number(l.rate) || 0,
+                 'Tax %':Number(l.tax_pct) || 0, Amount:Number(l.amount) || 0 };
+      }));
+
+      var today = new Date().toISOString().slice(0, 10);
+      XLSX.writeFile(wb, 'OHT-backup-' + today + '.xlsx');
+      btn.disabled = false; btn.textContent = 'Backup';
+      toast('Backup downloaded');
+    }).catch(function (e) {
+      btn.disabled = false; btn.textContent = 'Backup';
+      if (isNetErr(e)) toast('No internet — could not prepare the backup', true);
+      else { console.error(e); toast((e && e.message) || 'Could not prepare the backup', true); }
+    });
+  }
+  $('bkBtn').addEventListener('click', backupNow);
+
   $('outBtn').addEventListener('click', function () {
     confirmBox('Sign out?', 'You will need your email and password to get back in.', 'Sign out')
       .then(function (ok) {
