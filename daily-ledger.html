@@ -891,12 +891,15 @@
     if (!sb) return Promise.resolve();
     return sb.from('companies').select('logo,is_default,active').then(function (res) {
       var img = $('shLogo');
-      if (res.error) { img.classList.remove('on'); return; }   // table nahi bani — koi masla nahi
+      if (res.error) {
+        console.error('loadFirmLogo:', res.error);         // wajah console me dekhi ja sake
+        img.classList.remove('on'); return;
+      }
       var list = (res.data || []).filter(function (c) { return c.active !== false; });
       var co = list.filter(function (c) { return c.is_default; })[0] || list[0];
       if (co && co.logo) { img.src = co.logo; img.classList.add('on'); }
       else { img.classList.remove('on'); img.removeAttribute('src'); }
-    }).catch(function () { $('shLogo').classList.remove('on'); });
+    }).catch(function (e) { console.error('loadFirmLogo:', e); $('shLogo').classList.remove('on'); });
   }
   function partyById(id) {
     if (!id) return null;
