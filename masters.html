@@ -1588,12 +1588,29 @@
           var cv = document.createElement('canvas');
           cv.width = cw; cv.height = ch;
           var cx = cv.getContext('2d');
+          cx.clearRect(0, 0, cw, ch);          // shaffaaf rakho, kuch bhar mat do
           cx.drawImage(img, 0, 0, cw, ch);
-          // PNG shaffaaf pas-manzar rakhta hai; JPEG chhoti hoti hai
-          var png = cv.toDataURL('image/png');
-          var jpg = cv.toDataURL('image/jpeg', 0.86);
-          var out = (png.length <= jpg.length * 1.35) ? png : jpg;
-          if (out.length > 900000) out = cv.toDataURL('image/jpeg', 0.7);
+
+          // tasveer me kahin shaffafiyat (transparency) hai ya nahi, dekh lo
+          var isTransparent = false;
+          try {
+            var px = cx.getImageData(0, 0, cw, ch).data;
+            for (var i = 3; i < px.length; i += 4) {
+              if (px[i] < 250) { isTransparent = true; break; }
+            }
+          } catch (err) { isTransparent = true; }   // pata na chale to mehfooz rasta — PNG
+
+          var out;
+          if (isTransparent) {
+            // shaffaf hai — hamesha PNG, warna khali jagah kaali/safed bhar jayegi
+            out = cv.toDataURL('image/png');
+          } else {
+            // bilkul saadi tasveer — jo bhi chhoti ho wahi le lo
+            var png = cv.toDataURL('image/png');
+            var jpg = cv.toDataURL('image/jpeg', 0.86);
+            out = (png.length <= jpg.length * 1.35) ? png : jpg;
+            if (out.length > 900000) out = cv.toDataURL('image/jpeg', 0.7);
+          }
           res(out);
         };
         img.src = fr.result;
