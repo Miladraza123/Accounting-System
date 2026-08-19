@@ -880,7 +880,7 @@
   var edView = 'details';
 
   function loadLedgerData() {
-    if (led.loaded || led.loading) return Promise.resolve();
+    if (led.loading) return Promise.resolve();   // ek waqt me ek hi request, magar hamesha taaza mangwao
     led.loading = true;
     return Promise.all([
       sb.from('vouchers').select('*'),
@@ -1383,8 +1383,17 @@
     try { window.parent.postMessage({ oht:'open', app:app, arg:arg }, '*'); } catch (e) {}
     if (window.parent === window) toast('Open this from the main screen to jump there', true);
   }
+  /* Billing me koi bill badle ya mite to yahan ka khata/stock apne aap taaza ho jaye */
+  window.addEventListener('message', function (e) {
+    if (!e.data || e.data.oht !== 'refresh' || e.data.kind !== 'bills') return;
+    led.loaded = false;
+    if (accParty) { loadLedgerData().then(redrawLedger).catch(function () {}); }
+    else if (tab === 'parties') { loadLedgerData().then(drawTotals).catch(function () {}); }
+    else if (tab === 'items') { loadLedgerData().then(render).catch(function () {}); }
+  });
+
   document.addEventListener('click', function (e) {
-    var row = e.target.closest('.accrow.tap'); if (!row) return;
+    var row = e.target.closest('table.acct tr.tap'); if (!row) return;
     var b = row.getAttribute('data-bill'), d = row.getAttribute('data-day');
     if (b) jump('billing', 'bill=' + b);
     else if (d) jump('ledger', 'date=' + d);
@@ -1681,6 +1690,7 @@
         db[tab] = db[tab].map(function (r) { return r.id === editing.id ? (row || r) : r; });
       }
       led.loaded = false;                      // khata dobara banega
+      try { window.parent.postMessage({ oht:'refresh', kind:tab }, '*'); } catch (err) {}
       if (tab === 'companies' && body.is_default) {
         var mine = row ? row.id : (editing && editing.id);
         var others = db.companies.filter(function (c) { return c.is_default && c.id !== mine; });
@@ -1713,6 +1723,8 @@
         if (res.error) throw res.error;
         var gone = editing.name;
         db[tab] = db[tab].filter(function (r) { return r.id !== editing.id; });
+        led.loaded = false;
+        try { window.parent.postMessage({ oht:'refresh', kind:tab }, '*'); } catch (err) {}
         syncNote('');
         closeEditor(); render();
         toast('Deleted ' + gone);

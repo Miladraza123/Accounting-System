@@ -1751,7 +1751,9 @@
     if (sh) sh.scrollIntoView({ block:'start' });
   }
   window.addEventListener('message', function (e) {
-    if (e.data && e.data.oht === 'goto') gotoArg(e.data.arg);
+    if (!e.data) return;
+    if (e.data.oht === 'goto') gotoArg(e.data.arg);
+    else if (e.data.oht === 'refresh' && e.data.kind === 'parties') loadParties();
   });
 
   function startApp() {

@@ -113,7 +113,7 @@
 
   /* khud ko dekho — GitHub par nayi shakl aa gayi ho to foran badal jao.
      Sirf meta tag par bharosa nahi, browser use aksar nazarandaz karta hai. */
-  var VERSION = '14';
+  var VERSION = '15';
   (function selfCheck() {
     if (!window.fetch) return;
     var here = location.pathname.replace(/[^/]*$/, '') + 'index.html';
@@ -194,13 +194,25 @@
   var pending = {};
   window.addEventListener('message', function (e) {
     var m = e.data;
-    if (!m || m.oht !== 'open' || !m.app) return;
-    var known = APPS.filter(function (a) { return a.k === m.app; })[0];
-    if (!known) return;
-    var fresh = !frames[m.app];
-    go(m.app, true);
-    if (fresh) { pending[m.app] = m.arg || ''; return; }      // abhi khul rahi hai — load par bhejenge
-    deliver(m.app, m.arg || '');
+    if (!m) return;
+    if (m.oht === 'open' && m.app) {
+      var known = APPS.filter(function (a) { return a.k === m.app; })[0];
+      if (!known) return;
+      var fresh = !frames[m.app];
+      go(m.app, true);
+      if (fresh) { pending[m.app] = m.arg || ''; return; }      // abhi khul rahi hai — load par bhejenge
+      deliver(m.app, m.arg || '');
+      return;
+    }
+    if (m.oht === 'refresh' && m.kind) {
+      // aik app ne data badla — baaqi khuli apps ko khabar kar do, khud data mangwa lein
+      Object.keys(frames).forEach(function (k) {
+        var f = frames[k];
+        if (f && f.contentWindow && f.contentWindow !== e.source) {
+          try { f.contentWindow.postMessage({ oht:'refresh', kind:m.kind }, '*'); } catch (err) {}
+        }
+      });
+    }
   });
   function deliver(app, arg) {
     var f = frames[app];

@@ -768,6 +768,7 @@
           else bills = bills.map(function (x) { return x.id === vid ? saved : x; });
           $('edSave').disabled = false;
           syncNote('Saved', '#7DC9A9');
+          try { window.parent.postMessage({ oht:'refresh', kind:'bills' }, '*'); } catch (err) {}
           toast((isNew ? 'Saved ' : 'Updated ') + (head.vno || 'bill'));
           closeBill(); render();
         });
@@ -787,6 +788,7 @@
         if (res.error) throw res.error;
         var no = bill.vno;
         bills = bills.filter(function (x) { return x.id !== bill.id; });
+        try { window.parent.postMessage({ oht:'refresh', kind:'bills' }, '*'); } catch (err) {}
         syncNote(''); closeBill(); render(); toast('Deleted ' + (no || 'bill'));
       }).catch(function (e) { syncNote(''); sayErr(e, 'delete'); });
     });
@@ -1016,7 +1018,19 @@
     openBill(b);
   }
   window.addEventListener('message', function (e) {
-    if (e.data && e.data.oht === 'goto') gotoArg(e.data.arg);
+    if (!e.data) return;
+    if (e.data.oht === 'goto') { gotoArg(e.data.arg); return; }
+    if (e.data.oht === 'refresh') {
+      var kind = e.data.kind;
+      if (kind !== 'parties' && kind !== 'items' && kind !== 'companies') return;
+      sb.from(kind).select('*').then(function (res) {
+        if (res.error) return;
+        if (kind === 'parties') parties = res.data || [];
+        else if (kind === 'items') items = res.data || [];
+        else firms = res.data || [];
+        if (!bill) render();      // koi bill khula ho to zabardasti dobara nahi banate — picker khud taaza data dekhega
+      }).catch(function () {});
+    }
   });
 
   function start() {
