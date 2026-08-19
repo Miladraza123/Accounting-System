@@ -149,41 +149,114 @@
         border-bottom:2.5px solid transparent; }
   .et.on { color:var(--ink); background:var(--paper); border-bottom-color:var(--accent); }
 
-  .accsum { border:1px solid var(--line); border-radius:10px; padding:14px;
-            margin-bottom:12px; background:var(--panel); }
+  /* ══ poori screen wala khata ══ */
+  .acc { position:fixed; inset:0; z-index:70; background:var(--desk); display:none;
+         flex-direction:column; }
+  .acc.on { display:flex; }
+  .accbar { flex:none; background:var(--ink); color:#fff; display:flex; align-items:center;
+            gap:8px; padding:0 8px; height:calc(54px + env(safe-area-inset-top));
+            padding-top:env(safe-area-inset-top); }
+  .accbar .who { min-width:0; }
+  .accbar h3 { margin:0; font-family:'IBM Plex Serif',Georgia,serif; font-size:16px;
+               font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .accbar .sub { font-size:11px; color:#9AA5B1; margin-top:1px; }
+  .accfilt { flex:none; display:flex; gap:8px; align-items:center; padding:9px 10px;
+             background:var(--paper); border-bottom:1px solid var(--hair); flex-wrap:wrap; }
+  .accfilt select, .accfilt input { padding:7px 9px; border:1px solid var(--line);
+             border-radius:7px; background:var(--paper); font-size:13px; }
+  .accfilt select { min-width:142px; }
+  .accfilt .two { display:flex; gap:6px; flex:1; min-width:0; }
+  .accfilt .two input { flex:1; min-width:0; }
+  .accwrap { flex:1; min-height:0; overflow:auto; -webkit-overflow-scrolling:touch;
+             padding:11px 11px calc(24px + env(safe-area-inset-bottom)); }
+
+  .accsum { border:1px solid var(--line); border-radius:10px; padding:13px 14px;
+            margin-bottom:11px; background:var(--panel); display:flex; align-items:baseline;
+            gap:12px; flex-wrap:wrap; }
   .accsum .k { font-size:10.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase;
-               color:var(--mute); margin-bottom:5px; }
-  .accsum .v { font-family:'IBM Plex Mono',monospace; font-size:24px; font-weight:600; }
+               color:var(--mute); }
+  .accsum .v { font-family:'IBM Plex Mono',monospace; font-size:24px; font-weight:600;
+               margin-left:auto; }
   .accsum.dr { background:#FDF6F6; border-color:#E6CFCF; }
   .accsum.dr .v { color:var(--debit); } .accsum.dr .k { color:#A45151; }
   .accsum.cr { background:#EDF3EF; border-color:#CADCD2; }
   .accsum.cr .v { color:var(--credit); } .accsum.cr .k { color:#3F7A63; }
   .accsum.nil .v { color:var(--mute); }
 
-  .acclist { border:1px solid var(--line); border-radius:10px; overflow:hidden;
-             background:var(--paper); }
-  .accrow { display:flex; gap:9px; padding:9px 11px; border-bottom:1px solid var(--hair);
-            align-items:flex-start; }
-  .accrow:last-child { border-bottom:none; }
-  .accrow.tap { cursor:pointer; }
-  .accrow.tap:hover { background:#F7FAFB; }
-  .accrow.tap:active { background:#EFF3F5; }
-  .accrow .d { flex:none; width:44px; font-family:'IBM Plex Mono',monospace; font-size:10.5px;
-               color:var(--mute); padding-top:2px; }
-  .accrow .m { flex:1; min-width:0; }
-  .accrow .m .l { font-size:13px; font-weight:600; }
-  .accrow .m .s { font-size:11px; color:var(--mute); margin-top:2px; white-space:nowrap;
-                  overflow:hidden; text-overflow:ellipsis; }
-  .accrow .a { flex:none; text-align:right; font-family:'IBM Plex Mono',monospace; }
-  .accrow .a .up { font-size:12.5px; font-weight:600; color:var(--debit); }
-  .accrow .a .dn { font-size:12.5px; font-weight:600; color:var(--credit); }
-  .accrow .a .b { font-size:10.5px; color:var(--mute); margin-top:2px; }
-  .accrow.tap .m .l::after { content:' \u203A'; color:var(--mute); font-weight:400; }
+  table.acct { width:100%; border-collapse:collapse; background:var(--paper);
+               border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  table.acct th { font-size:9.5px; letter-spacing:.9px; text-transform:uppercase; color:var(--mute);
+                  font-weight:700; text-align:left; padding:8px 9px; background:var(--panel);
+                  border-bottom:1px solid var(--line); white-space:nowrap; }
+  table.acct td { padding:9px; border-bottom:1px solid var(--hair); font-size:13px;
+                  vertical-align:top; }
+  table.acct tbody tr:last-child td { border-bottom:none; }
+  table.acct .r { text-align:right; font-family:'IBM Plex Mono',monospace; white-space:nowrap; }
+  table.acct .dt { font-family:'IBM Plex Mono',monospace; font-size:11.5px; color:var(--slate);
+                   white-space:nowrap; }
+  table.acct .pt .l { font-weight:600; }
+  table.acct .pt .s { font-size:11px; color:var(--mute); margin-top:2px; }
+  table.acct td.dr { color:var(--debit); font-weight:600; }
+  table.acct td.cr { color:var(--credit); font-weight:600; }
+  table.acct td.bal { font-weight:600; }
+  table.acct tr.tap { cursor:pointer; }
+  table.acct tr.tap:hover td { background:#F7FAFB; }
+  table.acct tr.tap .pt .l::after { content:' \203A'; color:var(--mute); font-weight:400; }
+  table.acct tr.bf td { background:var(--panel); color:var(--slate); font-size:12px; }
+  table.acct tfoot td { background:var(--panel); font-weight:700; border-top:1.5px solid var(--slate);
+                        border-bottom:none; font-size:13.5px; }
+  .amtcol { display:none; }
+  .accempty { padding:44px 20px; text-align:center; color:var(--mute); font-size:13px; line-height:1.6; }
+  .accnote { font-size:11.5px; color:var(--mute); line-height:1.5; margin-top:11px; }
 
-  .accempty { padding:40px 20px; text-align:center; color:var(--mute); font-size:13px;
-              line-height:1.6; }
-  .accnote { font-size:11.5px; color:var(--mute); line-height:1.5; margin-top:11px;
-             padding:0 2px; }
+  @media (max-width:640px) {
+    .drcol, .crcol { display:none; }
+    .amtcol { display:table-cell; }
+    table.acct td, table.acct th { padding:8px 7px; }
+    .accfilt select { flex:1; min-width:0; }
+  }
+
+  /* logo */
+  .logobox { display:flex; gap:11px; align-items:center; }
+  .logopv { flex:none; width:66px; height:66px; border:1px solid var(--line); border-radius:9px;
+            display:grid; place-items:center; background:var(--panel); overflow:hidden; }
+  .logopv img { max-width:100%; max-height:100%; display:block; }
+  .logopv .no { font-size:9.5px; color:var(--mute); text-align:center; padding:4px; line-height:1.35; }
+  .logoacts { flex:1; display:flex; flex-direction:column; gap:6px; align-items:flex-start; }
+  .logoacts .btn { padding:7px 11px; font-size:12.5px; }
+
+  /* chhapne wala kaghaz */
+  .psheet { display:none; }
+  @media print {
+    body > *:not(.psheet) { display:none !important; }
+    body { background:#fff; overflow:visible; display:block; height:auto; }
+    @page { size:A4 portrait; margin:12mm 10mm; }
+    .psheet { display:block !important; font-size:10pt; color:#000;
+              -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    .psheet .hd { display:flex; align-items:flex-start; gap:6mm; border-bottom:1.2mm solid #1F2933;
+                  padding-bottom:3mm; margin-bottom:4mm; }
+    .psheet .hd img { max-height:18mm; max-width:44mm; }
+    .psheet .hd .firm { font-family:'IBM Plex Serif',Georgia,serif; font-size:17pt; font-weight:600; }
+    .psheet .hd .adr { font-size:9pt; color:#3E4C59; margin-top:1mm; line-height:1.45; }
+    .psheet .hd .rt { margin-left:auto; text-align:right; font-size:9.5pt; }
+    .psheet .hd .rt .ttl { font-size:8.5pt; letter-spacing:2.2px; text-transform:uppercase;
+                           color:#3E4C59; }
+    .psheet .who { margin-bottom:4mm; }
+    .psheet .who .lb { font-size:7.5pt; letter-spacing:1.4px; color:#7B8794;
+                       text-transform:uppercase; margin-bottom:1mm; }
+    .psheet .who .nm { font-weight:600; font-size:12.5pt; }
+    .psheet table { width:100%; border-collapse:collapse; }
+    .psheet th { font-size:7.5pt; letter-spacing:1px; text-transform:uppercase; color:#3E4C59;
+                 border-bottom:0.5mm solid #3E4C59; padding:2mm 1.5mm; text-align:left; }
+    .psheet td { padding:1.8mm 1.5mm; border-bottom:0.2mm solid #CBD2D9; font-size:10pt;
+                 vertical-align:top; }
+    .psheet .r { text-align:right; font-family:'IBM Plex Mono',monospace; }
+    .psheet tfoot td { border-top:0.6mm solid #1F2933; border-bottom:none; font-weight:700;
+                       font-size:12pt; padding-top:2.5mm; }
+    .psheet .foot { margin-top:10mm; font-size:8.5pt; color:#3E4C59; }
+    .psheet tr { break-inside:avoid; }
+    .psheet thead { display:table-header-group; }
+  }
 
   .totbar { flex:none; display:flex; background:var(--paper); border-bottom:1px solid var(--hair); }
   .totbar .seg { flex:1; padding:8px 11px; border-right:1px solid var(--hair); }
@@ -296,6 +369,7 @@
 <div class="tabs">
   <button class="tab on" id="tabParties" data-t="parties">Parties <span class="n" id="nParties"></span></button>
   <button class="tab" id="tabItems" data-t="items">Items <span class="n" id="nItems"></span></button>
+  <button class="tab" id="tabCompanies" data-t="companies">Firms <span class="n" id="nCompanies"></span></button>
 </div>
 
 <div class="tools">
@@ -333,6 +407,30 @@
   </footer>
 </div>
 
+<div class="acc" id="acc">
+  <div class="accbar">
+    <button class="icb" id="accBack" aria-label="Back">‹</button>
+    <div class="who"><h3 id="accName">—</h3><div class="sub" id="accSub"></div></div>
+    <div class="spacer"></div>
+    <button class="abtn" id="accPrint">Print</button>
+  </div>
+  <div class="accfilt">
+    <select id="accRange">
+      <option value="all">All entries</option>
+      <option value="tm">This month</option>
+      <option value="lm">Last month</option>
+      <option value="3m">Last 3 months</option>
+      <option value="ty">This year</option>
+      <option value="cu">Between two dates…</option>
+    </select>
+    <div class="two" id="accDates" style="display:none">
+      <input id="accFrom" type="date"><input id="accTo" type="date">
+    </div>
+  </div>
+  <div class="accwrap" id="accWrap"></div>
+</div>
+
+<div class="psheet" id="psheet"></div>
 <div class="toast" id="toast"></div>
 
 <div class="ask" id="ask">
@@ -361,7 +459,7 @@
   };
 
   var sb = null, tab = 'parties', editing = null, dirty = false;
-  var db = { parties: [], items: [] };
+  var db = { parties: [], items: [], companies: [] };
 
   /* ---------- helpers ---------- */
   function fmt(n) {
@@ -430,6 +528,10 @@
     return { name:'', kind:'customer', phone:'', city:'', address:'', ntn:'',
              opening:0, opening_side:'dr', notes:'', active:true };
   }
+  function blankCompany() {
+    return { name:'', address:'', city:'', phone:'', email:'', ntn:'', strn:'',
+             logo:'', is_default:false, notes:'', active:true };
+  }
   function blankItem() {
     return { name:'', unit:'pcs', sale_rate:0, buy_rate:0, tax_pct:0,
              opening_qty:0, opening_rate:0, hs_code:'', notes:'', active:true };
@@ -448,6 +550,7 @@
 
     $('nParties').textContent = db.parties.length ? '(' + db.parties.length + ')' : '';
     $('nItems').textContent   = db.items.length   ? '(' + db.items.length   + ')' : '';
+    $('nCompanies').textContent = db.companies.length ? '(' + db.companies.length + ')' : '';
     $('searchWrap').classList.toggle('has', !!$('q').value);
 
     var box = $('rows');
@@ -455,10 +558,13 @@
       box.innerHTML = '<div class="empty">' +
         (q ? '<div class="big">Nothing matched “' + esc($('q').value) + '”</div>' +
              '<div class="sm">Try a shorter word, or add it as a new ' +
-             (tab === 'parties' ? 'party' : 'item') + '.</div>'
+             (tab === 'parties' ? 'party' : tab === 'companies' ? 'firm' : 'item') + '.</div>'
            : tab === 'parties'
              ? '<div class="big">No parties yet</div><div class="sm">Add the people and firms you ' +
                'buy from and sell to. Only the name is required — the rest can wait.</div>'
+             : tab === 'companies'
+             ? '<div class="big">No firms yet</div><div class="sm">Add the firm whose name should ' +
+               'print at the top of a bill. Add its logo too, if you have one.</div>'
              : '<div class="big">No items yet</div><div class="sm">Add what you buy and sell. ' +
                'Name and unit are enough to start; rates can come later.</div>') + '</div>';
       return;
@@ -468,11 +574,16 @@
     list.forEach(function (r) {
       var first = (r.name || '?').trim().charAt(0).toUpperCase();
       if (first !== letter) { letter = first; html += '<div class="letter">' + esc(letter) + '</div>'; }
+      var av = (tab === 'companies' && r.logo)
+             ? '<div class="av" style="padding:2px;background:#fff"><img src="' + esc(r.logo) +
+               '" alt="" style="max-width:100%;max-height:100%"></div>'
+             : '<div class="av">' + esc(first) + '</div>';
       html += '<div class="row' + (r.active ? '' : ' off') + '" data-id="' + r.id + '">' +
-              '<div class="av">' + esc(first) + '</div><div class="mid">' +
+              av + '<div class="mid">' +
               '<div class="nm">' + esc(r.name) + '</div><div class="sub">' +
-              (tab === 'parties' ? partySub(r) : itemSub(r)) + '</div></div>' +
-              (tab === 'parties' ? partyAmt(r) : itemAmt(r)) + '</div>';
+              (tab === 'parties' ? partySub(r) : tab === 'companies' ? firmSub(r) : itemSub(r)) +
+              '</div></div>' +
+              (tab === 'parties' ? partyAmt(r) : tab === 'companies' ? firmAmt(r) : itemAmt(r)) + '</div>';
     });
     box.innerHTML = html;
     drawTotals();
@@ -488,6 +599,17 @@
     $('totDr').textContent = dr ? money(dr) : '\u2014';
     $('totCr').textContent = cr ? money(cr) : '\u2014';
     bar.style.display = 'flex';
+  }
+  function firmSub(c) {
+    var bits = [];
+    if (c.city) bits.push(esc(c.city));
+    if (c.phone) bits.push(esc(c.phone));
+    if (c.ntn) bits.push('NTN ' + esc(c.ntn));
+    return bits.length ? bits.join(' \u00B7 ') : '<span style="color:#AEB6BF">no details yet</span>';
+  }
+  function firmAmt(c) {
+    if (c.is_default) return '<div class="amt cr">\u2713<span class="tag">DEFAULT</span></div>';
+    return '<div class="amt zero">\u2014<span class="tag">&nbsp;</span></div>';
   }
   function partySub(p) {
     var k = KINDS.filter(function (x) { return x[0] === p.kind; })[0];
@@ -525,6 +647,46 @@
     }).join('');
   }
   function fieldset(r) {
+    if (tab === 'companies') {
+      return '' +
+      '<div class="grp">Logo</div>' +
+      '<div class="f"><div class="logobox">' +
+        '<div class="logopv" id="logoPv">' +
+          (r.logo ? '<img src="' + esc(r.logo) + '" alt="">' : '<div class="no">No logo</div>') +
+        '</div>' +
+        '<div class="logoacts">' +
+          '<button class="btn" id="logoPick" type="button">Choose image</button>' +
+          (r.logo ? '<button class="btn dgr" id="logoClr" type="button">Remove</button>' : '') +
+          '<input id="logoFile" type="file" accept="image/*" style="display:none">' +
+        '</div>' +
+      '</div><div class="hint">Shown on printed bills and statements. Any size is fine — it gets ' +
+        'shrunk automatically so bills stay quick to open.</div></div>' +
+
+      '<div class="grp">Firm</div>' +
+      '<div class="f" id="fName"><label>Name</label>' +
+        '<input id="eName" type="text" value="' + esc(r.name) + '" placeholder="Osman Haji Tayyab" ' +
+        'autocomplete="off"><div class="hint" id="hName">This is what prints at the top of a bill.</div></div>' +
+      '<div class="f"><label>Address</label><textarea id="eAddr">' + esc(r.address) + '</textarea></div>' +
+      '<div class="f2">' +
+        '<div class="f"><label>City</label><input id="eCity" type="text" value="' + esc(r.city) + '" autocomplete="off"></div>' +
+        '<div class="f"><label>Phone</label><input id="ePhone" type="tel" value="' + esc(r.phone) + '" autocomplete="off"></div>' +
+      '</div>' +
+      '<div class="f"><label>Email</label><input id="eMail" type="email" value="' + esc(r.email) + '" autocomplete="off"></div>' +
+
+      '<div class="grp">Tax</div>' +
+      '<div class="f2">' +
+        '<div class="f"><label>NTN</label><input id="eNtn" type="text" value="' + esc(r.ntn) + '" autocomplete="off"></div>' +
+        '<div class="f"><label>STRN</label><input id="eStrn" type="text" value="' + esc(r.strn) + '" autocomplete="off"></div>' +
+      '</div>' +
+
+      '<div class="grp">Other</div>' +
+      '<div class="swrow"><div class="lbl">Use by default' +
+        '<div class="sub">New bills start with this firm.</div></div>' +
+        '<button class="sw' + (r.is_default ? ' on' : '') + '" id="eDefault" role="switch" aria-checked="' +
+        (r.is_default ? 'true' : 'false') + '"></button></div>' +
+      '<div class="f"><label>Notes</label><textarea id="eNotes">' + esc(r.notes) + '</textarea></div>' +
+      swActive(r);
+    }
     if (tab === 'parties') {
       return '' +
       '<div class="grp">Who they are</div>' +
@@ -677,46 +839,189 @@
     return { events:ev, balance:run };
   }
 
+  /* ---- tareekh se chhaanna ---- */
+  function rangeBounds(kind) {
+    var d = new Date(), y = d.getFullYear(), m = d.getMonth();
+    function iso(dt) {
+      return new Date(dt.getTime() - dt.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+    }
+    if (kind === 'tm') return [iso(new Date(y, m, 1)), iso(new Date(y, m + 1, 0))];
+    if (kind === 'lm') return [iso(new Date(y, m - 1, 1)), iso(new Date(y, m, 0))];
+    if (kind === '3m') return [iso(new Date(y, m - 2, 1)), iso(new Date(y, m + 1, 0))];
+    if (kind === 'ty') return [iso(new Date(y, 0, 1)), iso(new Date(y, 11, 31))];
+    if (kind === 'cu') return [$('accFrom').value || '', $('accTo').value || ''];
+    return ['', ''];
+  }
+
   function ledgerHtml(p) {
     var acc = buildAccount(p);
+    var kind = $('accRange').value;
+    var b = rangeBounds(kind), from = b[0], to = b[1];
+
+    // hadd se pehle ka sab jama kar ke "aage laaya gaya" ki ek line
+    var before = 0, shown = [];
+    acc.events.forEach(function (e) {
+      var dt = e.date || '';
+      if (from && (!dt || dt < from)) { before = r2(before + e.delta); return; }
+      if (to && dt && dt > to) return;
+      shown.push(e);
+    });
+
     var v = acc.balance, dr = v > 0;
     var h = '<div class="accsum ' + (v ? (dr ? 'dr' : 'cr') : 'nil') + '">' +
-      '<div class="k">' + (v ? (dr ? 'To collect from them' : 'Payable to them') : 'Nothing outstanding') + '</div>' +
-      '<div class="v">' + money(Math.abs(v)) + '</div></div>';
+      '<div class="k">' + (v ? (dr ? 'To collect from them' : 'Payable to them') : 'Nothing outstanding') +
+      '</div><div class="v">' + money(Math.abs(v)) + '</div></div>';
 
     if (!acc.events.length) {
       return h + '<div class="accempty">No entries yet. Bills and ledger lines for ' +
              esc(p.name) + ' will appear here.</div>';
     }
+    if (!shown.length) {
+      return h + '<div class="accempty">Nothing in this period.<br>Balance carried forward is ' +
+             money(Math.abs(before)) + ' ' + (before >= 0 ? 'Dr' : 'Cr') + '.</div>';
+    }
 
-    h += '<div class="acclist">';
-    acc.events.forEach(function (e) {
+    var totDr = 0, totCr = 0;
+    var rows = '';
+    if (from && before) {
+      rows += '<tr class="bf"><td class="dt">\u2014</td><td class="pt">Brought forward</td>' +
+              '<td class="r drcol"></td><td class="r crcol"></td>' +
+              '<td class="r amtcol"></td>' +
+              '<td class="r bal">' + money(Math.abs(before)) + ' ' + (before >= 0 ? 'Dr' : 'Cr') + '</td></tr>';
+    }
+    var run = from ? before : 0;
+    shown.forEach(function (e) {
+      run = r2(run + e.delta);
+      var isDr = e.delta >= 0;
+      if (isDr) totDr += e.delta; else totCr += -e.delta;
       var tap = (e.kind === 'bill' || e.kind === 'billpaid') ? ' data-bill="' + e.id + '"'
               : (e.kind === 'day' ? ' data-day="' + e.date + '"' : '');
-      var cls = 'accrow' + (tap ? ' tap' : '');
-      h += '<div class="' + cls + '"' + tap + '>' +
-        '<div class="d">' + esc(e.date ? dayText(e.date).slice(0, 6) : '\u2014') + '</div>' +
-        '<div class="m"><div class="l">' + esc(e.label) + '</div>' +
-        (e.sub ? '<div class="s">' + esc(e.sub.slice(0, 46)) + '</div>' : '') + '</div>' +
-        '<div class="a"><div class="' + (e.delta >= 0 ? 'up' : 'dn') + '">' +
-          (e.delta >= 0 ? '+' : '\u2212') + ' ' + money(Math.abs(e.delta)) + '</div>' +
-        '<div class="b">' + money(Math.abs(e.bal)) + (e.bal >= 0 ? ' Dr' : ' Cr') + '</div></div>' +
-        '</div>';
+      rows += '<tr class="' + (tap ? 'tap' : '') + '"' + tap + '>' +
+        '<td class="dt">' + esc(e.date ? dayText(e.date) : '\u2014') + '</td>' +
+        '<td class="pt"><div class="l">' + esc(e.label) + '</div>' +
+          (e.sub ? '<div class="s">' + esc(e.sub.slice(0, 60)) + '</div>' : '') + '</td>' +
+        '<td class="r drcol' + (isDr ? ' dr' : '') + '">' + (isDr ? money(e.delta) : '') + '</td>' +
+        '<td class="r crcol' + (!isDr ? ' cr' : '') + '">' + (!isDr ? money(-e.delta) : '') + '</td>' +
+        '<td class="r amtcol ' + (isDr ? 'dr' : 'cr') + '">' +
+          (isDr ? '' : '\u2212 ') + money(Math.abs(e.delta)) + '</td>' +
+        '<td class="r bal">' + money(Math.abs(run)) + ' ' + (run >= 0 ? 'Dr' : 'Cr') + '</td></tr>';
     });
-    h += '</div><div class="accnote">Tap a bill to open it. Tap a received or paid line to see that day\u2019s sheet.</div>';
+
+    h += '<table class="acct"><thead><tr>' +
+      '<th style="width:76px">Date</th><th>Particulars</th>' +
+      '<th class="r drcol" style="width:92px">Debit</th>' +
+      '<th class="r crcol" style="width:92px">Credit</th>' +
+      '<th class="r amtcol" style="width:96px">Amount</th>' +
+      '<th class="r" style="width:104px">Balance</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody><tfoot><tr>' +
+      '<td></td><td>Closing balance</td>' +
+      '<td class="r drcol">' + money(totDr) + '</td>' +
+      '<td class="r crcol">' + money(totCr) + '</td>' +
+      '<td class="r amtcol"></td>' +
+      '<td class="r">' + money(Math.abs(run)) + ' ' + (run >= 0 ? 'Dr' : 'Cr') + '</td>' +
+      '</tr></tfoot></table>' +
+      '<div class="accnote">Tap a bill to open it. Tap a received or paid line to see that day\u2019s sheet.</div>';
     return h;
   }
 
+  /* ---- khata kholna ---- */
+  var accParty = null;
   function showLedger(p) {
-    $('edBody').innerHTML = '<div class="accempty">Loading the account\u2026</div>';
+    accParty = p;
+    $('accName').textContent = p.name;
+    var bits = [p.city, p.phone].filter(Boolean).join('  \u00B7  ');
+    $('accSub').textContent = bits || 'Account';
+    $('accWrap').innerHTML = '<div class="accempty">Loading the account\u2026</div>';
+    $('acc').classList.add('on');
     loadLedgerData().then(function () {
-      if (edView !== 'ledger' || !editing) return;
-      $('edBody').innerHTML = ledgerHtml(p);
+      if (accParty !== p) return;
+      $('accWrap').innerHTML = ledgerHtml(p);
     }).catch(function () {
-      if (edView === 'ledger') $('edBody').innerHTML =
+      if (accParty === p) $('accWrap').innerHTML =
         '<div class="accempty">Could not load the account. Check the connection and try again.</div>';
     });
   }
+  function redrawLedger() {
+    if (!accParty || !led.loaded) return;
+    $('accWrap').innerHTML = ledgerHtml(accParty);
+    $('accWrap').scrollTop = 0;
+  }
+  $('accBack').addEventListener('click', function () {
+    $('acc').classList.remove('on'); accParty = null;
+  });
+  $('accRange').addEventListener('change', function () {
+    $('accDates').style.display = this.value === 'cu' ? 'flex' : 'none';
+    redrawLedger();
+  });
+  $('accFrom').addEventListener('change', redrawLedger);
+  $('accTo').addEventListener('change', redrawLedger);
+
+  /* ---- khata chhapna ---- */
+  function defaultCompany() {
+    var list = db.companies.filter(function (c) { return c.active !== false; });
+    return list.filter(function (c) { return c.is_default; })[0] || list[0] || null;
+  }
+  function printAccount() {
+    var p = accParty; if (!p || !led.loaded) return;
+    var acc = buildAccount(p);
+    var kind = $('accRange').value, b = rangeBounds(kind), from = b[0], to = b[1];
+    var before = 0, shown = [];
+    acc.events.forEach(function (e) {
+      var dt = e.date || '';
+      if (from && (!dt || dt < from)) { before = r2(before + e.delta); return; }
+      if (to && dt && dt > to) return;
+      shown.push(e);
+    });
+    if (!shown.length) { toast('Nothing to print in this period', true); return; }
+
+    var c = defaultCompany();
+    var rows = '', run = from ? before : 0, totDr = 0, totCr = 0;
+    if (from && before) {
+      rows += '<tr><td>\u2014</td><td>Brought forward</td><td class="r"></td><td class="r"></td>' +
+              '<td class="r">' + money(Math.abs(before)) + ' ' + (before >= 0 ? 'Dr' : 'Cr') + '</td></tr>';
+    }
+    shown.forEach(function (e) {
+      run = r2(run + e.delta);
+      var isDr = e.delta >= 0;
+      if (isDr) totDr += e.delta; else totCr += -e.delta;
+      rows += '<tr><td>' + esc(e.date ? dayText(e.date) : '\u2014') + '</td>' +
+        '<td>' + esc(e.label) + (e.sub ? ' \u2014 ' + esc(e.sub.slice(0, 60)) : '') + '</td>' +
+        '<td class="r">' + (isDr ? money(e.delta) : '') + '</td>' +
+        '<td class="r">' + (!isDr ? money(-e.delta) : '') + '</td>' +
+        '<td class="r">' + money(Math.abs(run)) + ' ' + (run >= 0 ? 'Dr' : 'Cr') + '</td></tr>';
+    });
+
+    var period = from || to
+      ? (from ? dayText(from) : 'start') + '  to  ' + (to ? dayText(to) : 'today')
+      : 'All entries';
+
+    $('psheet').innerHTML =
+      '<div class="hd">' +
+        (c && c.logo ? '<img src="' + esc(c.logo) + '" alt="">' : '') +
+        '<div><div class="firm">' + esc(c ? c.name : 'Statement') + '</div>' +
+        (c ? '<div class="adr">' +
+            [c.address, c.city, c.phone, c.ntn ? 'NTN ' + c.ntn : ''].filter(Boolean).map(esc).join('<br>') +
+            '</div>' : '') +
+        '</div>' +
+        '<div class="rt"><div class="ttl">Statement of Account</div>' +
+        '<div>' + esc(period) + '</div></div>' +
+      '</div>' +
+      '<div class="who"><div class="lb">Account of</div>' +
+        '<div class="nm">' + esc(p.name) + '</div>' +
+        [p.address, p.city, p.phone].filter(Boolean).map(function (x) { return '<div>' + esc(x) + '</div>'; }).join('') +
+      '</div>' +
+      '<table><thead><tr><th style="width:26mm">Date</th><th>Particulars</th>' +
+        '<th class="r" style="width:26mm">Debit</th><th class="r" style="width:26mm">Credit</th>' +
+        '<th class="r" style="width:30mm">Balance</th></tr></thead>' +
+        '<tbody>' + rows + '</tbody><tfoot><tr><td></td><td>Closing balance</td>' +
+        '<td class="r">' + money(totDr) + '</td><td class="r">' + money(totCr) + '</td>' +
+        '<td class="r">' + money(Math.abs(run)) + ' ' + (run >= 0 ? 'Dr' : 'Cr') + '</td>' +
+        '</tr></tfoot></table>' +
+      '<div class="foot">Dr = amount receivable from them \u00B7 Cr = amount payable to them. ' +
+        'Printed ' + dayText(new Date().toISOString().slice(0, 10)) + '.</div>';
+    window.print();
+  }
+  $('accPrint').addEventListener('click', printAccount);
 
   function jump(app, arg) {
     try { window.parent.postMessage({ oht:'open', app:app, arg:arg }, '*'); } catch (e) {}
@@ -730,9 +1035,11 @@
   });
 
   function openEditor(rec) {
-    editing = rec ? JSON.parse(JSON.stringify(rec)) : (tab === 'parties' ? blankParty() : blankItem());
+    editing = rec ? JSON.parse(JSON.stringify(rec))
+                  : (tab === 'parties' ? blankParty() : tab === 'companies' ? blankCompany() : blankItem());
     dirty = false;
-    $('edTitle').textContent = (rec ? 'Edit ' : 'New ') + (tab === 'parties' ? 'party' : 'item');
+    $('edTitle').textContent = (rec ? 'Edit ' : 'New ') +
+      (tab === 'parties' ? 'party' : tab === 'companies' ? 'firm' : 'item');
     edView = 'details';
     var isParty = (tab === 'parties') && !!rec;
     $('edTabs').style.display = isParty ? 'flex' : 'none';
@@ -752,6 +1059,16 @@
       sw.setAttribute('aria-checked', on ? 'true' : 'false');
       dirty = true;
     };
+    if ($('eDefault')) {
+      var dsw = $('eDefault');
+      dsw.onclick = function () {
+        var on = !dsw.classList.contains('on');
+        dsw.classList.toggle('on', on);
+        dsw.setAttribute('aria-checked', on ? 'true' : 'false');
+        dirty = true;
+      };
+    }
+    wireLogo();
     $('edBody').addEventListener('input', function () { dirty = true; });
     $('eName').addEventListener('input', checkName);
     checkName();
@@ -777,8 +1094,12 @@
     });
     $('edBody').scrollTop = 0;
     if (v === 'ledger') {
-      $('edSave').style.display = 'none'; $('edDel').style.display = 'none';
-      showLedger(editing);
+      edView = 'details';                       // panel details par hi rahe
+      document.querySelectorAll('.et').forEach(function (x) {
+        x.classList.toggle('on', x.getAttribute('data-v') === 'details');
+      });
+      showLedger(editing);                      // khata poori screen par
+      return;
     } else {
       $('edSave').style.display = ''; $('edDel').style.display = editing && editing.id ? '' : 'none';
       $('edBody').innerHTML = fieldset(editing);
@@ -792,6 +1113,40 @@
       $('eName').addEventListener('input', checkName);
       checkName();
     }
+  }
+
+  function wireLogo() {
+    var pick = $('logoPick'); if (!pick) return;
+    pick.onclick = function () { $('logoFile').click(); };
+    $('logoFile').onchange = function () {
+      var f = this.files && this.files[0]; if (!f) return;
+      pick.disabled = true; pick.textContent = 'Working\u2026';
+      shrinkLogo(f).then(function (dataUrl) {
+        editing.logo = dataUrl; dirty = true;
+        $('logoPv').innerHTML = '<img src="' + esc(dataUrl) + '" alt="">';
+        pick.disabled = false; pick.textContent = 'Change image';
+        if (!$('logoClr')) {
+          var b = document.createElement('button');
+          b.className = 'btn dgr'; b.id = 'logoClr'; b.type = 'button'; b.textContent = 'Remove';
+          pick.parentNode.insertBefore(b, pick.nextSibling);
+          wireLogoClear();
+        }
+      }).catch(function (e) {
+        pick.disabled = false; pick.textContent = 'Choose image';
+        toast((e && e.message) || 'Could not use that image', true);
+      });
+      this.value = '';
+    };
+    wireLogoClear();
+  }
+  function wireLogoClear() {
+    var clr = $('logoClr'); if (!clr) return;
+    clr.onclick = function () {
+      editing.logo = ''; dirty = true;
+      $('logoPv').innerHTML = '<div class="no">No logo</div>';
+      $('logoPick').textContent = 'Choose image';
+      clr.remove();
+    };
   }
 
   function closeEditor() {
@@ -855,8 +1210,49 @@
   }
   function readVal(id) { var el = $(id); return el ? el.value.trim() : ''; }
 
+  /* tasveer ko chhota kar ke halki karo — warna har bill bhaari ho jata hai */
+  function shrinkLogo(file) {
+    return new Promise(function (res, rej) {
+      if (!file) return rej(new Error('no file'));
+      if (!/^image\//.test(file.type)) return rej(new Error('That is not an image'));
+      if (file.size > 12 * 1024 * 1024) return rej(new Error('That image is too large'));
+      var fr = new FileReader();
+      fr.onerror = function () { rej(new Error('Could not read the file')); };
+      fr.onload = function () {
+        var img = new Image();
+        img.onerror = function () { rej(new Error('Could not read the image')); };
+        img.onload = function () {
+          var MAX = 420;
+          var w = img.width, hh = img.height;
+          if (!w || !hh) return rej(new Error('Could not read the image'));
+          var s = Math.min(1, MAX / Math.max(w, hh));
+          var cw = Math.max(1, Math.round(w * s)), ch = Math.max(1, Math.round(hh * s));
+          var cv = document.createElement('canvas');
+          cv.width = cw; cv.height = ch;
+          var cx = cv.getContext('2d');
+          cx.drawImage(img, 0, 0, cw, ch);
+          // PNG shaffaaf pas-manzar rakhta hai; JPEG chhoti hoti hai
+          var png = cv.toDataURL('image/png');
+          var jpg = cv.toDataURL('image/jpeg', 0.86);
+          var out = (png.length <= jpg.length * 1.35) ? png : jpg;
+          if (out.length > 900000) out = cv.toDataURL('image/jpeg', 0.7);
+          res(out);
+        };
+        img.src = fr.result;
+      };
+      fr.readAsDataURL(file);
+    });
+  }
+
   function collect() {
     var act = $('eActive').classList.contains('on');
+    if (tab === 'companies') {
+      return { name:readVal('eName'), address:readVal('eAddr'), city:readVal('eCity'),
+               phone:readVal('ePhone'), email:readVal('eMail'), ntn:readVal('eNtn'),
+               strn:readVal('eStrn'), logo:(editing && editing.logo) || '',
+               is_default:$('eDefault').classList.contains('on'),
+               notes:readVal('eNotes'), active:act };
+    }
     if (tab === 'parties') {
       return { name:readVal('eName'), kind:readVal('eKind'), phone:readVal('ePhone'),
                city:readVal('eCity'), address:readVal('eAddr'), ntn:readVal('eNtn'),
@@ -875,12 +1271,14 @@
     syncNote('Loading…');
     return Promise.all([
       sb.from('parties').select('*'),
-      sb.from('items').select('*')
+      sb.from('items').select('*'),
+      sb.from('companies').select('*')
     ]).then(function (r) {
       if (r[0].error) throw r[0].error;
       if (r[1].error) throw r[1].error;
-      db.parties = r[0].data || [];
-      db.items   = r[1].data || [];
+      db.parties   = r[0].data || [];
+      db.items     = r[1].data || [];
+      db.companies = r[2].error ? [] : (r[2].data || []);   // SQL na chali ho to bhi app chale
       syncNote('');
       render();
       if (db.parties.length) loadLedgerData().then(drawTotals).catch(function () {});
@@ -908,6 +1306,16 @@
         db[tab] = db[tab].map(function (r) { return r.id === editing.id ? (row || r) : r; });
       }
       led.loaded = false;                      // khata dobara banega
+      if (tab === 'companies' && body.is_default) {
+        var mine = row ? row.id : (editing && editing.id);
+        var others = db.companies.filter(function (c) { return c.is_default && c.id !== mine; });
+        db.companies = db.companies.map(function (c) {
+          return (c.is_default && c.id !== mine) ? Object.assign({}, c, { is_default:false }) : c;
+        });
+        others.forEach(function (c) {
+          sb.from('companies').update({ is_default:false }).eq('id', c.id).then(function () {});
+        });
+      }
       syncNote('Saved', '#7DC9A9');
       toast(isNew ? 'Added ' + body.name : 'Saved ' + body.name);
       closeEditor(); render();
@@ -944,8 +1352,8 @@
       b.classList.add('on');
       tab = b.getAttribute('data-t');
       $('q').value = '';
-      $('q').placeholder = tab === 'parties' ? 'Search by name, phone or city…' : 'Search by name…';
-      $('newBtn').textContent = tab === 'parties' ? '+ Party' : '+ Item';
+      $('q').placeholder = tab === 'items' ? 'Search by name…' : 'Search by name, phone or city…';
+      $('newBtn').textContent = tab === 'parties' ? '+ Party' : tab === 'companies' ? '+ Firm' : '+ Item';
       render();
     });
   });
