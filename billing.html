@@ -63,6 +63,7 @@
   .brow { display:flex; align-items:center; gap:11px; padding:11px 12px;
           border-bottom:1px solid var(--hair); cursor:pointer; }
   .brow:hover { background:#FAFBFC; }
+  .brow:focus-visible { outline:none; background:#EDF3F7; box-shadow:inset 3px 0 0 var(--cash); }
   .brow .no { flex:none; width:62px; font-family:'IBM Plex Mono',monospace; font-size:12px;
               font-weight:600; color:var(--slate); }
   .brow .mid { flex:1; min-width:0; }
@@ -470,7 +471,7 @@
       var p = partyById(b.party_id);
       var t = totals(normalise(b));
       var cnt = (b.lines || []).length;
-      html += '<div class="brow" data-id="' + b.id + '">' +
+      html += '<div class="brow" data-id="' + b.id + '" tabindex="0" role="button">' +
         '<div class="no">' + esc(b.vno || '—') + '</div><div class="mid">' +
         '<div class="nm">' + esc(p ? p.name : 'No party') + '</div>' +
         '<div class="sub">' + cnt + (cnt === 1 ? ' item' : ' items') +
@@ -909,10 +910,23 @@
     if (!items.length)   { toast('Add an item in Masters first', true); return; }
     openBill(null);
   });
+  function openRowById(id) {
+    var b = bills.filter(function (x) { return String(x.id) === id; })[0];
+    if (b) openBill(b);
+  }
   $('rows').addEventListener('click', function (e) {
     var row = e.target.closest('.brow'); if (!row) return;
-    var b = bills.filter(function (x) { return String(x.id) === row.getAttribute('data-id'); })[0];
-    if (b) openBill(b);
+    openRowById(row.getAttribute('data-id'));
+  });
+  $('rows').addEventListener('keydown', function (e) {
+    var row = e.target.closest('.brow'); if (!row) return;
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openRowById(row.getAttribute('data-id')); return; }
+    var rows = [].slice.call($('rows').querySelectorAll('.brow'));
+    var i = rows.indexOf(row);
+    if (e.key === 'ArrowDown') { e.preventDefault(); if (rows[i+1]) rows[i+1].focus(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); if (rows[i-1]) rows[i-1].focus(); }
+    else if (e.key === 'Home') { e.preventDefault(); if (rows[0]) rows[0].focus(); }
+    else if (e.key === 'End') { e.preventDefault(); if (rows[rows.length-1]) rows[rows.length-1].focus(); }
   });
   $('edSave').addEventListener('click', saveBill);
   $('edDel').addEventListener('click', delBill);

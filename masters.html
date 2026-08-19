@@ -66,6 +66,7 @@
          border-bottom:1px solid var(--hair); cursor:pointer; }
   .row:hover { background:#FAFBFC; }
   .row:active { background:#F2F4F5; }
+  .row:focus-visible { outline:none; background:#EDF3F7; box-shadow:inset 3px 0 0 var(--cash); }
   .row .av { flex:none; width:32px; height:32px; border-radius:8px; display:grid; place-items:center;
              font-size:13px; font-weight:700; background:var(--panel); color:var(--slate);
              border:1px solid var(--hair); }
@@ -221,6 +222,8 @@
   table.acct td.bal { font-weight:600; }
   table.acct tr.tap { cursor:pointer; }
   table.acct tr.tap:hover td { background:#F7FAFB; }
+  table.acct tr.tap:focus-visible { outline:none; }
+  table.acct tr.tap:focus-visible td { background:#EDF3F7; box-shadow:inset 3px 0 0 var(--cash); }
   table.acct tr.tap .pt .l::after { content:' \203A'; color:var(--mute); font-weight:400; }
   table.acct tr.bf td { background:var(--panel); color:var(--slate); font-size:12px; }
   table.acct tfoot td { background:var(--panel); font-weight:700; border-top:1.5px solid var(--slate);
@@ -646,7 +649,7 @@
              ? '<div class="av" style="padding:2px;background:#fff"><img src="' + esc(r.logo) +
                '" alt="" style="width:100%;height:100%;object-fit:contain"></div>'
              : '<div class="av">' + esc(first) + '</div>';
-      html += '<div class="row' + (r.active ? '' : ' off') + '" data-id="' + r.id + '">' +
+      html += '<div class="row' + (r.active ? '' : ' off') + '" data-id="' + r.id + '" tabindex="0" role="button">' +
               av + '<div class="mid">' +
               '<div class="nm">' + esc(r.name) + '</div><div class="sub">' +
               (tab === 'parties' ? partySub(r) : tab === 'companies' ? firmSub(r) : itemSub(r)) +
@@ -1004,7 +1007,8 @@
       var isIn = e.delta >= 0;
       if (isIn) totIn += e.delta; else totOut += -e.delta;
       var tap = e.kind === 'bill' ? ' data-bill="' + e.id + '"' : '';
-      rows += '<tr class="' + (tap ? 'tap' : '') + '"' + tap + '>' +
+      rows += '<tr class="' + (tap ? 'tap' : '') + '"' + tap +
+        (tap ? ' tabindex="0" role="button"' : '') + '>' +
         '<td class="dt">' + esc(e.date ? dayText(e.date) : '\u2014') + '</td>' +
         '<td class="pt"><div class="l">' + esc(e.label) + '</div>' +
           (e.sub ? '<div class="s">' + esc(e.sub.slice(0, 60)) + '</div>' : '') + '</td>' +
@@ -1242,7 +1246,8 @@
       if (isDr) totDr += e.delta; else totCr += -e.delta;
       var tap = (e.kind === 'bill' || e.kind === 'billpaid') ? ' data-bill="' + e.id + '"'
               : (e.kind === 'day' ? ' data-day="' + e.date + '"' : '');
-      rows += '<tr class="' + (tap ? 'tap' : '') + '"' + tap + '>' +
+      rows += '<tr class="' + (tap ? 'tap' : '') + '"' + tap +
+        (tap ? ' tabindex="0" role="button"' : '') + '>' +
         '<td class="dt">' + esc(e.date ? dayText(e.date) : '\u2014') + '</td>' +
         '<td class="pt"><div class="l">' + esc(e.label) + '</div>' +
           (e.sub ? '<div class="s">' + esc(e.sub.slice(0, 60)) + '</div>' : '') + '</td>' +
@@ -1392,11 +1397,24 @@
     else if (tab === 'items') { loadLedgerData().then(render).catch(function () {}); }
   });
 
-  document.addEventListener('click', function (e) {
-    var row = e.target.closest('table.acct tr.tap'); if (!row) return;
+  function openTapRow(row) {
     var b = row.getAttribute('data-bill'), d = row.getAttribute('data-day');
     if (b) jump('billing', 'bill=' + b);
     else if (d) jump('ledger', 'date=' + d);
+  }
+  document.addEventListener('click', function (e) {
+    var row = e.target.closest('table.acct tr.tap'); if (!row) return;
+    openTapRow(row);
+  });
+  document.addEventListener('keydown', function (e) {
+    var row = e.target.closest('table.acct tr.tap'); if (!row) return;
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openTapRow(row); return; }
+    var rows = [].slice.call(document.querySelectorAll('table.acct tr.tap'));
+    var i = rows.indexOf(row);
+    if (e.key === 'ArrowDown') { e.preventDefault(); if (rows[i+1]) rows[i+1].focus(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); if (rows[i-1]) rows[i-1].focus(); }
+    else if (e.key === 'Home') { e.preventDefault(); if (rows[0]) rows[0].focus(); }
+    else if (e.key === 'End') { e.preventDefault(); if (rows[rows.length-1]) rows[rows.length-1].focus(); }
   });
 
   function openEditor(rec) {
@@ -1801,11 +1819,23 @@
   $('q').addEventListener('input', render);
   $('qClr').addEventListener('click', function () { $('q').value = ''; render(); $('q').focus(); });
   $('newBtn').addEventListener('click', function () { openEditor(null); });
-  $('rows').addEventListener('click', function (e) {
-    var row = e.target.closest('.row'); if (!row) return;
-    var id = row.getAttribute('data-id');
+  function openRowById(id) {
     var rec = db[tab].filter(function (r) { return String(r.id) === id; })[0];
     if (rec) openEditor(rec);
+  }
+  $('rows').addEventListener('click', function (e) {
+    var row = e.target.closest('.row'); if (!row) return;
+    openRowById(row.getAttribute('data-id'));
+  });
+  $('rows').addEventListener('keydown', function (e) {
+    var row = e.target.closest('.row'); if (!row) return;
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openRowById(row.getAttribute('data-id')); return; }
+    var rows = [].slice.call($('rows').querySelectorAll('.row'));
+    var i = rows.indexOf(row);
+    if (e.key === 'ArrowDown') { e.preventDefault(); if (rows[i+1]) rows[i+1].focus(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); if (rows[i-1]) rows[i-1].focus(); }
+    else if (e.key === 'Home') { e.preventDefault(); if (rows[0]) rows[0].focus(); }
+    else if (e.key === 'End') { e.preventDefault(); if (rows[rows.length-1]) rows[rows.length-1].focus(); }
   });
   $('edSave').addEventListener('click', saveRec);
   $('edDel').addEventListener('click', delRec);
