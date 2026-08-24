@@ -350,6 +350,26 @@
   function fmt(n) { return (Number(n) || 0).toLocaleString('en-PK', { maximumFractionDigits:2 }); }
   function money(n) { return (Number(n) || 0).toLocaleString('en-PK', { minimumFractionDigits:2, maximumFractionDigits:2 }); }
   function norm(s) { return String(s == null ? '' : s).trim().toLowerCase().replace(/\s+/g, ' '); }
+  /* print se pehle logo ki tasveer poori tarah load hone do — warna print preview me khali reh jati hai */
+  function printWhenReady(container) {
+    var img = container.querySelector('img');
+    if (!img || img.complete) { window.print(); return; }
+    var done = false;
+    function go() { if (done) return; done = true; window.print(); }
+    img.addEventListener('load', go);
+    img.addEventListener('error', go);
+    setTimeout(go, 1500);   // agar tasveer atak jaye to bhi print ruke nahi
+  }
+  /* file ke naam ke liye khaas nishaan (/ \ : * ? " < > |) hata do */
+  /* file ke naam ke liye — hamesha DD-Mon-YYYY, dash ke saath (locale par munhasir nahi) */
+  var MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  function fileDate(iso) {
+    if (!iso) return '';
+    var d = new Date(iso + 'T00:00:00');
+    return String(d.getDate()).padStart(2, '0') + '-' + MONTHS_SHORT[d.getMonth()] + '-' + d.getFullYear();
+  }
+  function fileSafe(s) { return String(s == null ? '' : s).replace(/[\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim(); }
+
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
     return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]; }); }
   function today() { var d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset()*60000).toISOString().slice(0,10); }
@@ -387,8 +407,15 @@
     var m = ((e.message || '') + ' ' + (e.details || '') + ' ' + (e.code || '')).toLowerCase();
     return /failed to fetch|networkerror|network error|load failed|fetch failed|timeout|aborted|err_/.test(m);
   }
+  /* phone ka waqt server se mel nahi khata — khud theek ho jata hai jab ghari sahi ho jaye */
+  function isClockErr(e) {
+    if (!e) return false;
+    var m = ((e.message || '') + ' ' + (e.error_description || '')).toLowerCase();
+    return /issued at.*future|clock skew|jwt.*future/.test(m);
+  }
   function sayErr(e, what) {
     if (isNetErr(e)) { toast('No internet — ' + what + ' not saved', true); syncNote('Offline', '#B08A3E'); return; }
+    if (isClockErr(e)) { toast('Your phone\u2019s clock looks slightly off \u2014 check Date & Time settings', true); return; }
     if (e && String(e.code) === '23505') { toast('That bill number is already used', true); return; }
     console.error(e); toast((e && e.message) || ('Could not ' + what), true);
   }
@@ -856,7 +883,13 @@
       (b.narration ? '<div class="note">' + esc(b.narration) + '</div>' : '') +
       '<div class="foot"><div class="sign">Prepared by</div><div class="sign">Received by</div></div>';
 
-    window.print();
+    var oldTitle = document.title;
+    document.title = fileSafe(b.vno) + '-' + fileSafe(p ? p.name : 'Party') + '-' + fileDate(b.vdate);
+    window.addEventListener('afterprint', function restore() {
+      document.title = oldTitle;
+      window.removeEventListener('afterprint', restore);
+    });
+    printWhenReady($('sheet'));
   }
 
   /* ---------- cloud ---------- */
@@ -887,6 +920,11 @@
       }
     }).catch(function (e) {
       if (isNetErr(e)) { syncNote('Offline', '#B08A3E'); toast('No internet — nothing loaded', true); }
+      else if (isClockErr(e)) {
+        syncNote('Retrying…', '#B08A3E');
+        toast('Your phone\u2019s clock looks slightly off \u2014 retrying automatically', true);
+        setTimeout(loadAll, 4000);
+      }
       else { console.error(e); toast((e && e.message) || 'Could not load', true); syncNote('Error', '#E89A9A'); }
       render();
     });
@@ -987,7 +1025,8 @@
     sb.auth.signInWithPassword({ email:mail, password:pass }).then(function (res) {
       $('lGo').disabled = false; $('lGo').textContent = 'Sign in';
       if (res.error) { showErr('lErr', isNetErr(res.error) ? 'No internet. Connect and try again.'
-                                                          : 'That email and password did not match.'); return; }
+                                        : isClockErr(res.error) ? 'Your phone\u2019s clock looks slightly off \u2014 check Date & Time settings and try again.'
+                                        : 'That email and password did not match.'); return; }
       $('lPass').value = ''; $('gateLogin').classList.remove('on'); start();
     }).catch(function (e) {
       $('lGo').disabled = false; $('lGo').textContent = 'Sign in';
@@ -1004,10 +1043,14 @@
       .then(function (ok) { if (ok) sb.auth.signOut().then(function () { location.reload(); }); });
   });
 
-  function afterConnect() {
+  function afterConnect(attempt) {
+    attempt = attempt || 1;
     sb.auth.getSession().then(function (res) {
       if (res.data && res.data.session) start(); else $('gateLogin').classList.add('on');
-    }).catch(function () { $('gateLogin').classList.add('on'); });
+    }).catch(function (e) {
+      if (isClockErr(e) && attempt < 5) { setTimeout(function () { afterConnect(attempt + 1); }, 3000); return; }
+      $('gateLogin').classList.add('on');
+    });
   }
   var wanted = null;
   function gotoArg(arg) {

@@ -714,6 +714,12 @@
     var m = ((e.message || '') + ' ' + (e.details || '') + ' ' + (e.code || '')).toLowerCase();
     return /failed to fetch|networkerror|network error|load failed|fetch failed|network request failed|timeout|aborted|err_/.test(m);
   }
+  /* phone ka waqt server se mel nahi khata — khud theek ho jata hai jab ghari sahi ho jaye */
+  function isClockErr(e) {
+    if (!e) return false;
+    var m = ((e.message || '') + ' ' + (e.error_description || '')).toLowerCase();
+    return /issued at.*future|clock skew|jwt.*future/.test(m);
+  }
   var retryTimer = null;
   function retrySoon() {
     if (retryTimer) return;
@@ -727,6 +733,11 @@
       if (res.error) {
         if (isNetErr(res.error)) {
           syncNote('Offline \u2014 saved on this device', '#B08A3E');
+          return false;
+        }
+        if (isClockErr(res.error)) {
+          syncNote('Retrying\u2026', '#B08A3E');
+          setTimeout(pullAll, 4000);
           return false;
         }
         syncNote('Cloud error', '#E89A9A');
@@ -751,15 +762,23 @@
 
   /* teen-tarfa milaan: baseline (pichli baar cloud se mila tha), yeh device (abhi), doosra device (abhi cloud par).
      jo khaana hum ne khud nahi chheda (baseline jaisa hi hai), wahan doosre ka kaam le lo.
-     jo khaana hum ne chheda hai, wahan apna hi rakho. isi tarah koi bhi kisi ka kaam nahi mitata. */
+     jo khaana hum ne chheda hai, wahan apna hi rakho. isi tarah koi bhi kisi ka kaam nahi mitata.
+     agar dono ne isi jagah par ALAG ALAG nayi line daali ho (jo pehle kisi ke paas nahi thi),
+     to unhe ek hi line na samjho — dono ko alag alag rakho. */
+  function rowsEqual(a, b) { return JSON.stringify(a || null) === JSON.stringify(b || null); }
   function mergeRows(baseRows, localRows, remoteRows) {
     baseRows = baseRows || []; localRows = localRows || []; remoteRows = remoteRows || [];
     var maxLen = Math.max(baseRows.length, localRows.length, remoteRows.length);
-    var merged = [];
+    var merged = [], extras = [];
     for (var i = 0; i < maxLen; i++) {
       var b = baseRows[i], l = localRows[i], r = remoteRows[i];
+      var bExists = i < baseRows.length;
       if (l === undefined) { if (r !== undefined) merged[i] = r; continue; }
       if (r === undefined) { merged[i] = l; continue; }
+      if (!bExists && !rowsEqual(l, r)) {
+        // dono ne isi jagah bilkul nayi, alag line daali — dono ko rakho, mitao mat
+        merged[i] = l; extras.push(r); continue;
+      }
       var cellLen = Math.max((b || []).length, l.length, r.length);
       var row = [];
       for (var c = 0; c < cellLen; c++) {
@@ -769,7 +788,7 @@
       }
       merged[i] = row;
     }
-    return merged;
+    return merged.concat(extras);
   }
   /* jo sheet abhi khuli hai usay dobara dikhana — bina dobara harvest kiye, warna milaan ka natija dab jayega */
   function paintRows(iso) {
@@ -792,26 +811,22 @@
     ensureBlank(); selectRow(null); recalc(); fitAllParas(); paintAll();
   }
 
-  /* push the sheets that changed */
-  function pushPending() {
-    if (!sb || !online) { syncNote('Offline \u2014 saved on this device', '#B08A3E'); return; }
-    var dates = Object.keys(pendingSync);
-    if (!dates.length) return;
-
-    syncNote('Saving\u2026');
-    sb.from('sheets').select('*').in('sheet_date', dates).then(function (res) {
+  /* push the sheets that changed — "compare aur badlo" tareeqa:
+     agar do phone theek usi lamhe likhein, to jo pehle jeete us ka kaam mehfooz rehta hai,
+     aur haarne wala khud khamoshi se taaza data ke sath dobara koshish karta hai — koi bhi kisi ka kaam nahi khota */
+  function pushOnce(dates) {
+    return sb.from('sheets').select('*').in('sheet_date', dates).then(function (res) {
+      if (res.error) throw res.error;
       var remoteByDate = {};
-      if (!res.error) (res.data || []).forEach(function (row) { remoteByDate[row.sheet_date] = row; });
+      (res.data || []).forEach(function (row) { remoteByDate[row.sheet_date] = row; });
 
-      var payload = dates.map(function (iso) {
-        var sh = data.sheets[iso] || { opening:'', side:'cr', page:'', rows:[] };
+      return Promise.all(dates.map(function (iso) {
+        if (!data.sheets[iso]) data.sheets[iso] = { opening:'', side:'cr', page:'', rows:[] };
+        var sh = data.sheets[iso];
         var remote = remoteByDate[iso];
         var baseRows = (data.sheetBase && data.sheetBase[iso]) || [];
         var mergedRows = mergeRows(baseRows, sh.rows || [], remote ? (remote.rows || []) : []);
-        sh.rows = mergedRows;
-        if (!data.sheetBase) data.sheetBase = {};
-        data.sheetBase[iso] = JSON.parse(JSON.stringify(mergedRows));
-        return {
+        var payloadRow = {
           sheet_date: iso, firm: data.firm || '',
           opening: sh.opening || (remote && remote.opening) || '',
           side: sh.side || (remote && remote.side) || 'cr',
@@ -819,26 +834,69 @@
           rows: mergedRows,
           updated_at: new Date().toISOString()
         };
-      });
 
-      return sb.from('sheets').upsert(payload, { onConflict: 'sheet_date' });
-    }).then(function (res) {
-      if (res.error) {
-        if (isNetErr(res.error)) {          // net band hai — koi dialog nahi, khamoshi se dobara koshish
-          syncNote('Offline \u2014 saved on this device', '#B08A3E');
-          retrySoon();
+        function settled() {
+          sh.rows = mergedRows;
+          if (!data.sheetBase) data.sheetBase = {};
+          data.sheetBase[iso] = JSON.parse(JSON.stringify(mergedRows));
+          return { iso: iso, ok: true };
+        }
+
+        if (!remote) {
+          // is din ki sheet ab tak kisi ne cloud par nahi banayi — nayi banao
+          return sb.from('sheets').insert(payloadRow).select().then(function (r) {
+            if (r.error && String(r.error.code) === '23505') return { iso: iso, conflict: true };  // isi lamhe kisi ne bana di
+            if (r.error) return { iso: iso, error: r.error };
+            return settled();
+          });
+        }
+        // pehle se maujood hai — sirf tab likho jab kisi ne beech me chheda na ho (updated_at wahi ho jo hum ne dekha tha)
+        return sb.from('sheets').update(payloadRow)
+          .eq('sheet_date', iso).eq('updated_at', remote.updated_at)
+          .select().then(function (r) {
+            if (r.error) return { iso: iso, error: r.error };
+            if (!r.data || !r.data.length) return { iso: iso, conflict: true };  // kisi doosre ne isi beech likh diya
+            return settled();
+          });
+      }));
+    });
+  }
+
+  function pushPending(attempt) {
+    attempt = attempt || 1;
+    if (!sb || !online) { syncNote('Offline \u2014 saved on this device', '#B08A3E'); return; }
+    var dates = Object.keys(pendingSync);
+    if (!dates.length) return;
+
+    syncNote('Saving\u2026');
+    pushOnce(dates).then(function (results) {
+      var conflicts = results.filter(function (r) { return r.conflict; });
+      var failed = results.filter(function (r) { return r.error; });
+      results.filter(function (r) { return r.ok; }).forEach(function (r) { delete pendingSync[r.iso]; });
+
+      if (failed.length) {
+        var e = failed[0].error;
+        if (isNetErr(e)) { syncNote('Offline \u2014 saved on this device', '#B08A3E'); retrySoon(); return; }
+        if (isClockErr(e)) {
+          syncNote('Retrying\u2026', '#B08A3E');
+          setTimeout(function () { pushPending(1); }, 4000);
           return;
         }
         syncNote('Cloud error', '#E89A9A');
-        console.error('Supabase upsert failed:', res.error);
+        console.error('Supabase save failed:', e);
         ask('Could not save to cloud',
-            (res.error.message || 'Unknown error') +
-            (res.error.hint ? '  \u2014  ' + res.error.hint : '') +
-            (res.error.code ? '  (code ' + res.error.code + ')' : ''),
-            'OK', true);
+            (e.message || 'Unknown error') + (e.hint ? '  \u2014  ' + e.hint : '') +
+            (e.code ? '  (code ' + e.code + ')' : ''), 'OK', true);
         return;
       }
-      dates.forEach(function (d) { delete pendingSync[d]; });
+
+      if (conflicts.length) {
+        // doosra device isi lamhe likh raha tha — taaza data ke sath foran dobara koshish karo
+        if (attempt >= 5) { syncNote('Retrying\u2026', '#B08A3E'); setTimeout(function () { pushPending(1); }, 2500); return; }
+        setTimeout(function () { pushPending(attempt + 1); }, 150 * attempt);
+        return;
+      }
+
       store.set(KEY, JSON.stringify(data));
       if (dates.indexOf(active) !== -1) {
         var editing = document.activeElement && rowsEl.contains(document.activeElement);
@@ -1891,7 +1949,12 @@
     if (!email || !pass) { $('loginErr').textContent = 'Enter your email and password.'; return; }
     $('loginErr').textContent = 'Signing in\u2026';
     sb.auth.signInWithPassword({ email: email, password: pass }).then(function (res) {
-      if (res.error) { $('loginErr').textContent = res.error.message; return; }
+      if (res.error) {
+        $('loginErr').textContent = isClockErr(res.error)
+          ? 'Your phone\u2019s clock looks slightly off \u2014 check Date & Time settings and try again.'
+          : res.error.message;
+        return;
+      }
       startApp();
     }).catch(function () {
       $('loginErr').textContent = 'No internet. Connect and try again.';
@@ -1920,10 +1983,17 @@
     if (!cfg) { showConnect(); return; }
     sb = makeClient(cfg);
     if (!sb) { showConnect('Could not load the database library. Check your internet.'); return; }
-    sb.auth.getSession().then(function (res) {
-      if (res.data && res.data.session) startApp();
-      else showLogin();
-    }).catch(function () { showLogin('Could not reach the database.'); });
+    function checkSession(attempt) {
+      attempt = attempt || 1;
+      sb.auth.getSession().then(function (res) {
+        if (res.data && res.data.session) startApp();
+        else showLogin();
+      }).catch(function (e) {
+        if (isClockErr(e) && attempt < 5) { setTimeout(function () { checkSession(attempt + 1); }, 3000); return; }
+        showLogin('Could not reach the database.');
+      });
+    }
+    checkSession();
   })();
 })();
 </script>

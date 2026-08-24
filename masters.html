@@ -531,6 +531,30 @@
     return n.toLocaleString('en-PK', { maximumFractionDigits: 2 });
   }
   function norm(s) { return String(s == null ? '' : s).trim().toLowerCase().replace(/\s+/g, ' '); }
+  /* print se pehle logo ki tasveer poori tarah load hone do — warna print preview me khali reh jati hai */
+  function printWhenReady(container) {
+    var img = container.querySelector('img');
+    if (!img || img.complete) { window.print(); return; }
+    var done = false;
+    function go() { if (done) return; done = true; window.print(); }
+    img.addEventListener('load', go);
+    img.addEventListener('error', go);
+    setTimeout(go, 1500);   // agar tasveer atak jaye to bhi print ruke nahi
+  }
+  /* file ke naam ke liye khaas nishaan hata do, aur hamesha DD-Mon-YYYY (dash ke saath) */
+  function fileSafe(s) { return String(s == null ? '' : s).replace(/[\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim(); }
+  var MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  function fileDate(iso) {
+    if (!iso) return '';
+    var d = new Date(iso + 'T00:00:00');
+    return String(d.getDate()).padStart(2, '0') + '-' + MONTHS_SHORT[d.getMonth()] + '-' + d.getFullYear();
+  }
+  /* "All entries" chuna ho to file ke naam ke liye asal pehli/aakhri tareekh nikal lo */
+  function actualDateRange(events) {
+    var dates = events.map(function (e) { return e.date; }).filter(Boolean).sort();
+    return dates.length ? [dates[0], dates[dates.length - 1]] : [null, null];
+  }
+
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
       return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
@@ -576,8 +600,18 @@
     var m = ((e.message || '') + ' ' + (e.details || '') + ' ' + (e.code || '')).toLowerCase();
     return /failed to fetch|networkerror|network error|load failed|fetch failed|timeout|aborted|err_/.test(m);
   }
+  /* phone ka waqt server se mel nahi khata — khud theek ho jata hai jab ghari sahi ho jaye */
+  function isClockErr(e) {
+    if (!e) return false;
+    var m = ((e.message || '') + ' ' + (e.error_description || '')).toLowerCase();
+    return /issued at.*future|clock skew|jwt.*future/.test(m);
+  }
   function sayErr(e, what) {
     if (isNetErr(e)) { toast('No internet — ' + what + ' not saved', true); syncNote('Offline', '#B08A3E'); return; }
+    if (isClockErr(e)) {
+      toast('Your phone\u2019s clock looks slightly off \u2014 check Date & Time settings', true);
+      syncNote('Clock error', '#E89A9A'); return;
+    }
     if (e && String(e.code) === '23505') { toast('That name already exists', true); return; }
     if (e && String(e.code) === '23503' && what === 'delete') {
       var label = tab === 'parties' ? 'This party has bills or ledger entries'
@@ -900,6 +934,7 @@
     }).catch(function (e) {
       led.loading = false;
       if (isNetErr(e)) toast('No internet — could not load the account', true);
+      else if (isClockErr(e)) toast('Your phone\u2019s clock looks slightly off \u2014 try again in a moment', true);
       else { console.error(e); toast('Could not load the account', true); }
       throw e;
     });
@@ -1116,7 +1151,17 @@
       '<td class="r">' + fmt(totIn) + '</td><td class="r">' + fmt(totOut) + '</td>' +
       '<td class="r">' + fmt(run) + ' ' + esc(it.unit || '') + '</td></tr></tfoot></table>' +
       '<div class="foot">Printed ' + dayText(new Date().toISOString().slice(0, 10)) + '.</div>';
-    window.print();
+
+    var fFrom2 = from, fTo2 = to;
+    if (!fFrom2 && !fTo2) { var rng2 = actualDateRange(shown); fFrom2 = rng2[0]; fTo2 = rng2[1]; }
+    var oldTitle2 = document.title;
+    document.title = 'Stock-' + fileSafe(it.name) + '-' + fileDate(fFrom2) +
+                      (fTo2 && fTo2 !== fFrom2 ? ' to ' + fileDate(fTo2) : '');
+    window.addEventListener('afterprint', function restore() {
+      document.title = oldTitle2;
+      window.removeEventListener('afterprint', restore);
+    });
+    printWhenReady($('psheet'));
   }
 
   /* + = humara lena (they owe us)   − = humara dena (we owe them) */
@@ -1380,7 +1425,17 @@
         '</tr></tfoot></table>' +
       '<div class="foot">Dr = amount receivable from them \u00B7 Cr = amount payable to them. ' +
         'Printed ' + dayText(new Date().toISOString().slice(0, 10)) + '.</div>';
-    window.print();
+
+    var fFrom = from, fTo = to;
+    if (!fFrom && !fTo) { var rng = actualDateRange(shown); fFrom = rng[0]; fTo = rng[1]; }
+    var oldTitle = document.title;
+    document.title = 'Ledger-' + fileSafe(p.name) + '-' + fileDate(fFrom) +
+                      (fTo && fTo !== fFrom ? ' to ' + fileDate(fTo) : '');
+    window.addEventListener('afterprint', function restore() {
+      document.title = oldTitle;
+      window.removeEventListener('afterprint', restore);
+    });
+    printWhenReady($('psheet'));
   }
   $('accPrint').addEventListener('click', printAccount);
 
@@ -1737,6 +1792,11 @@
       if (db.parties.length) loadLedgerData().then(drawTotals).catch(function () {});
     }).catch(function (e) {
       if (isNetErr(e)) { syncNote('Offline', '#B08A3E'); toast('No internet — showing nothing yet', true); }
+      else if (isClockErr(e)) {
+        syncNote('Retrying…', '#B08A3E');
+        toast('Your phone\u2019s clock looks slightly off \u2014 retrying automatically', true);
+        setTimeout(loadAll, 4000);
+      }
       else { console.error(e); toast((e && e.message) || 'Could not load', true); syncNote('Error', '#E89A9A'); }
       render();
     });
@@ -2002,6 +2062,7 @@
     }).catch(function (e) {
       btn.disabled = false; btn.textContent = 'Backup';
       if (isNetErr(e)) toast('No internet — could not prepare the backup', true);
+      else if (isClockErr(e)) toast('Your phone\u2019s clock looks slightly off \u2014 try again in a moment', true);
       else { console.error(e); toast((e && e.message) || 'Could not prepare the backup', true); }
     });
   }
