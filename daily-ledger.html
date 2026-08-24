@@ -1917,6 +1917,15 @@
       pullAll().then(function (ok) {
         if (ok) { renderList(); openSheet(active || todayISO()); }
         loadParties();
+        // ── TASHKHEES (waqti) — is masle ke liye, baad me hata denge ──
+        var s = data.sheets['2026-08-24'];
+        var rows = (s && s.rows) || [];
+        var r0 = rows[0] ? JSON.stringify(rows[0]) : 'none';
+        var r4 = rows[4] ? JSON.stringify(rows[4]) : 'none';
+        ask('Pull check (24 Aug)',
+          'ok=' + ok + '  \u00b7  rows=' + rows.length + '  \u00b7  row0: ' + r0.slice(0, 70) +
+          '  \u00b7  row4: ' + r4.slice(0, 70),
+          'OK', true);
       });
       subscribeRealtime();
     });
