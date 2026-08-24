@@ -745,6 +745,10 @@
         return false;
       }
       (res.data || []).forEach(function (row) {
+        // is din ko abhi (pichle 3 second me) edit kiya ja raha hai to is ka model mat badlo —
+        // warna abhi-abhi ki gayi tabdeeli (jaise opening balance clear karna) cloud ki purani
+        // (abhi tak na-bheji hui) value se dab jayegi, khaas kar Realtime ki tezi ki wajah se
+        if (row.sheet_date === active && Date.now() - lastEditTime < 3000) return;
         data.sheets[row.sheet_date] = {
           opening: row.opening || '', side: row.side || 'cr',
           page: row.page || '', rows: row.rows || []
