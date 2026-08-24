@@ -2079,68 +2079,162 @@
   function ymd(iso) { return iso ? iso : ''; }
   function backupNow() {
     var btn = $('bkBtn');
-    btn.disabled = true; btn.textContent = 'Preparing\u2026';
+    btn.disabled = true; btn.textContent = 'Preparing…';
     Promise.all([
       loadXlsxLib(),
       sb.from('parties').select('*'),
       sb.from('items').select('*'),
       sb.from('companies').select('*'),
-      sb.from('vouchers').select('*'),
-      sb.from('voucher_lines').select('*')
+      sb.from('vouchers').select('*').order('vdate', { ascending: true }),
+      sb.from('voucher_lines').select('*'),
+      sb.from('sheets').select('*').order('sheet_date', { ascending: true })
     ]).then(function (r) {
       var P = r[1].error ? [] : (r[1].data || []);
       var I = r[2].error ? [] : (r[2].data || []);
       var C = r[3].error ? [] : (r[3].data || []);
       var V = r[4].error ? [] : (r[4].data || []);
       var L = r[5].error ? [] : (r[5].data || []);
+      var S = r[6].error ? [] : (r[6].data || []);
+
       var partyName = {}; P.forEach(function (p) { partyName[p.id] = p.name; });
-      var itemName = {};  I.forEach(function (i) { itemName[i.id] = i.name; });
+      var itemName  = {}; I.forEach(function (i) { itemName[i.id]  = i.name; });
       var firmName2 = {}; C.forEach(function (c) { firmName2[c.id] = c.name; });
-      var voNo = {};       V.forEach(function (v) { voNo[v.id] = v.vno || v.id; });
+      var linesByV  = {}; L.forEach(function (l) { (linesByV[l.voucher_id] = linesByV[l.voucher_id] || []).push(l); });
 
       var wb = XLSX.utils.book_new();
-      function addSheet(name, rows) {
-        var ws = XLSX.utils.json_to_sheet(rows);
-        XLSX.utils.book_append_sheet(wb, ws, name);
+
+      function mkWs() { return {}; }
+      function hdrStyle(fg, fc) {
+        return { font:{bold:true, color:{rgb: fc||'7B8794'}, sz:9},
+                 fill:{patternType:'solid', fgColor:{rgb: fg||'F2F4F5'}},
+                 alignment:{horizontal:'center', vertical:'center'},
+                 border:{ top:{style:'thin',color:{rgb:'E4E7EB'}}, bottom:{style:'thin',color:{rgb:'E4E7EB'}},
+                          left:{style:'thin',color:{rgb:'E4E7EB'}}, right:{style:'thin',color:{rgb:'E4E7EB'}} } };
       }
+      function cellStyle(bold, color, align, border) {
+        var s = { font:{bold:!!bold, color:{rgb:color||'1F2933'}, sz:10}, alignment:{horizontal:align||'left', vertical:'center'} };
+        if (border) s.border = { top:{style:'thin',color:{rgb:'E4E7EB'}}, bottom:{style:'thin',color:{rgb:'E4E7EB'}},
+                                  left:{style:'thin',color:{rgb:'E4E7EB'}}, right:{style:'thin',color:{rgb:'E4E7EB'}} };
+        return s;
+      }
+      function totalStyle(color) {
+        return { font:{bold:true, color:{rgb:color||'1F2933'}, sz:10},
+                 border:{ top:{style:'medium',color:{rgb:'1F2933'}}, bottom:{style:'medium',color:{rgb:'1F2933'}} },
+                 alignment:{horizontal:'right'} };
+      }
+      function titleStyle() { return { font:{bold:true, name:'Georgia', sz:14, color:{rgb:'1F2933'}} }; }
 
-      addSheet('Parties', P.map(function (p) {
-        return { Name:p.name, Type:p.kind, Phone:p.phone, City:p.city, Address:p.address,
-                 NTN:p.ntn, 'Opening Amount':Number(p.opening) || 0,
-                 'Opening Side':(p.opening_side === 'dr' ? 'They owe us' : 'We owe them'),
-                 Notes:p.notes, Active:p.active === false ? 'No' : 'Yes' };
-      }));
+      var INK='1F2933', MUTE='7B8794', CR_C='0E6132', DR_C='9B2C2C';
+      var CR_BG='EEF5F1', DR_BG='FBEFEF', PANEL='F2F4F5', HAIR='E4E7EB';
+      function intFmt(v) { return {v:Number(v)||0, t:'n', z:'#,##0'}; }
+      function numFmt2(v) { return v ? {v:Number(v)||0, t:'n', z:'#,##0.00'} : {v:'',t:'s'}; }
 
-      addSheet('Items', I.map(function (i) {
-        return { Name:i.name, Unit:i.unit, 'Sale Rate':Number(i.sale_rate) || 0,
-                 'Purchase Rate':Number(i.buy_rate) || 0, 'Tax %':Number(i.tax_pct) || 0,
-                 'Opening Qty':Number(i.opening_qty) || 0, 'Opening Cost Rate':Number(i.opening_rate) || 0,
-                 'Low Stock Alert':Number(i.reorder_level) || 0,
-                 'HS Code':i.hs_code, Notes:i.notes, Active:i.active === false ? 'No' : 'Yes' };
-      }));
+      /* ─── SHEET 1: LEDGER ─── */
+      var wsL = mkWs(); var rowL = 1;
+      var LC = ['A','B','C','D','E','F'];
+      function lC(r,c,v,s){ wsL[c+r]=Object.assign(typeof v==='object'?v:{v:v,t:'s'},s?{s:s}:{}); }
+      S.forEach(function (sh) {
+        var ds = sh.sheet_date ? new Date(sh.sheet_date+'T00:00:00').toLocaleDateString('en-PK',{day:'2-digit',month:'short',year:'numeric'}) : '';
+        lC(rowL,'A',sh.firm||'Daily Register',{s:titleStyle()});
+        lC(rowL,'D','Date: '+ds,{s:cellStyle(true,INK,'right')});
+        if (sh.opening && Number(sh.opening)) {
+          lC(rowL,'F','Opening: '+Number(sh.opening).toLocaleString('en-PK')+' '+(sh.side||'Cr').toUpperCase(),{s:cellStyle(true,INK,'right')});
+        }
+        rowL++;
+        lC(rowL,'A','CREDIT',{s:hdrStyle(CR_BG,CR_C)}); lC(rowL,'D','DEBIT',{s:hdrStyle(DR_BG,DR_C)}); rowL++;
+        ['Cash','Amount (Rs)','Party / Remarks','Cash','Amount (Rs)','Party / Remarks'].forEach(function(h,i){ lC(rowL,LC[i],h,{s:hdrStyle(PANEL)}); });
+        rowL++;
+        var crTot=0, drTot=0;
+        (sh.rows||[]).forEach(function(row){
+          if(!row||row.every(function(c){return !c;})) return;
+          var ca=Number((row[2]||'').replace(/,/g,''))||0, cp=row[3]||'';
+          var da=Number((row[0]||'').replace(/,/g,''))||0, dp=row[1]||'';
+          crTot+=ca; drTot+=da;
+          lC(rowL,'A',row[4]?'✓':'',{s:cellStyle(false,CR_C,'center',true)});
+          lC(rowL,'B',ca?Object.assign(intFmt(ca),{s:cellStyle(true,CR_C,'right',true)}):{v:'',t:'s',s:cellStyle(false,INK,'right',true)});
+          lC(rowL,'C',cp,{s:cellStyle(false,INK,'left',true)});
+          lC(rowL,'D',row[5]?'✓':'',{s:cellStyle(false,DR_C,'center',true)});
+          lC(rowL,'E',da?Object.assign(intFmt(da),{s:cellStyle(true,DR_C,'right',true)}):{v:'',t:'s',s:cellStyle(false,INK,'right',true)});
+          lC(rowL,'F',dp,{s:cellStyle(false,INK,'left',true)});
+          rowL++;
+        });
+        lC(rowL,'A','',{s:totalStyle(CR_C)}); lC(rowL,'B',Object.assign(intFmt(crTot),{s:totalStyle(CR_C)})); lC(rowL,'C','TOTAL CREDIT',{s:Object.assign(totalStyle(MUTE),{alignment:{horizontal:'left'}})});
+        lC(rowL,'D','',{s:totalStyle(DR_C)}); lC(rowL,'E',Object.assign(intFmt(drTot),{s:totalStyle(DR_C)})); lC(rowL,'F','TOTAL DEBIT',{s:Object.assign(totalStyle(MUTE),{alignment:{horizontal:'left'}})});
+        rowL+=2;
+      });
+      if(rowL>1){ wsL['!ref']='A1:F'+(rowL-1); wsL['!cols']=[{wch:6},{wch:14},{wch:28},{wch:6},{wch:14},{wch:28}]; XLSX.utils.book_append_sheet(wb,wsL,'Ledger'); }
 
-      addSheet('Firms', C.map(function (c) {
-        return { Name:c.name, Address:c.address, City:c.city, Phone:c.phone, Email:c.email,
-                 NTN:c.ntn, STRN:c.strn, 'Has Logo':c.logo ? 'Yes' : 'No',
-                 Default:c.is_default ? 'Yes' : 'No', Notes:c.notes,
-                 Active:c.active === false ? 'No' : 'Yes' };
-      }));
+      /* ─── SHEET 2: ACCOUNT ─── */
+      var wsA=mkWs(); var rowA=1;
+      var AC=['A','B','C','D','E'];
+      P.forEach(function(p){
+        var pB=V.filter(function(v){ return v.party_id===p.id; });
+        if(!pB.length && !Number(p.opening)) return;
+        wsA['A'+rowA]={v:p.name+(p.city?'  —  '+p.city:''),t:'s',s:titleStyle()}; rowA++;
+        ['Date','Particulars','Debit','Credit','Balance'].forEach(function(h,i){
+          wsA[AC[i]+rowA]={v:h,t:'s',s:Object.assign(hdrStyle(PANEL,MUTE),{alignment:{horizontal:i>=2?'right':'left'}})};
+        }); rowA++;
+        var bal=(p.opening_side==='dr'?1:-1)*(Number(p.opening)||0);
+        if(Number(p.opening)){
+          wsA['A'+rowA]={v:'',t:'s'}; wsA['B'+rowA]={v:'Balance brought forward',t:'s',s:cellStyle(false,MUTE,'left',true)};
+          wsA['C'+rowA]={v:'',t:'s',s:cellStyle(false,DR_C,'right',true)}; wsA['D'+rowA]={v:'',t:'s',s:cellStyle(false,CR_C,'right',true)};
+          wsA['E'+rowA]={v:Math.abs(bal).toLocaleString('en-PK')+(bal>0?' Dr':' Cr'),t:'s',s:cellStyle(true,INK,'right',true)}; rowA++;
+        }
+        pB.sort(function(a,b){return (a.vdate||'')<(b.vdate||'')?-1:1;});
+        pB.forEach(function(v){
+          var g=Number(v.grand_total)||0, pd=Number(v.paid)||0;
+          var dr=v.vtype==='sale'?g:0, cr=v.vtype==='purchase'?g:0;
+          bal+=(v.vtype==='sale'?(g-pd):-(g-pd));
+          var lns=(linesByV[v.id]||[]).length;
+          wsA['A'+rowA]={v:v.vdate||'',t:'s',s:cellStyle(false,INK,'left',true)};
+          wsA['B'+rowA]={v:(v.vtype==='sale'?'Sale ':'Purchase ')+v.vno+' — '+(partyName[v.party_id]||'')+' ('+lns+' item'+(lns!==1?'s':'')+')',t:'s',s:cellStyle(false,INK,'left',true)};
+          wsA['C'+rowA]=dr?Object.assign(intFmt(dr),{s:cellStyle(true,DR_C,'right',true)}):{v:'',t:'s',s:cellStyle(false,INK,'right',true)};
+          wsA['D'+rowA]=cr?Object.assign(intFmt(cr),{s:cellStyle(true,CR_C,'right',true)}):{v:'',t:'s',s:cellStyle(false,INK,'right',true)};
+          wsA['E'+rowA]={v:Math.abs(bal).toLocaleString('en-PK')+(bal>0?' Dr':' Cr'),t:'s',s:cellStyle(true,bal>0?DR_C:CR_C,'right',true)}; rowA++;
+        });
+        wsA['B'+rowA]={v:'Closing balance',t:'s',s:Object.assign(totalStyle(INK),{alignment:{horizontal:'left'}})};
+        wsA['E'+rowA]={v:Math.abs(bal).toLocaleString('en-PK')+(bal>0?' Dr':' Cr'),t:'s',s:totalStyle(bal>0?DR_C:CR_C)}; rowA+=2;
+      });
+      if(rowA>1){ wsA['!ref']='A1:E'+(rowA-1); wsA['!cols']=[{wch:12},{wch:40},{wch:14},{wch:14},{wch:16}]; XLSX.utils.book_append_sheet(wb,wsA,'Account'); }
 
-      addSheet('Bills', V.map(function (v) {
-        return { Type:v.vtype === 'sale' ? 'Sale' : 'Purchase', 'Bill No':v.vno, Date:ymd(v.vdate),
-                 Party:partyName[v.party_id] || '', Firm:firmName2[v.company_id] || '',
-                 Note:v.narration, 'With Tax':v.tax_on ? 'Yes' : 'No',
-                 'Items Total':Number(v.sub_total) || 0, Discount:Number(v.discount) || 0,
-                 Tax:Number(v.tax_total) || 0, 'Bill Total':Number(v.grand_total) || 0,
-                 Paid:Number(v.paid) || 0 };
-      }));
+      /* ─── SHEET 3: BILLS ─── */
+      var wsB=mkWs(); var rowB=1;
+      var BC=['A','B','C','D','E','F'];
+      V.forEach(function(v){
+        var p=partyName[v.party_id]||'', f=firmName2[v.company_id]||'';
+        var lines=(linesByV[v.id]||[]).sort(function(a,b){return (a.line_no||0)-(b.line_no||0);});
+        var typ=v.vtype==='sale'?'Sales Invoice':'Purchase Bill';
+        wsB['A'+rowB]={v:typ+' · '+v.vno,t:'s',s:titleStyle()};
+        wsB['E'+rowB]={v:v.vdate||'',t:'s',s:cellStyle(false,MUTE,'right')};
+        wsB['F'+rowB]={v:f,t:'s',s:cellStyle(false,MUTE,'right')}; rowB++;
+        wsB['A'+rowB]={v:(v.vtype==='sale'?'Sold To: ':'Bought From: ')+p,t:'s',s:cellStyle(true,INK,'left')}; rowB++;
+        ['#','Item','Unit','Qty','Rate','Amount'].forEach(function(h,i){
+          wsB[BC[i]+rowB]={v:h,t:'s',s:Object.assign(hdrStyle(PANEL),{alignment:{horizontal:i>=3?'right':'left'}})};
+        }); rowB++;
+        lines.forEach(function(l,idx){
+          var qty=Number(l.qty)||0, rate=Number(l.rate)||0, amt=Number(l.amount)||(qty*rate);
+          wsB['A'+rowB]={v:idx+1,t:'n',s:cellStyle(false,MUTE,'center',true)};
+          wsB['B'+rowB]={v:itemName[l.item_id]||'',t:'s',s:cellStyle(false,INK,'left',true)};
+          wsB['C'+rowB]={v:l.unit||'',t:'s',s:cellStyle(false,INK,'center',true)};
+          wsB['D'+rowB]=Object.assign(intFmt(qty),{s:cellStyle(true,INK,'right',true)});
+          wsB['E'+rowB]=Object.assign(numFmt2(rate),{s:cellStyle(false,INK,'right',true)});
+          wsB['F'+rowB]=Object.assign(numFmt2(amt),{s:cellStyle(true,INK,'right',true)}); rowB++;
+        });
+        var sub=Number(v.sub_total)||0, disc=Number(v.discount)||0, tax=Number(v.tax_total)||0, grand=Number(v.grand_total)||0, paid=Number(v.paid)||0;
+        function tRow(lbl,val,col){ wsB['E'+rowB]={v:lbl,t:'s',s:cellStyle(true,MUTE,'right')}; wsB['F'+rowB]=Object.assign(numFmt2(val),{s:cellStyle(true,col||INK,'right')}); rowB++; }
+        tRow('Items total',sub); if(disc) tRow('Discount',disc); if(tax) tRow('Tax',tax);
+        wsB['E'+rowB]={v:'Total',t:'s',s:totalStyle(INK)};
+        wsB['F'+rowB]=Object.assign(numFmt2(grand),{s:totalStyle(INK)}); rowB++;
+        if(paid){ tRow('Paid',paid,CR_C); tRow('Balance due',grand-paid,DR_C); }
+        rowB+=2;
+      });
+      if(rowB>1){ wsB['!ref']='A1:F'+(rowB-1); wsB['!cols']=[{wch:4},{wch:28},{wch:8},{wch:10},{wch:14},{wch:16}]; XLSX.utils.book_append_sheet(wb,wsB,'Bills'); }
 
-      addSheet('Bill Items', L.map(function (l) {
-        var v = V.filter(function (x) { return x.id === l.voucher_id; })[0];
-        return { Bill:voNo[l.voucher_id] || '', Date:v ? ymd(v.vdate) : '',
-                 Item:itemName[l.item_id] || '', Qty:Number(l.qty) || 0, Rate:Number(l.rate) || 0,
-                 'Tax %':Number(l.tax_pct) || 0, Amount:Number(l.amount) || 0 };
-      }));
+      /* ─── SHEETS 4-6: DATA (Parties / Items / Firms) ─── */
+      function addPlain(name,rows){ var ws2=XLSX.utils.json_to_sheet(rows); XLSX.utils.book_append_sheet(wb,ws2,name); }
+      addPlain('Parties', P.map(function(p){ return {Name:p.name,Type:p.kind,Phone:p.phone,City:p.city,'Opening Amount':Number(p.opening)||0,'Opening Side':(p.opening_side==='dr'?'They owe us':'We owe them'),Notes:p.notes,Active:p.active===false?'No':'Yes'}; }));
+      addPlain('Items', I.map(function(i){ return {Name:i.name,Unit:i.unit,'Sale Rate':Number(i.sale_rate)||0,'Purchase Rate':Number(i.buy_rate)||0,'Tax %':Number(i.tax_pct)||0,'Opening Qty':Number(i.opening_qty)||0,'Opening Rate':Number(i.opening_rate)||0,'Low Stock Alert':Number(i.reorder_level)||0,'HS Code':i.hs_code,Notes:i.notes,Active:i.active===false?'No':'Yes'}; }));
+      addPlain('Firms', C.map(function(c){ return {Name:c.name,Address:c.address,City:c.city,Phone:c.phone,NTN:c.ntn,STRN:c.strn,Default:c.is_default?'Yes':'No',Active:c.active===false?'No':'Yes'}; }));
 
       var today = new Date().toISOString().slice(0, 10);
       XLSX.writeFile(wb, 'OHT-backup-' + today + '.xlsx');
@@ -2149,7 +2243,7 @@
     }).catch(function (e) {
       btn.disabled = false; btn.textContent = 'Backup';
       if (isNetErr(e)) toast('No internet — could not prepare the backup', true);
-      else if (isClockErr(e)) toast('Your phone\u2019s clock looks slightly off \u2014 try again in a moment', true);
+      else if (isClockErr(e)) toast('Your phone’s clock looks slightly off — try again in a moment', true);
       else { console.error(e); toast((e && e.message) || 'Could not prepare the backup', true); }
     });
   }

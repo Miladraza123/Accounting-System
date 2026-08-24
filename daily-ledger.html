@@ -832,7 +832,7 @@
         var mergedRows = mergeRows(baseRows, sh.rows || [], remote ? (remote.rows || []) : []);
         var payloadRow = {
           sheet_date: iso, firm: data.firm || '',
-          opening: sh.opening || (remote && remote.opening) || '',
+          opening: (sh.opening != null && sh.opening !== undefined) ? sh.opening : ((remote && remote.opening) || ''),
           side: sh.side || (remote && remote.side) || 'cr',
           page: sh.page || (remote && remote.page) || '',
           rows: mergedRows,

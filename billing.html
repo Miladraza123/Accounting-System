@@ -460,7 +460,7 @@
     bills.forEach(function (b) {
       if (b.party_id !== pid) return;
       if (skipBillId && b.id === skipBillId) return;
-      var g = num(b.grand_total), pd = num(b.paid);
+      var g = totals(b).grand, pd = num(b.paid);   // live compute karo, cached field par nahi
       if (b.vtype === 'sale')     bal += (g - pd);
       else                        bal -= (g - pd);
     });
