@@ -1988,6 +1988,17 @@
       loadLedgerData().then(redrawLedger).catch(function () {});
     }
   });
+  /* agar yeh tab kabhi hidden hi nahi hui, upar wala tareeqa nahi chalta — is liye
+     har 20 second baad khud khamoshi se bhi taaza data mangwao */
+  setInterval(function () {
+    if (!sb) return;
+    if ($('sheet').classList.contains('on')) return;
+    loadAll();
+    if ($('acc').classList.contains('on') && accParty) {
+      led.loaded = false;
+      loadLedgerData().then(redrawLedger).catch(function () {});
+    }
+  }, 20000);
   window.addEventListener('offline', function () { syncNote('Offline', '#B08A3E'); });
 
   /* ---------- gates ---------- */

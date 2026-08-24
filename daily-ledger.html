@@ -931,6 +931,14 @@
     });
     loadParties();
   });
+  /* agar yeh tab kabhi hidden hi nahi hui (shuru se khuli padi hai), upar wala tareeqa kaam nahi karega —
+     is liye har 20 second baad khud khamoshi se bhi taaza data mangwao */
+  setInterval(function () {
+    if (!sb || !online || !ready) return;
+    var editing = document.activeElement && rowsEl.contains(document.activeElement);
+    if (editing) return;
+    pullAll().then(function (ok) { if (ok) { renderList(); openSheet(active || todayISO()); } });
+  }, 20000);
   window.addEventListener('offline', function () { online = false; syncNote('Offline', '#B08A3E'); });
 
   function ask(title, body, yesLabel, infoOnly) {
