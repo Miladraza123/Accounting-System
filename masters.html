@@ -1977,6 +1977,17 @@
     if ((e.ctrlKey || e.metaKey) && e.key === 'k') { e.preventDefault(); $('q').focus(); $('q').select(); }
   });
   window.addEventListener('online', function () { syncNote(''); loadAll(); });
+  /* yeh tab agar pehle se khuli padi thi aur dobara nazar aaye, to taaza data mangwao —
+     magar koi form ya khata khula ho to us mein kaam disturb na karein */
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState !== 'visible' || !sb) return;
+    if ($('sheet').classList.contains('on')) return;   // editor khula hai — chhero mat
+    loadAll();
+    if ($('acc').classList.contains('on') && accParty) {
+      led.loaded = false;
+      loadLedgerData().then(redrawLedger).catch(function () {});
+    }
+  });
   window.addEventListener('offline', function () { syncNote('Offline', '#B08A3E'); });
 
   /* ---------- gates ---------- */
