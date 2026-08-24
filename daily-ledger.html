@@ -667,7 +667,7 @@
   var $ = function (id) { return document.getElementById(id); };
   var rowsEl = $('rows');
 
-  var data = { firm:'', sheets:{} };
+  var data = { firm:'', sheets:{}, sheetBase:{} };
   var active = null, ready = false, saveTimer = null;
   var zoom = 1, fitMode = true, mode = 'exact', selectedRow = null;
 
@@ -738,6 +738,8 @@
           opening: row.opening || '', side: row.side || 'cr',
           page: row.page || '', rows: row.rows || []
         };
+        if (!data.sheetBase) data.sheetBase = {};
+        data.sheetBase[row.sheet_date] = JSON.parse(JSON.stringify(row.rows || []));
         if (row.firm && !data.firm) data.firm = row.firm;
       });
       store.set(KEY, JSON.stringify(data));
@@ -747,24 +749,80 @@
     }).catch(function () { syncNote('Offline', '#B08A3E'); return false; });
   }
 
+  /* teen-tarfa milaan: baseline (pichli baar cloud se mila tha), yeh device (abhi), doosra device (abhi cloud par).
+     jo khaana hum ne khud nahi chheda (baseline jaisa hi hai), wahan doosre ka kaam le lo.
+     jo khaana hum ne chheda hai, wahan apna hi rakho. isi tarah koi bhi kisi ka kaam nahi mitata. */
+  function mergeRows(baseRows, localRows, remoteRows) {
+    baseRows = baseRows || []; localRows = localRows || []; remoteRows = remoteRows || [];
+    var maxLen = Math.max(baseRows.length, localRows.length, remoteRows.length);
+    var merged = [];
+    for (var i = 0; i < maxLen; i++) {
+      var b = baseRows[i], l = localRows[i], r = remoteRows[i];
+      if (l === undefined) { if (r !== undefined) merged[i] = r; continue; }
+      if (r === undefined) { merged[i] = l; continue; }
+      var cellLen = Math.max((b || []).length, l.length, r.length);
+      var row = [];
+      for (var c = 0; c < cellLen; c++) {
+        var bc = b ? b[c] : undefined, lc = l[c], rc = r[c];
+        var localChanged = JSON.stringify(lc) !== JSON.stringify(bc);
+        row[c] = localChanged ? lc : (rc !== undefined ? rc : lc);
+      }
+      merged[i] = row;
+    }
+    return merged;
+  }
+  /* jo sheet abhi khuli hai usay dobara dikhana — bina dobara harvest kiye, warna milaan ka natija dab jayega */
+  function paintRows(iso) {
+    if (iso !== active || !ready) return;
+    var s = data.sheets[iso]; if (!s) return;
+    rowsEl.innerHTML = '';
+    (s.rows || []).forEach(function (r) {
+      var tr = makeRow();
+      tr.querySelectorAll('input, textarea').forEach(function (el) {
+        el.value = r[+el.getAttribute('data-k')] || '';
+        if (el.tagName === 'TEXTAREA') {
+          var pid = r[el.getAttribute('data-k') === '3' ? 6 : 7] || '';
+          if (pid) el.setAttribute('data-pid', pid); else el.removeAttribute('data-pid');
+        }
+      });
+      tr.querySelectorAll('td.cash').forEach(function (td) {
+        if (r[+td.getAttribute('data-c')]) td.classList.add('on');
+      });
+    });
+    ensureBlank(); selectRow(null); recalc(); fitAllParas(); paintAll();
+  }
+
   /* push the sheets that changed */
   function pushPending() {
     if (!sb || !online) { syncNote('Offline \u2014 saved on this device', '#B08A3E'); return; }
     var dates = Object.keys(pendingSync);
     if (!dates.length) return;
 
-    var payload = dates.map(function (iso) {
-      var sh = data.sheets[iso] || { opening:'', side:'cr', page:'', rows:[] };
-      return {
-        sheet_date: iso, firm: data.firm || '',
-        opening: sh.opening || '', side: sh.side || 'cr',
-        page: sh.page || '', rows: sh.rows || [],
-        updated_at: new Date().toISOString()
-      };
-    });
-
     syncNote('Saving\u2026');
-    sb.from('sheets').upsert(payload, { onConflict: 'sheet_date' }).then(function (res) {
+    sb.from('sheets').select('*').in('sheet_date', dates).then(function (res) {
+      var remoteByDate = {};
+      if (!res.error) (res.data || []).forEach(function (row) { remoteByDate[row.sheet_date] = row; });
+
+      var payload = dates.map(function (iso) {
+        var sh = data.sheets[iso] || { opening:'', side:'cr', page:'', rows:[] };
+        var remote = remoteByDate[iso];
+        var baseRows = (data.sheetBase && data.sheetBase[iso]) || [];
+        var mergedRows = mergeRows(baseRows, sh.rows || [], remote ? (remote.rows || []) : []);
+        sh.rows = mergedRows;
+        if (!data.sheetBase) data.sheetBase = {};
+        data.sheetBase[iso] = JSON.parse(JSON.stringify(mergedRows));
+        return {
+          sheet_date: iso, firm: data.firm || '',
+          opening: sh.opening || (remote && remote.opening) || '',
+          side: sh.side || (remote && remote.side) || 'cr',
+          page: sh.page || (remote && remote.page) || '',
+          rows: mergedRows,
+          updated_at: new Date().toISOString()
+        };
+      });
+
+      return sb.from('sheets').upsert(payload, { onConflict: 'sheet_date' });
+    }).then(function (res) {
       if (res.error) {
         if (isNetErr(res.error)) {          // net band hai — koi dialog nahi, khamoshi se dobara koshish
           syncNote('Offline \u2014 saved on this device', '#B08A3E');
@@ -781,6 +839,12 @@
         return;
       }
       dates.forEach(function (d) { delete pendingSync[d]; });
+      store.set(KEY, JSON.stringify(data));
+      if (dates.indexOf(active) !== -1) {
+        var editing = document.activeElement && rowsEl.contains(document.activeElement);
+        if (!editing) paintRows(active);   // milaan ke baad khuli sheet dobara dikhao — magar type karte waqt nahi
+      }
+      renderList();
       syncNote('Saved to cloud', '#7DC9A9');
       setTimeout(function () { syncNote(''); }, 2000);
     }).catch(function () {
@@ -1136,7 +1200,8 @@
     // only fill a page of rows for a sheet that has never been used
     if (!(s.rows && s.rows.length)) addRows(MIN_ROWS);
     if (!rowsEl.querySelectorAll('tr').length) makeRow();
-    ensureBlank(); selectRow(null); recalc(); renderList(); save();
+    ensureBlank(); selectRow(null); recalc(); renderList();
+    store.set(KEY, JSON.stringify(data));   // sirf is device par mehfooz — sirf dekhne se cloud par nahi bhejte
     fitAllParas(); paintAll();
   }
 
@@ -1674,7 +1739,7 @@
     $('restoreOverlay').classList.remove('open');
 
     if (restoreMode === 'replace') {
-      data = { firm: pending.firm || '', sheets: {} };
+      data = { firm: pending.firm || '', sheets: {}, sheetBase: {} };
     }
     Object.keys(pending.sheets).forEach(function (iso) {
       data.sheets[iso] = pending.sheets[iso];
