@@ -919,7 +919,7 @@
     syncTimer = setTimeout(pushPending, 1200);
   }
 
-  window.addEventListener('online',  function () { online = true;  pushPending(); pullAll(); loadParties(); });
+  window.addEventListener('online',  function () { online = true;  pushPending(); pullAll(); loadParties(); subscribeRealtime(); });
   /* shell ke andar yeh tab agar pehle se khuli padi thi aur dobara nazar aaye (doosri tab se wapas aaye,
      ya app background se wapas aaye), to taaza data mangwao — warna purani (stale) sheet dikhti reh jati hai */
   document.addEventListener('visibilitychange', function () {
@@ -930,6 +930,7 @@
       if (Date.now() - lastEditTime > 3000) openSheet(active || todayISO());   // abhi-abhi type kar rahe hon to na dabayein
     });
     loadParties();
+    subscribeRealtime();   // phone lock/background me websocket tut jata hai — yahan dobara joro
   });
   /* agar yeh tab kabhi hidden hi nahi hui (shuru se khuli padi hai), upar wala tareeqa kaam nahi karega —
      is liye har 20 second baad khud khamoshi se bhi taaza data mangwao */
@@ -1926,9 +1927,10 @@
      is liye khabar milte hi pullAll() se taaza cheez mangwa lete hain. */
   var realtimeCh = null;
   function subscribeRealtime() {
-    if (!sb || realtimeCh) return;
+    if (!sb) return;
     try {
-      realtimeCh = sb.channel('sheets-live')
+      if (realtimeCh) { sb.removeChannel(realtimeCh); realtimeCh = null; }
+      realtimeCh = sb.channel('sheets-live-' + Date.now())   // naya naam — purana atka hua channel kabhi na takraaye
         .on('postgres_changes', { event: '*', schema: 'public', table: 'sheets' }, function () {
           if (Date.now() - lastEditTime < 3000) return;   // khud abhi type kar rahe hon to na chhero
           pullAll().then(function (ok) {
