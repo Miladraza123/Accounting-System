@@ -321,6 +321,15 @@
             font-size:9.5px; }
   .ag-seg { font-family:'IBM Plex Mono',monospace; color:var(--slate); }
   .ag-seg.warn { color:var(--debit); font-weight:600; }
+
+  .lowbar { display:none; align-items:center; gap:8px; width:100%; text-align:left;
+            padding:9px 12px; background:#FDF6F6; border:none; border-bottom:1px solid #F0D9D9;
+            font-size:12.5px; color:var(--debit); cursor:pointer; }
+  .lowbar .dot { flex:none; width:7px; height:7px; border-radius:50%; background:var(--debit); }
+  .lowbar #lowText { flex:1; font-weight:600; }
+  .lowbar .lowtoggle { flex:none; font-size:11.5px; font-weight:700; text-decoration:underline;
+                       color:var(--debit); }
+  .lowbar.on { background:#F7EDED; }
   .btn:hover { background:var(--panel); }
   .btn.pri { background:var(--ink); color:#fff; border-color:var(--ink); flex:1; }
   .btn.pri:hover { background:#2C3742; }
@@ -449,6 +458,10 @@
   <span class="ag-seg" id="ag60"></span>
   <span class="ag-seg warn" id="ag90"></span>
 </div>
+<button class="lowbar" id="lowbar" style="display:none">
+  <span class="dot"></span> <span id="lowText"></span>
+  <span class="lowtoggle" id="lowToggle">Show all</span>
+</button>
 
 <div class="wrap"><div class="rows" id="rows"></div></div>
 
@@ -532,6 +545,16 @@
   }
   function norm(s) { return String(s == null ? '' : s).trim().toLowerCase().replace(/\s+/g, ' '); }
   /* print se pehle logo ki tasveer poori tarah load hone do — warna print preview me khali reh jati hai */
+  /* shell ke andar (iframe) chal rahe hon to print/save ka naam BAHAR wali tab se aata hai —
+     is liye dono jagah title badalna zaroori hai */
+  function setPrintTitle(title) {
+    document.title = title;
+    try { if (window.top && window.top !== window) window.top.document.title = title; } catch (e) {}
+  }
+  function restorePrintTitle(mine, topOld) {
+    document.title = mine;
+    try { if (window.top && window.top !== window) window.top.document.title = topOld; } catch (e) {}
+  }
   function printWhenReady(container) {
     var img = container.querySelector('img');
     if (!img || img.complete) { window.print(); return; }
@@ -639,7 +662,7 @@
   }
   function blankItem() {
     return { name:'', unit:'pcs', sale_rate:0, buy_rate:0, tax_pct:0,
-             opening_qty:0, opening_rate:0, hs_code:'', notes:'', active:true };
+             opening_qty:0, opening_rate:0, reorder_level:0, hs_code:'', notes:'', active:true };
   }
 
   /* ---------- list ---------- */
@@ -648,10 +671,20 @@
     var hay = norm(r.name) + ' ' + norm(r.phone) + ' ' + norm(r.city) + ' ' + norm(r.unit);
     return hay.indexOf(q) !== -1;
   }
+  var lowOnly = false;   // "Low stock only" chip on/off
   function render() {
     var q = norm($('q').value);
     var list = db[tab].filter(function (r) { return matches(r, q); });
-    list.sort(function (a, b) { return norm(a.name) < norm(b.name) ? -1 : 1; });
+    if (tab === 'items' && lowOnly) list = list.filter(isLowStock);
+    if (tab === 'items') {
+      list.sort(function (a, b) {
+        var la = isLowStock(a), lb = isLowStock(b);
+        if (la !== lb) return la ? -1 : 1;          // kam stock waale upar
+        return norm(a.name) < norm(b.name) ? -1 : 1;
+      });
+    } else {
+      list.sort(function (a, b) { return norm(a.name) < norm(b.name) ? -1 : 1; });
+    }
 
     $('nParties').textContent = db.parties.length ? '(' + db.parties.length + ')' : '';
     $('nItems').textContent   = db.items.length   ? '(' + db.items.length   + ')' : '';
@@ -664,6 +697,9 @@
         (q ? '<div class="big">Nothing matched “' + esc($('q').value) + '”</div>' +
              '<div class="sm">Try a shorter word, or add it as a new ' +
              (tab === 'parties' ? 'party' : tab === 'companies' ? 'firm' : 'item') + '.</div>'
+           : (tab === 'items' && lowOnly)
+             ? '<div class="big">Nothing is low right now</div><div class="sm">Every item is above its ' +
+               'low stock alert level.</div>'
            : tab === 'parties'
              ? '<div class="big">No parties yet</div><div class="sm">Add the people and firms you ' +
                'buy from and sell to. Only the name is required — the rest can wait.</div>'
@@ -692,7 +728,20 @@
     });
     box.innerHTML = html;
     drawTotals();
+    drawLowBar();
   }
+  function drawLowBar() {
+    var bar = $('lowbar');
+    if (tab !== 'items' || !db.items.length || !led.loaded) { bar.style.display = 'none'; return; }
+    var lowCount = db.items.filter(isLowStock).length;
+    if (!lowCount) { bar.style.display = 'none'; lowOnly = false; return; }
+    bar.style.display = 'flex';
+    bar.classList.toggle('on', lowOnly);
+    $('lowText').textContent = lowCount + (lowCount === 1 ? ' item is' : ' items are') + ' low on stock';
+    $('lowToggle').textContent = lowOnly ? 'Show all' : 'Show only these';
+  }
+  $('lowbar').addEventListener('click', function () { lowOnly = !lowOnly; render(); });
+
   function drawTotals() {
     var bar = $('totbar'), abar = $('agingbar');
     if (tab !== 'parties' || !db.parties.length || !led.loaded) {
@@ -777,6 +826,12 @@
     });
     return r2(qty);
   }
+  function isLowStock(i) {
+    var lvl = Number(i.reorder_level) || 0;
+    if (lvl <= 0) return false;
+    var s = stockOf(i.id);
+    return s !== null && s <= lvl;
+  }
   function itemAmt(i) {
     var s = stockOf(i.id);
     if (s === null) {
@@ -784,9 +839,11 @@
       return v ? '<div class="amt zero">' + fmt(v) + '<span class="tag">RATE</span></div>'
                : '<div class="amt zero">\u2014</div>';
     }
-    var cls = s < 0 ? 'dr' : (s === 0 ? 'zero' : '');
+    var low = isLowStock(i);
+    var cls = s < 0 ? 'dr' : (low ? 'dr' : (s === 0 ? 'zero' : ''));
+    var tag = s < 0 ? 'OVER-SOLD' : (low ? 'LOW STOCK' : 'IN STOCK');
     return '<div class="amt ' + cls + '">' + fmt(s) + ' ' + esc(i.unit || '') +
-           '<span class="tag">' + (s < 0 ? 'OVER-SOLD' : 'IN STOCK') + '</span></div>';
+           '<span class="tag">' + tag + '</span></div>';
   }
 
   /* ---------- editor ---------- */
@@ -900,6 +957,10 @@
     '<div class="f"><div class="hint">What is lying in the godown today. Leave empty if you are ' +
       'starting from zero.' + (r.id ? ' The running stock shown on the list adds every purchase and ' +
       'subtracts every sale from this number — it isn\u2019t edited directly.' : '') + '</div></div>' +
+    '<div class="f num"><label>Low stock alert</label><input id="eReorder" type="text" inputmode="decimal" value="' +
+      (Number(r.reorder_level) ? fmt(r.reorder_level) : '') + '" placeholder="0"></div>' +
+    '<div class="f"><div class="hint">When stock falls to this level or below, it moves to the top of the ' +
+      'list with a warning. Leave at 0 to turn this off.</div></div>' +
 
     '<div class="grp">Other</div>' +
     '<div class="f"><label>Notes</label><textarea id="eNotes">' + esc(r.notes) + '</textarea></div>' +
@@ -1155,10 +1216,11 @@
     var fFrom2 = from, fTo2 = to;
     if (!fFrom2 && !fTo2) { var rng2 = actualDateRange(shown); fFrom2 = rng2[0]; fTo2 = rng2[1]; }
     var oldTitle2 = document.title;
-    document.title = 'Stock-' + fileSafe(it.name) + '-' + fileDate(fFrom2) +
-                      (fTo2 && fTo2 !== fFrom2 ? ' to ' + fileDate(fTo2) : '');
+    var oldTopTitle2 = (function () { try { return window.top && window.top !== window ? window.top.document.title : oldTitle2; } catch (e) { return oldTitle2; } })();
+    setPrintTitle('Stock-' + fileSafe(it.name) + '-' + fileDate(fFrom2) +
+                  (fTo2 && fTo2 !== fFrom2 ? ' to ' + fileDate(fTo2) : ''));
     window.addEventListener('afterprint', function restore() {
-      document.title = oldTitle2;
+      restorePrintTitle(oldTitle2, oldTopTitle2);
       window.removeEventListener('afterprint', restore);
     });
     printWhenReady($('psheet'));
@@ -1429,10 +1491,11 @@
     var fFrom = from, fTo = to;
     if (!fFrom && !fTo) { var rng = actualDateRange(shown); fFrom = rng[0]; fTo = rng[1]; }
     var oldTitle = document.title;
-    document.title = 'Ledger-' + fileSafe(p.name) + '-' + fileDate(fFrom) +
-                      (fTo && fTo !== fFrom ? ' to ' + fileDate(fTo) : '');
+    var oldTopTitle = (function () { try { return window.top && window.top !== window ? window.top.document.title : oldTitle; } catch (e) { return oldTitle; } })();
+    setPrintTitle('Ledger-' + fileSafe(p.name) + '-' + fileDate(fFrom) +
+                  (fTo && fTo !== fFrom ? ' to ' + fileDate(fTo) : ''));
     window.addEventListener('afterprint', function restore() {
-      document.title = oldTitle;
+      restorePrintTitle(oldTitle, oldTopTitle);
       window.removeEventListener('afterprint', restore);
     });
     printWhenReady($('psheet'));
@@ -1769,7 +1832,7 @@
     }
     return { name:readVal('eName'), unit:readVal('eUnit'), sale_rate:readNum('eSale'),
              buy_rate:readNum('eBuy'), tax_pct:readNum('eTax'), opening_qty:readNum('eOQty'),
-             opening_rate:readNum('eORate'), hs_code:readVal('eHs'),
+             opening_rate:readNum('eORate'), reorder_level:readNum('eReorder'), hs_code:readVal('eHs'),
              notes:readVal('eNotes'), active:act };
   }
 
@@ -1867,6 +1930,7 @@
       document.querySelectorAll('.tab').forEach(function (x) { x.classList.remove('on'); });
       b.classList.add('on');
       tab = b.getAttribute('data-t');
+      if (tab !== 'items') lowOnly = false;
       $('q').value = '';
       $('q').placeholder = tab === 'items' ? 'Search by name…' : 'Search by name, phone or city…';
       $('newBtn').textContent = tab === 'parties' ? '+ Party' : tab === 'companies' ? '+ Firm' : '+ Item';
@@ -2029,6 +2093,7 @@
         return { Name:i.name, Unit:i.unit, 'Sale Rate':Number(i.sale_rate) || 0,
                  'Purchase Rate':Number(i.buy_rate) || 0, 'Tax %':Number(i.tax_pct) || 0,
                  'Opening Qty':Number(i.opening_qty) || 0, 'Opening Cost Rate':Number(i.opening_rate) || 0,
+                 'Low Stock Alert':Number(i.reorder_level) || 0,
                  'HS Code':i.hs_code, Notes:i.notes, Active:i.active === false ? 'No' : 'Yes' };
       }));
 

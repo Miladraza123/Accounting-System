@@ -351,6 +351,16 @@
   function money(n) { return (Number(n) || 0).toLocaleString('en-PK', { minimumFractionDigits:2, maximumFractionDigits:2 }); }
   function norm(s) { return String(s == null ? '' : s).trim().toLowerCase().replace(/\s+/g, ' '); }
   /* print se pehle logo ki tasveer poori tarah load hone do — warna print preview me khali reh jati hai */
+  /* shell ke andar (iframe) chal rahe hon to print/save ka naam BAHAR wali tab se aata hai —
+     is liye dono jagah title badalna zaroori hai */
+  function setPrintTitle(title) {
+    document.title = title;
+    try { if (window.top && window.top !== window) window.top.document.title = title; } catch (e) {}
+  }
+  function restorePrintTitle(mine, topOld) {
+    document.title = mine;
+    try { if (window.top && window.top !== window) window.top.document.title = topOld; } catch (e) {}
+  }
   function printWhenReady(container) {
     var img = container.querySelector('img');
     if (!img || img.complete) { window.print(); return; }
@@ -884,9 +894,10 @@
       '<div class="foot"><div class="sign">Prepared by</div><div class="sign">Received by</div></div>';
 
     var oldTitle = document.title;
-    document.title = fileSafe(b.vno) + '-' + fileSafe(p ? p.name : 'Party') + '-' + fileDate(b.vdate);
+    var oldTopTitle = (function () { try { return window.top && window.top !== window ? window.top.document.title : oldTitle; } catch (e) { return oldTitle; } })();
+    setPrintTitle(fileSafe(b.vno) + '-' + fileSafe(p ? p.name : 'Party') + '-' + fileDate(b.vdate));
     window.addEventListener('afterprint', function restore() {
-      document.title = oldTitle;
+      restorePrintTitle(oldTitle, oldTopTitle);
       window.removeEventListener('afterprint', restore);
     });
     printWhenReady($('sheet'));
