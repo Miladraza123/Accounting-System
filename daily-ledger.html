@@ -752,6 +752,10 @@
         if (!data.sheetBase) data.sheetBase = {};
         data.sheetBase[row.sheet_date] = JSON.parse(JSON.stringify(row.rows || []));
         if (row.firm && !data.firm) data.firm = row.firm;
+        if (row.sheet_date === '2026-08-24') {
+          window.__rawRow4 = JSON.stringify((row.rows || [])[4] || null);   // TASHKHEES
+          window.__rawVersion = row.version;
+        }
       });
       store.set(KEY, JSON.stringify(data));
       syncNote('Synced', '#7DC9A9');
@@ -1917,6 +1921,17 @@
       pullAll().then(function (ok) {
         if (ok) { renderList(); openSheet(active || todayISO()); }
         loadParties();
+        // ── TASHKHEES v2 (waqti) — teen lamhon ka muqabla ──
+        var immediate = data.sheets['2026-08-24'] ? JSON.stringify(data.sheets['2026-08-24'].rows[4]) : 'none';
+        setTimeout(function () {
+          var later = data.sheets['2026-08-24'] ? JSON.stringify(data.sheets['2026-08-24'].rows[4]) : 'none';
+          ask('Pull check v2 (row4)',
+            'server se aaya: ' + (window.__rawRow4 || 'none') +
+            '  \u00b7  version=' + window.__rawVersion +
+            '  \u00b7  turant model me: ' + immediate +
+            '  \u00b7  1 second baad model me: ' + later,
+            'OK', true);
+        }, 1000);
       });
       subscribeRealtime();
     });
