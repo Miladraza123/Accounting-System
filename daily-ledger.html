@@ -832,6 +832,7 @@
           side: sh.side || (remote && remote.side) || 'cr',
           page: sh.page || (remote && remote.page) || '',
           rows: mergedRows,
+          version: remote ? (Number(remote.version) || 1) + 1 : 1,
           updated_at: new Date().toISOString()
         };
 
@@ -850,9 +851,10 @@
             return settled();
           });
         }
-        // pehle se maujood hai — sirf tab likho jab kisi ne beech me chheda na ho (updated_at wahi ho jo hum ne dekha tha)
+        // pehle se maujood hai — sirf tab likho jab kisi ne beech me chheda na ho
+        // (version number wahi ho jo hum ne abhi dekha — pakka integer muqabla, waqt ke text par bharosa nahi)
         return sb.from('sheets').update(payloadRow)
-          .eq('sheet_date', iso).eq('updated_at', remote.updated_at)
+          .eq('sheet_date', iso).eq('version', Number(remote.version) || 1)
           .select().then(function (r) {
             if (r.error) return { iso: iso, error: r.error };
             if (!r.data || !r.data.length) return { iso: iso, conflict: true };  // kisi doosre ne isi beech likh diya
