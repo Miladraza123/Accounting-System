@@ -1023,10 +1023,12 @@
     if (normName(v.slice(0, p.name.length)) !== normName(p.name)) return null;  // naam mita diya
     return p.name;
   }
-  /* naam mit gaya ho to jor khud tut jata hai */
+  /* naam mit gaya ho to jor khud tut jata hai — magar party ki list abhi load nahi hui
+     (app khulte hi aisa ho sakta hai) to kuch tay mat karo, warna sahi jor bhi ghalti se tut jata hai */
   function syncLink(ta) {
     var id = ta.getAttribute('data-pid');
     if (!id) return;
+    if (!partiesOk) return;
     if (!linkedName(ta)) { ta.removeAttribute('data-pid'); }
   }
   function paint(ta) {
