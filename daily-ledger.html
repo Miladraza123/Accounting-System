@@ -901,8 +901,7 @@
 
       store.set(KEY, JSON.stringify(data));
       if (dates.indexOf(active) !== -1) {
-        var editing = document.activeElement && rowsEl.contains(document.activeElement);
-        if (!editing) paintRows(active);   // milaan ke baad khuli sheet dobara dikhao — magar type karte waqt nahi
+        if (Date.now() - lastEditTime > 3000) paintRows(active);   // milaan ke baad dobara dikhao — magar type karte waqt nahi
       }
       renderList();
       syncNote('Saved to cloud', '#7DC9A9');
@@ -928,8 +927,7 @@
     pullAll().then(function (ok) {
       if (!ok) return;
       renderList();
-      var editing = document.activeElement && rowsEl.contains(document.activeElement);
-      if (!editing) openSheet(active || todayISO());   // type kar rahe hon to unki likhai na dabayein
+      if (Date.now() - lastEditTime > 3000) openSheet(active || todayISO());   // abhi-abhi type kar rahe hon to na dabayein
     });
     loadParties();
   });
@@ -937,8 +935,7 @@
      is liye har 20 second baad khud khamoshi se bhi taaza data mangwao */
   setInterval(function () {
     if (!sb || !online || !ready) return;
-    var editing = document.activeElement && rowsEl.contains(document.activeElement);
-    if (editing) return;
+    if (Date.now() - lastEditTime < 3000) return;   // sirf "ungli rakhi hai" nahi — "abhi type kiya" dekho
     pullAll().then(function (ok) { if (ok) { renderList(); openSheet(active || todayISO()); } });
   }, 20000);
   window.addEventListener('offline', function () { online = false; syncNote('Offline', '#B08A3E'); });
@@ -1224,8 +1221,10 @@
                             page:$('pageNo').value, rows:rows };
     data.firm = $('firmName').value;
   }
+  var lastEditTime = 0;
   function save() {
     if (!ready) return;
+    lastEditTime = Date.now();
     harvest();
     clearTimeout(saveTimer);
     saveTimer = setTimeout(function () {
