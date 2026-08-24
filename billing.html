@@ -457,13 +457,35 @@
     var p = partyById(pid);
     if (!p) return 0;
     var bal = (p.opening_side === 'dr' ? 1 : -1) * num(p.opening);   // + = us se lena
+
+    // bills se hisaab
     bills.forEach(function (b) {
       if (b.party_id !== pid) return;
       if (skipBillId && b.id === skipBillId) return;
-      var g = totals(b).grand, pd = num(b.paid);   // live compute karo, cached field par nahi
+      var g = num(b.grand_total), pd = num(b.paid);
       if (b.vtype === 'sale')     bal += (g - pd);
       else                        bal -= (g - pd);
     });
+
+    // ledger (sheets) se hisaab — "Received" aur "Paid" wali entries
+    // row format: [debitAmt, debitParty, creditAmt, creditParty, dCash, cCash, debitPid, creditPid]
+    sheets.forEach(function (sh) {
+      (sh.rows || []).forEach(function (row) {
+        if (!row) return;
+        var creditPid = row[7], debitPid = row[6];
+        if (creditPid === pid) {
+          // party ne hume rakam di (credit side) — unka qarz kam hota hai
+          var ca = Number(String(row[2] || '').replace(/,/g, '')) || 0;
+          if (ca) bal -= ca;
+        }
+        if (debitPid === pid) {
+          // humne party ko rakam di (debit side) — hamara qarz kam hota hai
+          var da = Number(String(row[0] || '').replace(/,/g, '')) || 0;
+          if (da) bal += da;
+        }
+      });
+    });
+
     return round2(bal);
   }
   function balText(pid, skipId) {
@@ -904,6 +926,8 @@
   }
 
   /* ---------- cloud ---------- */
+  var sheets = [];   // ledger sheets — party balance ke liye zaroori
+
   function loadAll() {
     if (!sb) return Promise.resolve();
     syncNote('Loading…');
@@ -912,13 +936,15 @@
       sb.from('items').select('*'),
       sb.from('vouchers').select('*').order('vdate', { ascending:false }).limit(600),
       sb.from('voucher_lines').select('*'),
-      sb.from('companies').select('*')
+      sb.from('companies').select('*'),
+      sb.from('sheets').select('sheet_date,rows')   // ledger entries for party balance
     ]).then(function (r) {
       r.slice(0, 4).forEach(function (x) { if (x.error) throw x.error; });
       parties = r[0].data || [];
       items   = r[1].data || [];
       bills   = r[2].data || [];
       firms   = r[4].error ? [] : (r[4].data || []);      // SQL na chali ho to bhi bill bane
+      sheets  = r[5].error ? [] : (r[5].data || []);      // ledger sheets
       var byV = {};
       (r[3].data || []).forEach(function (l) { (byV[l.voucher_id] = byV[l.voucher_id] || []).push(l); });
       bills.forEach(function (b) {
