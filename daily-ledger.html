@@ -1917,7 +1917,28 @@
         if (ok) { renderList(); openSheet(active || todayISO()); }
         loadParties();
       });
+      subscribeRealtime();
     });
+  }
+
+  /* koi bhi phone kisi bhi sheet me kuch badle — Supabase foran khabar kar deta hai,
+     20-second wale intezar ki zaroorat nahi rehti. Yeh sirf ek "khabar" hai, khud data nahi bhejta —
+     is liye khabar milte hi pullAll() se taaza cheez mangwa lete hain. */
+  var realtimeCh = null;
+  function subscribeRealtime() {
+    if (!sb || realtimeCh) return;
+    try {
+      realtimeCh = sb.channel('sheets-live')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'sheets' }, function () {
+          if (Date.now() - lastEditTime < 3000) return;   // khud abhi type kar rahe hon to na chhero
+          pullAll().then(function (ok) {
+            if (!ok) return;
+            renderList();
+            if (Date.now() - lastEditTime > 3000) openSheet(active || todayISO());
+          });
+        })
+        .subscribe();
+    } catch (e) { /* realtime na mile to 20-second wala poll to hai hi hifazat ke liye */ }
   }
 
   /* ─── gate: connect, then sign in ─── */
