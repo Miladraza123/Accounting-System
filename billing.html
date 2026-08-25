@@ -468,11 +468,11 @@
     });
 
     // ledger (sheets) se hisaab — "Received" aur "Paid" wali entries
-    // row format: [debitAmt, debitParty, creditAmt, creditParty, dCash, cCash, debitPid, creditPid]
+    // row format: [debitAmt, debitName, creditAmt, creditName, dCash, cCash, creditPid, debitPid]
     sheets.forEach(function (sh) {
       (sh.rows || []).forEach(function (row) {
         if (!row) return;
-        var creditPid = row[7], debitPid = row[6];
+        var creditPid = row[6], debitPid = row[7];   // harvest: data-k='3'→r[6]=credit, data-k='1'→r[7]=debit
         if (creditPid === pid) {
           // party ne hume rakam di (credit side) — unka qarz kam hota hai
           var ca = Number(String(row[2] || '').replace(/,/g, '')) || 0;
