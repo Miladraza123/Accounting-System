@@ -947,6 +947,8 @@
         b.lines = (byV[b.id] || []).sort(function (a, c) { return (a.line_no || 0) - (c.line_no || 0); });
       });
       syncNote(''); render(); tryOpenWanted();
+      // agar bill khula hua hai aur sheets ab aa gayi hain to balance dobara theek karo
+      refreshOpenBillBalance();
       if (!parties.length || !items.length) {
         toast(!parties.length && !items.length ? 'Add parties and items in Masters first'
               : (!parties.length ? 'No parties yet — add them in Masters' : 'No items yet — add them in Masters'), true);
@@ -1105,6 +1107,17 @@
     wanted = m[1];
     tryOpenWanted();
   }
+  /* loadAll ke baad, agar bill khula hai to sirf balance wali line taaza karo —
+     poora editor dobara render karna zaroori nahi, sirf us chhoti si cheez ko */
+  function refreshOpenBillBalance() {
+    if (!bill || !bill.party_id) return;
+    var balEl = document.querySelector('.bal');
+    if (!balEl) return;
+    var parent = balEl.parentNode;
+    if (!parent) return;
+    parent.innerHTML = balText(bill.party_id);
+  }
+
   function tryOpenWanted() {
     if (!wanted) return;
     var b = bills.filter(function (x) { return String(x.id) === wanted; })[0];
