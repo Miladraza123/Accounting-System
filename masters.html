@@ -690,13 +690,13 @@
   var customKinds = [];   // extra categories user has added, loaded from party_kinds table
   var UNITS = ['pcs','ctn','bag','kg','gm','ltr','ml','mtr','ft','doz','set','box','roll','pair'];
 
-  /* dropdown ke liye poori list: fixed KINDS + "Others" ke neeche user-added categories,
-     phir sabse aakhir mein "+ Add new category" */
+  /* dropdown ke liye poori list: fixed KINDS (Others ko chhor kar) + user-added categories,
+     phir "Others" hamesha second-last, aur "+ Add new category" (dropdown mein alag se) sabse aakhir */
   function allKinds() {
     var fixed = KINDS.filter(function (k) { return k[0] !== 'other'; });
     var other = KINDS.filter(function (k) { return k[0] === 'other'; });
     var custom = customKinds.map(function (c) { return [c.value, c.label]; });
-    return fixed.concat(other).concat(custom);
+    return fixed.concat(custom).concat(other);
   }
   function kindLabel(v) {
     var all = allKinds();
@@ -1672,7 +1672,8 @@
           customKinds.push(res.data[0]);
           var newOpt = document.createElement('option');
           newOpt.value = value; newOpt.textContent = name;
-          sel.insertBefore(newOpt, sel.querySelector('option[value="' + ADD_KIND + '"]'));
+          var otherOpt = sel.querySelector('option[value="other"]');
+          sel.insertBefore(newOpt, otherOpt || sel.querySelector('option[value="' + ADD_KIND + '"]'));
           sel.value = value; last = value; dirty = true;
         });
       });
