@@ -90,6 +90,14 @@
   .kind.supplier { background:#EDF3EF; color:#14614A; border-color:#CADCD2; }
   .kind.both     { background:#F4EFE3; color:#7A5C1E; border-color:#E2D5B8; }
   .kind.expense  { background:#F7EDED; color:#9B2C2C; border-color:#E6CFCF; }
+  .kind.bank     { background:#F0EDF7; color:#4B3C8C; border-color:#D9D2EA; }
+
+  .catbar { display:none; gap:6px; padding:8px 12px; background:var(--paper);
+            border-bottom:1px solid var(--hair); overflow-x:auto; white-space:nowrap; }
+  .catbar.on { display:flex; }
+  .catchip { flex:none; font-size:11px; font-weight:600; padding:4px 10px; border-radius:20px;
+             border:1px solid var(--hair); background:#fff; color:var(--slate); cursor:pointer; }
+  .catchip.active { background:var(--ink); color:#fff; border-color:var(--ink); }
 
   .letter { position:sticky; top:0; z-index:2; background:var(--panel); color:var(--mute);
             font-size:10.5px; font-weight:700; letter-spacing:1.2px; padding:5px 12px;
@@ -458,6 +466,7 @@
   <span class="ag-seg" id="ag60"></span>
   <span class="ag-seg warn" id="ag90"></span>
 </div>
+<div class="catbar" id="catbar"></div>
 <button class="lowbar" id="lowbar" style="display:none">
   <span class="dot"></span> <span id="lowText"></span>
   <span class="lowtoggle" id="lowToggle">Show all</span>
@@ -514,6 +523,8 @@
   <div class="box">
     <h4 id="askTitle"></h4>
     <p id="askBody"></p>
+    <input id="askInput" type="text" style="display:none;width:100%;box-sizing:border-box;margin:2px 0 12px;
+      padding:9px 10px;border:1px solid var(--hair);border-radius:8px;font-size:14px" autocomplete="off">
     <div class="acts">
       <button class="btn" id="askNo">Cancel</button>
       <button class="btn dgr" id="askYes">Delete</button>
@@ -604,7 +615,9 @@
     return new Promise(function (res) {
       $('askTitle').textContent = title;
       $('askBody').textContent = body;
+      $('askInput').style.display = 'none';
       $('askYes').textContent = yes || 'Delete';
+      $('askYes').className = 'btn dgr';
       $('ask').classList.add('on');
       function done(v) {
         $('ask').classList.remove('on');
@@ -613,6 +626,29 @@
       }
       $('askYes').onclick = function () { done(true); };
       $('askNo').onclick = function () { done(false); };
+    });
+  }
+  /* text mangwane ke liye chhota input dialog — same box jo confirm ke liye hai use karta hai */
+  function promptBox(title, body, placeholder, yes) {
+    return new Promise(function (res) {
+      $('askTitle').textContent = title;
+      $('askBody').textContent = body || '';
+      var inp = $('askInput');
+      inp.style.display = '';
+      inp.value = '';
+      inp.placeholder = placeholder || '';
+      $('askYes').textContent = yes || 'Add';
+      $('askYes').className = 'btn pri';
+      $('ask').classList.add('on');
+      setTimeout(function () { inp.focus(); }, 80);
+      function done(v) {
+        $('ask').classList.remove('on');
+        $('askYes').onclick = null; $('askNo').onclick = null; inp.onkeydown = null;
+        res(v);
+      }
+      $('askYes').onclick = function () { done(inp.value.trim()); };
+      $('askNo').onclick = function () { done(null); };
+      inp.onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); done(inp.value.trim()); } };
     });
   }
   // net band hone ki ghalti aur asli cloud ghalti me farq
@@ -649,8 +685,24 @@
 
   /* ---------- shapes ---------- */
   var KINDS = [['customer','Customer'], ['supplier','Supplier'], ['both','Customer & Supplier'],
-               ['expense','Expense head'], ['other','Other']];
+               ['expense','Expense head'], ['bank','Bank'], ['other','Other']];
+  var ADD_KIND = '__addnew__';
+  var customKinds = [];   // extra categories user has added, loaded from party_kinds table
   var UNITS = ['pcs','ctn','bag','kg','gm','ltr','ml','mtr','ft','doz','set','box','roll','pair'];
+
+  /* dropdown ke liye poori list: fixed KINDS + "Others" ke neeche user-added categories,
+     phir sabse aakhir mein "+ Add new category" */
+  function allKinds() {
+    var fixed = KINDS.filter(function (k) { return k[0] !== 'other'; });
+    var other = KINDS.filter(function (k) { return k[0] === 'other'; });
+    var custom = customKinds.map(function (c) { return [c.value, c.label]; });
+    return fixed.concat(other).concat(custom);
+  }
+  function kindLabel(v) {
+    var all = allKinds();
+    var k = all.filter(function (x) { return x[0] === v; })[0];
+    return k ? k[1] : v;
+  }
 
   function blankParty() {
     return { name:'', kind:'customer', phone:'', city:'', address:'', ntn:'',
@@ -672,9 +724,32 @@
     return hay.indexOf(q) !== -1;
   }
   var lowOnly = false;   // "Low stock only" chip on/off
+  var catFilter = 'all'; // parties category chip filter
+  function renderCatbar() {
+    var bar = $('catbar');
+    if (tab !== 'parties' || !db.parties.length) { bar.style.display = 'none'; return; }
+    var present = {};
+    db.parties.forEach(function (p) { present[p.kind || 'other'] = true; });
+    var used = allKinds().filter(function (k) { return present[k[0]]; });
+    if (used.length < 2) { bar.style.display = 'none'; catFilter = 'all'; return; }
+    if (catFilter !== 'all' && !present[catFilter]) catFilter = 'all';
+    bar.style.display = 'flex';
+    bar.innerHTML = '<button class="catchip' + (catFilter === 'all' ? ' active' : '') + '" data-cat="all">All</button>' +
+      used.map(function (k) {
+        return '<button class="catchip' + (catFilter === k[0] ? ' active' : '') + '" data-cat="' +
+               esc(k[0]) + '">' + esc(k[1]) + '</button>';
+      }).join('');
+  }
+  $('catbar').addEventListener('click', function (e) {
+    var b = e.target.closest('.catchip'); if (!b) return;
+    catFilter = b.getAttribute('data-cat');
+    render();
+  });
   function render() {
     var q = norm($('q').value);
+    renderCatbar();
     var list = db[tab].filter(function (r) { return matches(r, q); });
+    if (tab === 'parties' && catFilter !== 'all') list = list.filter(function (r) { return r.kind === catFilter; });
     if (tab === 'items' && lowOnly) list = list.filter(isLowStock);
     if (tab === 'items') {
       list.sort(function (a, b) {
@@ -787,11 +862,10 @@
     return '<div class="amt zero">\u2014<span class="tag">&nbsp;</span></div>';
   }
   function partySub(p) {
-    var k = KINDS.filter(function (x) { return x[0] === p.kind; })[0];
     var bits = [];
     if (p.phone) bits.push(esc(p.phone));
     if (p.city)  bits.push(esc(p.city));
-    return '<span class="kind ' + esc(p.kind) + '">' + esc(k ? k[1] : p.kind) + '</span>' +
+    return '<span class="kind ' + esc(p.kind) + '">' + esc(kindLabel(p.kind)) + '</span>' +
            (bits.length ? bits.join(' · ') : '<span style="color:#AEB6BF">no phone</span>');
   }
   function partyAmt(p) {
@@ -902,7 +976,8 @@
         '<input id="eName" type="text" value="' + esc(r.name) + '" placeholder="Gupta Traders" ' +
         'autocomplete="off" enterkeyhint="done">' +
         '<div class="hint" id="hName">Write it once, the way you want to see it everywhere.</div></div>' +
-      '<div class="f"><label>They are a</label><select id="eKind">' + opt(KINDS, r.kind) + '</select></div>' +
+      '<div class="f"><label>They are a</label><select id="eKind">' + opt(allKinds(), r.kind) +
+        '<option value="' + ADD_KIND + '">+ Add new category\u2026</option></select></div>' +
       '<div class="f2">' +
         '<div class="f"><label>Phone</label><input id="ePhone" type="tel" value="' + esc(r.phone) + '" autocomplete="off"></div>' +
         '<div class="f"><label>City</label><input id="eCity" type="text" value="' + esc(r.city) + '" autocomplete="off"></div>' +
@@ -1575,7 +1650,33 @@
     $('edBody').addEventListener('input', function () { dirty = true; });
     $('eName').addEventListener('input', checkName);
     checkName();
+    if ($('eKind')) wireKindSelect();
     if (!rec) setTimeout(function () { $('eName').focus(); }, 90);
+  }
+  /* "They are a" dropdown — "+ Add new category" chunte hi naam poochh kar
+     party_kinds table mein save karta hai, phir usi ko select kar deta hai */
+  function wireKindSelect() {
+    var sel = $('eKind');
+    var last = sel.value;
+    sel.addEventListener('change', function () {
+      if (sel.value !== ADD_KIND) { last = sel.value; return; }
+      promptBox('New category', 'What should this category be called?', 'e.g. Landlord').then(function (name) {
+        if (!name) { sel.value = last; return; }
+        var value = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'custom';
+        var exists = allKinds().filter(function (k) { return k[0] === value; })[0];
+        if (exists) { sel.value = value; last = value; toast('That category already exists'); return; }
+        sel.disabled = true;
+        sb.from('party_kinds').insert({ value: value, label: name }).select().then(function (res) {
+          sel.disabled = false;
+          if (res.error) { sayErr(res.error, 'add category'); sel.value = last; return; }
+          customKinds.push(res.data[0]);
+          var newOpt = document.createElement('option');
+          newOpt.value = value; newOpt.textContent = name;
+          sel.insertBefore(newOpt, sel.querySelector('option[value="' + ADD_KIND + '"]'));
+          sel.value = value; last = value; dirty = true;
+        });
+      });
+    });
   }
   document.querySelectorAll('.et').forEach(function (btn) {
     btn.addEventListener('click', function () {
@@ -1843,13 +1944,15 @@
     return Promise.all([
       sb.from('parties').select('*'),
       sb.from('items').select('*'),
-      sb.from('companies').select('*')
+      sb.from('companies').select('*'),
+      sb.from('party_kinds').select('*')
     ]).then(function (r) {
       if (r[0].error) throw r[0].error;
       if (r[1].error) throw r[1].error;
       db.parties   = r[0].data || [];
       db.items     = r[1].data || [];
       db.companies = r[2].error ? [] : (r[2].data || []);   // SQL na chali ho to bhi app chale
+      customKinds  = r[3].error ? [] : (r[3].data || []);   // custom party categories, SQL na chali ho to bhi app chale
       syncNote('');
       render();
       if (db.parties.length) loadLedgerData().then(drawTotals).catch(function () {});
@@ -1931,6 +2034,7 @@
       b.classList.add('on');
       tab = b.getAttribute('data-t');
       if (tab !== 'items') lowOnly = false;
+      if (tab !== 'parties') catFilter = 'all';
       $('q').value = '';
       $('q').placeholder = tab === 'items' ? 'Search by name…' : 'Search by name, phone or city…';
       $('newBtn').textContent = tab === 'parties' ? '+ Party' : tab === 'companies' ? '+ Firm' : '+ Item';
