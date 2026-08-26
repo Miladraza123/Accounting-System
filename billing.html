@@ -837,16 +837,16 @@
   function delBill() {
     if (!bill || !bill.id) return;
     confirmBox('Delete bill ' + (bill.vno || '') + '?',
-      'The bill and its items go for everyone. Stock and the party balance will change to match.',
+      'It moves to the Recycle Bin — stock and the party balance change to match, but you can restore it later from Masters \u2192 Recycle Bin.',
       'Delete').then(function (ok) {
       if (!ok) return;
       syncNote('Deleting…');
-      sb.from('vouchers').delete().eq('id', bill.id).then(function (res) {
+      sb.from('vouchers').update({ deleted_at: new Date().toISOString() }).eq('id', bill.id).then(function (res) {
         if (res.error) throw res.error;
         var no = bill.vno;
         bills = bills.filter(function (x) { return x.id !== bill.id; });
         try { window.parent.postMessage({ oht:'refresh', kind:'bills' }, '*'); } catch (err) {}
-        syncNote(''); closeBill(); render(); toast('Deleted ' + (no || 'bill'));
+        syncNote(''); closeBill(); render(); toast('Deleted ' + (no || 'bill') + ' — recoverable from Recycle Bin');
       }).catch(function (e) { syncNote(''); sayErr(e, 'delete'); });
     });
   }
@@ -928,11 +928,11 @@
     if (!sb) return Promise.resolve();
     syncNote('Loading…');
     return Promise.all([
-      sb.from('parties').select('*'),
-      sb.from('items').select('*'),
-      sb.from('vouchers').select('*').order('vdate', { ascending:false }).limit(600),
+      sb.from('parties').select('*').is('deleted_at', null),
+      sb.from('items').select('*').is('deleted_at', null),
+      sb.from('vouchers').select('*').is('deleted_at', null).order('vdate', { ascending:false }).limit(600),
       sb.from('voucher_lines').select('*'),
-      sb.from('companies').select('*'),
+      sb.from('companies').select('*').is('deleted_at', null),
       sb.from('sheets').select('sheet_date,rows')   // ledger entries for party balance
     ]).then(function (r) {
       r.slice(0, 4).forEach(function (x) { if (x.error) throw x.error; });
@@ -1139,7 +1139,7 @@
     if (e.data.oht === 'refresh') {
       var kind = e.data.kind;
       if (kind !== 'parties' && kind !== 'items' && kind !== 'companies') return;
-      sb.from(kind).select('*').then(function (res) {
+      sb.from(kind).select('*').is('deleted_at', null).then(function (res) {
         if (res.error) return;
         if (kind === 'parties') parties = res.data || [];
         else if (kind === 'items') items = res.data || [];

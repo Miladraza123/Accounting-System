@@ -555,6 +555,14 @@
   </div>
 </div>
 
+<div id="undoBar" style="display:none;position:fixed;left:50%;bottom:18px;transform:translateX(-50%);
+  z-index:500;background:#1C2530;color:#EDEFF2;border-radius:9px;padding:10px 10px 10px 16px;
+  align-items:center;gap:14px;box-shadow:0 6px 20px rgba(0,0,0,.25);font-size:13.5px">
+  <span id="undoBarText">Line deleted</span>
+  <button id="undoBarBtn" style="background:none;border:none;color:#F0A860;font-weight:700;
+    font-size:13.5px;cursor:pointer;padding:6px 8px">Undo</button>
+</div>
+
 <div class="overlay" id="rowsOverlay">
   <div class="dialog" role="dialog" aria-modal="true" style="max-width:330px">
     <header><h3>Add rows</h3><p>How many lines do you need?</p></header>
@@ -729,7 +737,7 @@
   function pullAll() {
     if (!sb || !online) return Promise.resolve(false);
     syncNote('Syncing\u2026');
-    return sb.from('sheets').select('*').then(function (res) {
+    return sb.from('sheets').select('*').is('deleted_at', null).then(function (res) {
       if (res.error) {
         if (isNetErr(res.error)) {
           syncNote('Offline \u2014 saved on this device', '#B08A3E');
@@ -1263,6 +1271,7 @@
     if (active && active !== iso && ready) harvest();   // sirf ALAG din par jaate waqt purani screen mehfooz karo —
                                                           // usi din ko dobara kholte waqt (jaise pull ke baad) nahi,
                                                           // warna purani (stale) screen wapas cloud ke upar chaspa ho jaati hai
+    if (active !== iso && typeof hideUndoBar === 'function') hideUndoBar();  // doosre din ka "Undo" yahan maani nahi rakhta
     active = iso;
     if (!data.sheets[iso]) data.sheets[iso] = { opening:'', side:'cr', page:'', rows:[] };
     var s = data.sheets[iso];
@@ -1427,11 +1436,39 @@
     $('delRowBtn').disabled = false;
   }
 
+  /* line delete ke baad chhota "Undo" — kyunki cashbook ki lines apni alag database row
+     nahi hoti (poore din ke JSON ke andar hoti hain), inhe Recycle Bin mein rakhna mumkin
+     nahi — is liye turant-wapasi wala halka tareeqa diya hai */
+  var lastRemoved = null;   // { tr, next, parent, sheetIso }
+  var undoTimer = null;
+  function showUndoBar(label) {
+    clearTimeout(undoTimer);
+    $('undoBarText').textContent = label;
+    $('undoBar').style.display = 'flex';
+    undoTimer = setTimeout(hideUndoBar, 8000);
+  }
+  function hideUndoBar() {
+    $('undoBar').style.display = 'none';
+    lastRemoved = null;
+  }
+  $('undoBarBtn').addEventListener('click', function () {
+    if (!lastRemoved || lastRemoved.sheetIso !== active) { hideUndoBar(); return; }
+    if (lastRemoved.next && lastRemoved.next.parentNode === lastRemoved.parent) {
+      lastRemoved.parent.insertBefore(lastRemoved.tr, lastRemoved.next);
+    } else {
+      lastRemoved.parent.appendChild(lastRemoved.tr);
+    }
+    recalc(); save();
+    hideUndoBar();
+  });
+
   function removeRow(tr) {
+    lastRemoved = { tr:tr, next:tr.nextSibling, parent:tr.parentNode, sheetIso:active };
     tr.remove();
     selectRow(null);
     if (!rowsEl.querySelectorAll('tr').length) makeRow();   // never leave the sheet empty
     recalc(); save();
+    showUndoBar('Line deleted');
   }
 
   function deleteSelectedRow() {
@@ -1439,7 +1476,7 @@
     var tr = selectedRow;
     var idx = [].indexOf.call(rowsEl.children, tr) + 1;
     if (rowEmpty(tr)) { removeRow(tr); return; }
-    ask('Delete line ' + idx + '?', 'The entry on this line will be removed.', 'Delete line')
+    ask('Delete line ' + idx + '?', 'The entry on this line will be removed. You can Undo right after.', 'Delete line')
       .then(function (yes) { if (yes && tr.parentNode) removeRow(tr); });
   }
   rowsEl.addEventListener('blur', function (e) {
@@ -1513,14 +1550,14 @@
   });
   $('delSheet').addEventListener('click', function () {
     closeDrawer();
-    ask('Delete sheet?', longDate(active) + ' will be removed permanently.', 'Delete sheet')
+    ask('Delete sheet?', longDate(active) + ' moves to the Recycle Bin (in Masters). You can restore it from there.', 'Delete sheet')
       .then(function (yes) { if (yes) doDeleteSheet(); });
   });
 
   function doDeleteSheet() {
     var gone = active;
     if (sb && online) {
-      sb.from('sheets').delete().eq('sheet_date', gone).then(function () {}).catch(function () {});
+      sb.from('sheets').update({ deleted_at: new Date().toISOString() }).eq('sheet_date', gone).then(function () {}).catch(function () {});
     }
     delete pendingSync[gone];
     delete data.sheets[gone];

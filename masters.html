@@ -99,6 +99,14 @@
              border:1px solid var(--hair); background:#fff; color:var(--slate); cursor:pointer; }
   .catchip.active { background:var(--ink); color:#fff; border-color:var(--ink); }
 
+  .catrow { display:flex; align-items:center; justify-content:space-between; gap:10px;
+            padding:9px 2px; border-bottom:1px solid var(--hair); }
+  .catrow:last-child { border-bottom:none; }
+  .catrow .nm { font-size:13.5px; color:var(--ink); }
+  .catrow .cnt { font-size:11px; color:var(--mute); margin-left:6px; }
+  .catrow .del { border:none; background:none; color:#B23B3B; font-size:12.5px; font-weight:600;
+                 cursor:pointer; padding:4px 6px; }
+
   .letter { position:sticky; top:0; z-index:2; background:var(--panel); color:var(--mute);
             font-size:10.5px; font-weight:700; letter-spacing:1.2px; padding:5px 12px;
             border-bottom:1px solid var(--hair); border-top:1px solid var(--hair); }
@@ -437,6 +445,7 @@
   <div class="spacer"></div>
   <span class="sync" id="syncNote"></span>
   <button class="abtn" id="bkBtn">Backup</button>
+  <button class="abtn" id="recycleBtn">Recycle Bin</button>
   <button class="abtn" id="outBtn">Sign out</button>
 </div>
 
@@ -528,6 +537,28 @@
     <div class="acts">
       <button class="btn" id="askNo">Cancel</button>
       <button class="btn dgr" id="askYes">Delete</button>
+    </div>
+  </div>
+</div>
+
+<div class="ask" id="catMgr">
+  <div class="box">
+    <h4>Manage categories</h4>
+    <p style="margin-bottom:10px">Only categories you added yourself can be removed. Fixed categories (Customer, Supplier, Bank, etc.) can\u2019t be deleted.</p>
+    <div id="catMgrList"></div>
+    <div class="acts">
+      <button class="btn" id="catMgrClose">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="ask" id="recycle">
+  <div class="box">
+    <h4>Recycle Bin</h4>
+    <p style="margin-bottom:10px">Deleted parties, items and firms stay here and can be restored any time.</p>
+    <div id="recycleList" style="max-height:50vh;overflow:auto"></div>
+    <div class="acts">
+      <button class="btn" id="recycleClose">Close</button>
     </div>
   </div>
 </div>
@@ -977,7 +1008,9 @@
         'autocomplete="off" enterkeyhint="done">' +
         '<div class="hint" id="hName">Write it once, the way you want to see it everywhere.</div></div>' +
       '<div class="f"><label>They are a</label><select id="eKind">' + opt(allKinds(), r.kind) +
-        '<option value="' + ADD_KIND + '">+ Add new category\u2026</option></select></div>' +
+        '<option value="' + ADD_KIND + '">+ Add new category\u2026</option></select>' +
+        (customKinds.length ? '<div class="hint" id="manageCatsLink" style="cursor:pointer;text-decoration:underline">Manage categories\u2026</div>' : '') +
+        '</div>' +
       '<div class="f2">' +
         '<div class="f"><label>Phone</label><input id="ePhone" type="tel" value="' + esc(r.phone) + '" autocomplete="off"></div>' +
         '<div class="f"><label>City</label><input id="eCity" type="text" value="' + esc(r.city) + '" autocomplete="off"></div>' +
@@ -1056,7 +1089,7 @@
     if (led.loading) return Promise.resolve();   // ek waqt me ek hi request, magar hamesha taaza mangwao
     led.loading = true;
     return Promise.all([
-      sb.from('vouchers').select('*'),
+      sb.from('vouchers').select('*').is('deleted_at', null),
       sb.from('voucher_lines').select('*'),
       sb.from('sheets').select('sheet_date,rows'),
       sb.from('stock_adjustments').select('*')
@@ -1675,10 +1708,68 @@
           var otherOpt = sel.querySelector('option[value="other"]');
           sel.insertBefore(newOpt, otherOpt || sel.querySelector('option[value="' + ADD_KIND + '"]'));
           sel.value = value; last = value; dirty = true;
+          if (!$('manageCatsLink')) {
+            var link = document.createElement('div');
+            link.className = 'hint'; link.id = 'manageCatsLink';
+            link.style.cursor = 'pointer'; link.style.textDecoration = 'underline';
+            link.textContent = 'Manage categories\u2026';
+            sel.parentNode.appendChild(link);
+            link.addEventListener('click', openCatManager);
+          }
+        });
+      });
+    });
+    if ($('manageCatsLink')) $('manageCatsLink').addEventListener('click', openCatManager);
+  }
+  /* custom categories delete karne ka chhota manager — sirf woh categories dikhata hai jo
+     user ne khud banayi hon; fixed categories (customer/supplier/bank/other/expense) hide rehti hain */
+  function openCatManager() {
+    renderCatMgrList();
+    $('catMgr').classList.add('on');
+  }
+  function renderCatMgrList() {
+    var box = $('catMgrList');
+    if (!customKinds.length) { box.innerHTML = '<p style="color:var(--mute);font-size:13px">No custom categories yet.</p>'; return; }
+    box.innerHTML = customKinds.map(function (c) {
+      var n = db.parties.filter(function (p) { return p.kind === c.value; }).length;
+      return '<div class="catrow"><div><span class="nm">' + esc(c.label) + '</span>' +
+             (n ? '<span class="cnt">' + n + ' ' + (n === 1 ? 'party' : 'parties') + '</span>' : '') + '</div>' +
+             '<button class="del" data-v="' + esc(c.value) + '">Delete</button></div>';
+    }).join('');
+    box.querySelectorAll('.del').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var value = btn.getAttribute('data-v');
+        var c = customKinds.filter(function (x) { return x.value === value; })[0];
+        var n = db.parties.filter(function (p) { return p.kind === value; }).length;
+        var msg = n
+          ? n + ' ' + (n === 1 ? 'party is' : 'parties are') + ' currently in "' + c.label + '". They will be moved to "Other" if you delete this category.'
+          : 'Delete the category "' + c.label + '"?';
+        confirmBox('Delete category', msg, 'Delete').then(function (ok) {
+          if (!ok) return;
+          var work = n ? sb.from('parties').update({ kind: 'other' }).eq('kind', value) : Promise.resolve({ error: null });
+          work.then(function (r1) {
+            if (r1 && r1.error) { sayErr(r1.error, 'move parties'); return; }
+            sb.from('party_kinds').delete().eq('value', value).then(function (r2) {
+              if (r2.error) { sayErr(r2.error, 'delete category'); return; }
+              customKinds = customKinds.filter(function (x) { return x.value !== value; });
+              db.parties.forEach(function (p) { if (p.kind === value) p.kind = 'other'; });
+              var sel = $('eKind');
+              if (sel) {
+                var o = sel.querySelector('option[value="' + value + '"]');
+                if (o) o.remove();
+                if (sel.value === value) sel.value = 'other';
+              }
+              renderCatMgrList();
+              render();
+              toast('Category deleted');
+              if (!customKinds.length) { $('catMgr').classList.remove('on'); if ($('manageCatsLink')) $('manageCatsLink').remove(); }
+            });
+          });
         });
       });
     });
   }
+  $('catMgrClose').addEventListener('click', function () { $('catMgr').classList.remove('on'); });
   document.querySelectorAll('.et').forEach(function (btn) {
     btn.addEventListener('click', function () {
       if (!editing) return;
@@ -1943,9 +2034,9 @@
     if (!sb) return Promise.resolve();
     syncNote('Loading…');
     return Promise.all([
-      sb.from('parties').select('*'),
-      sb.from('items').select('*'),
-      sb.from('companies').select('*'),
+      sb.from('parties').select('*').is('deleted_at', null),
+      sb.from('items').select('*').is('deleted_at', null),
+      sb.from('companies').select('*').is('deleted_at', null),
       sb.from('party_kinds').select('*')
     ]).then(function (r) {
       if (r[0].error) throw r[0].error;
@@ -2010,12 +2101,12 @@
   function delRec() {
     if (!editing || !editing.id) return;
     confirmBox('Delete ' + editing.name + '?',
-      'It disappears from the list for everyone. If it has been used on a bill, turn it off ' +
-      'instead — that keeps old records readable.',
+      'It moves to the Recycle Bin and disappears from the list for everyone. You can restore it later ' +
+      'from the Recycle Bin, or if it has been used on a bill, turn it off instead — that keeps old records readable.',
       'Delete').then(function (ok) {
       if (!ok) return;
       syncNote('Deleting…');
-      sb.from(tab).delete().eq('id', editing.id).then(function (res) {
+      sb.from(tab).update({ deleted_at: new Date().toISOString() }).eq('id', editing.id).then(function (res) {
         if (res.error) throw res.error;
         var gone = editing.name;
         db[tab] = db[tab].filter(function (r) { return r.id !== editing.id; });
@@ -2023,10 +2114,74 @@
         try { window.parent.postMessage({ oht:'refresh', kind:tab }, '*'); } catch (err) {}
         syncNote('');
         closeEditor(); render();
-        toast('Deleted ' + gone);
+        toast('Deleted ' + gone + ' — recoverable from Recycle Bin');
       }).catch(function (e) { syncNote(''); sayErr(e, 'delete'); });
     });
   }
+
+  /* ---------- Recycle Bin: soft-deleted parties/items/companies, restorable ---------- */
+  function openRecycleBin() {
+    $('recycle').classList.add('on');
+    $('recycleList').innerHTML = '<p style="color:var(--mute);font-size:13px">Loading\u2026</p>';
+    Promise.all([
+      sb.from('parties').select('*').not('deleted_at', 'is', null),
+      sb.from('items').select('*').not('deleted_at', 'is', null),
+      sb.from('companies').select('*').not('deleted_at', 'is', null),
+      sb.from('vouchers').select('*').not('deleted_at', 'is', null),
+      sb.from('sheets').select('sheet_date,page,deleted_at').not('deleted_at', 'is', null)
+    ]).then(function (r) {
+      if (r[0].error) throw r[0].error;
+      var rows = []
+        .concat((r[0].data || []).map(function (x) { return Object.assign({ _tab:'parties' }, x); }))
+        .concat((r[1].data || []).map(function (x) { return Object.assign({ _tab:'items' }, x); }))
+        .concat((r[2].error ? [] : r[2].data || []).map(function (x) { return Object.assign({ _tab:'companies' }, x); }))
+        .concat((r[3].error ? [] : r[3].data || []).map(function (x) { return Object.assign({ _tab:'vouchers' }, x); }))
+        .concat((r[4].error ? [] : r[4].data || []).map(function (x) { return Object.assign({ _tab:'sheets' }, x); }));
+      rows.sort(function (a, b) { return new Date(b.deleted_at) - new Date(a.deleted_at); });
+      renderRecycleList(rows);
+    }).catch(function (e) {
+      $('recycleList').innerHTML = '<p style="color:var(--mute);font-size:13px">Could not load — ' + esc((e && e.message) || 'try again') + '</p>';
+    });
+  }
+  var TAB_LABEL = { parties:'Party', items:'Item', companies:'Firm', vouchers:'Bill', sheets:'Ledger day' };
+  var REC_KEY = { sheets:'sheet_date' };   // baaki sab tables 'id' use karti hain
+  function recName(r) {
+    if (r._tab === 'vouchers') return (r.vtype === 'purchase' ? 'Purchase' : 'Sale') + (r.vno ? ' #' + r.vno : '');
+    if (r._tab === 'sheets') {
+      var d = new Date(r.sheet_date);
+      return d.toLocaleDateString(undefined, { day:'numeric', month:'short', year:'numeric' }) + (r.page ? ' (page ' + esc(r.page) + ')' : '');
+    }
+    return r.name;
+  }
+  function renderRecycleList(rows) {
+    var box = $('recycleList');
+    if (!rows.length) { box.innerHTML = '<p style="color:var(--mute);font-size:13px">Recycle Bin is empty.</p>'; return; }
+    box.innerHTML = rows.map(function (r) {
+      var d = new Date(r.deleted_at);
+      var when = d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+      var keyCol = REC_KEY[r._tab] || 'id';
+      return '<div class="catrow"><div><span class="nm">' + esc(recName(r)) + '</span>' +
+             '<span class="cnt">' + TAB_LABEL[r._tab] + ' \u00b7 deleted ' + when + '</span></div>' +
+             '<button class="del" style="color:#1E7A4C" data-tab="' + r._tab + '" data-id="' + esc(r[keyCol]) + '">Restore</button></div>';
+    }).join('');
+    box.querySelectorAll('button[data-id]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var t = btn.getAttribute('data-tab'), id = btn.getAttribute('data-id');
+        var keyCol = REC_KEY[t] || 'id';
+        btn.disabled = true; btn.textContent = 'Restoring\u2026';
+        sb.from(t).update({ deleted_at: null }).eq(keyCol, id).select().then(function (res) {
+          if (res.error) { sayErr(res.error, 'restore'); btn.disabled = false; btn.textContent = 'Restore'; return; }
+          if (t !== 'vouchers' && t !== 'sheets' && res.data && res.data[0]) db[t].push(res.data[0]);
+          if (t === 'vouchers') led.loaded = false;
+          toast('Restored');
+          openRecycleBin();
+          if (tab === t) render();
+        });
+      });
+    });
+  }
+  $('recycleClose').addEventListener('click', function () { $('recycle').classList.remove('on'); });
+  $('recycleBtn').addEventListener('click', openRecycleBin);
 
   /* ---------- wiring ---------- */
   document.querySelectorAll('.tab').forEach(function (b) {
@@ -2187,10 +2342,10 @@
     btn.disabled = true; btn.textContent = 'Preparing…';
     Promise.all([
       loadXlsxLib(),
-      sb.from('parties').select('*'),
-      sb.from('items').select('*'),
-      sb.from('companies').select('*'),
-      sb.from('vouchers').select('*').order('vdate', { ascending: true }),
+      sb.from('parties').select('*').is('deleted_at', null),
+      sb.from('items').select('*').is('deleted_at', null),
+      sb.from('companies').select('*').is('deleted_at', null),
+      sb.from('vouchers').select('*').is('deleted_at', null).order('vdate', { ascending: true }),
       sb.from('voucher_lines').select('*'),
       sb.from('sheets').select('*').order('sheet_date', { ascending: true })
     ]).then(function (r) {
