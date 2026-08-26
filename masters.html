@@ -1119,7 +1119,7 @@
 
   /* ══════ item ka stock khata ══════ */
   function partyNameForBill(pid) {
-    var p = db.parties.filter(function (x) { return x.id === pid; })[0];
+    var p = dbAll.parties.filter(function (x) { return x.id === pid; })[0];
     return p ? p.name : '';
   }
   function buildStockAccount(it) {
@@ -2030,6 +2030,7 @@
   }
 
   /* ---------- cloud ---------- */
+  var dbAll = { parties:[], items:[] };   // deleted-samet poori list — purani ledger entries ka naam dikhane ke liye
   function loadAll() {
     if (!sb) return Promise.resolve();
     syncNote('Loading…');
@@ -2037,7 +2038,9 @@
       sb.from('parties').select('*').is('deleted_at', null),
       sb.from('items').select('*').is('deleted_at', null),
       sb.from('companies').select('*').is('deleted_at', null),
-      sb.from('party_kinds').select('*')
+      sb.from('party_kinds').select('*'),
+      sb.from('parties').select('id,name'),
+      sb.from('items').select('id,name')
     ]).then(function (r) {
       if (r[0].error) throw r[0].error;
       if (r[1].error) throw r[1].error;
@@ -2045,6 +2048,8 @@
       db.items     = r[1].data || [];
       db.companies = r[2].error ? [] : (r[2].data || []);   // SQL na chali ho to bhi app chale
       customKinds  = r[3].error ? [] : (r[3].data || []);   // custom party categories, SQL na chali ho to bhi app chale
+      dbAll.parties = r[4].error ? db.parties : (r[4].data || []);
+      dbAll.items   = r[5].error ? db.items   : (r[5].data || []);
       syncNote('');
       render();
       if (db.parties.length) loadLedgerData().then(drawTotals).catch(function () {});

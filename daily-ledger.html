@@ -1020,13 +1020,15 @@
   }
 
   /* ══════ party jorna ══════ */
-  var parties = [], partiesOk = false;
+  var parties = [], partiesAll = [], partiesOk = false;
 
   function loadParties() {
     if (!sb) return Promise.resolve();
-    return sb.from('parties').select('id,name,city,phone,active').then(function (res) {
+    return sb.from('parties').select('id,name,city,phone,active,deleted_at').then(function (res) {
       if (res.error) { partiesOk = false; return; }   // table nahi bani to bas jorna band
-      parties = (res.data || []).filter(function (p) { return p.active !== false; });
+      partiesAll = res.data || [];
+      // sirf active, na-delete-hui parties naye link ke liye chuni ja sakti hain
+      parties = partiesAll.filter(function (p) { return p.active !== false && !p.deleted_at; });
       partiesOk = true;
       paintAll();
     }).catch(function () { partiesOk = false; });
@@ -1035,7 +1037,8 @@
   /* firm ka logo — optional. Companies table na bani ho to bilkul khamoshi se chhor deta hai */
   function partyById(id) {
     if (!id) return null;
-    return parties.filter(function (p) { return String(p.id) === String(id); })[0] || null;
+    // purani entries ka naam hamesha dikhna chahiye, chahe wo party ab delete/band ho — is liye poori list se dhoondhte hain
+    return partiesAll.filter(function (p) { return String(p.id) === String(id); })[0] || null;
   }
   function normName(s) { return String(s == null ? '' : s).trim().toLowerCase().replace(/\s+/g, ' '); }
   function escHtml(s) {
