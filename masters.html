@@ -448,6 +448,7 @@
   <button class="abtn" id="recycleBtn">Recycle Bin</button>
   <button class="abtn" id="tbBtn">Trial Balance</button>
   <button class="abtn" id="lockBtn">Period Lock</button>
+  <button class="abtn" id="agingBtn">Aging Report</button>
   <button class="abtn" id="outBtn">Sign out</button>
 </div>
 
@@ -595,6 +596,19 @@
     </div>
   </div>
 </div>
+
+<div class="ask" id="agingModal">
+  <div class="box" style="max-width:520px">
+    <h4>Aging Report</h4>
+    <p style="margin-bottom:10px">Har party ka pending amount, aur wo kitne din se pending hai — sabse zyada purana upar.</p>
+    <div id="agingFilter" style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap"></div>
+    <div id="agingList" style="max-height:50vh;overflow:auto"></div>
+    <div class="acts">
+      <button class="btn" id="agingClose">Close</button>
+    </div>
+  </div>
+</div>
+
 
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -2296,6 +2310,62 @@
       .then(function (ok) { if (ok) setLock(null); });
   });
   $('lockBtn').addEventListener('click', openLockModal);
+
+  /* ---------- Aging Report — party-wise, buildAccount() ki wahi calc reuse karta hai ---------- */
+  var agingBucket = 'all';
+  function computeAging() {
+    var today = new Date();
+    var rows = [];
+    db.parties.forEach(function (p) {
+      var acc = buildAccount(p);
+      var v = acc.balance;
+      if (v <= 0) return;   // sirf receivable (Dr) — jo humein lena hai
+      var lastDate = '';
+      acc.events.forEach(function (e) { if (e.date && e.date > lastDate) lastDate = e.date; });
+      var days = lastDate ? Math.floor((today - new Date(lastDate + 'T00:00:00')) / 86400000) : null;
+      var bucket = days == null ? 'b0' : days <= 30 ? 'b0' : days <= 60 ? 'b30' : days <= 90 ? 'b60' : 'b90';
+      rows.push({ party: p, amount: v, days: days, bucket: bucket, lastDate: lastDate });
+    });
+    rows.sort(function (a, b) { return (b.days || 0) - (a.days || 0); });
+    return rows;
+  }
+  var BUCKET_LABEL = { all:'All', b0:'0\u201330d', b30:'31\u201360d', b60:'61\u201390d', b90:'90d+' };
+  function openAgingReport() {
+    $('agingModal').classList.add('on');
+    if (!led.loaded) {
+      $('agingList').innerHTML = '<p style="color:var(--mute);font-size:13px">Data load ho rahi hai\u2026</p>';
+      loadLedgerData().then(renderAgingReport).catch(function () {
+        $('agingList').innerHTML = '<p style="color:var(--mute);font-size:13px">Load nahi ho saka \u2014 dobara try karein.</p>';
+      });
+    } else {
+      renderAgingReport();
+    }
+  }
+  function renderAgingReport() {
+    var all = computeAging();
+    var fbar = $('agingFilter');
+    fbar.innerHTML = ['all','b0','b30','b60','b90'].map(function (k) {
+      var n = k === 'all' ? all.length : all.filter(function (r) { return r.bucket === k; }).length;
+      if (k !== 'all' && !n) return '';
+      return '<button class="catchip' + (agingBucket === k ? ' active' : '') + '" data-b="' + k + '">' +
+             BUCKET_LABEL[k] + (k !== 'all' ? ' (' + n + ')' : '') + '</button>';
+    }).join('');
+    fbar.querySelectorAll('.catchip').forEach(function (b) {
+      b.addEventListener('click', function () { agingBucket = b.getAttribute('data-b'); renderAgingReport(); });
+    });
+    var rows = agingBucket === 'all' ? all : all.filter(function (r) { return r.bucket === agingBucket; });
+    var box = $('agingList');
+    if (!rows.length) { box.innerHTML = '<p style="color:var(--mute);font-size:13px">Is bucket mein koi pending amount nahi.</p>'; return; }
+    box.innerHTML = rows.map(function (r) {
+      var dayTxt = r.days == null ? 'no transactions' : r.days + ' din se';
+      var color = r.bucket === 'b90' ? '#9B2C2C' : r.bucket === 'b60' ? '#C9622A' : r.bucket === 'b30' ? '#B08A3E' : 'var(--mute)';
+      return '<div class="catrow"><div><span class="nm">' + esc(r.party.name) + '</span>' +
+             '<span class="cnt" style="color:' + color + '">' + esc(dayTxt) + '</span></div>' +
+             '<span style="font-weight:600;color:#0B6E99">' + fmt(r.amount) + '</span></div>';
+    }).join('');
+  }
+  $('agingClose').addEventListener('click', function () { $('agingModal').classList.remove('on'); });
+  $('agingBtn').addEventListener('click', openAgingReport);
 
   /* ---------- wiring ---------- */
   document.querySelectorAll('.tab').forEach(function (b) {
