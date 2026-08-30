@@ -2589,8 +2589,8 @@
       loadLedgerData().then(redrawLedger).catch(function () {});
     }
   });
-  /* agar yeh tab kabhi hidden hi nahi hui, upar wala tareeqa nahi chalta — is liye
-     har 20 second baad khud khamoshi se bhi taaza data mangwao */
+  /* Realtime kabhi disconnect ho jaye (mobile network drop waghera) to bhi
+     data bilkul stale na rahe — is liye 2 minute mein ek dafa backup refresh */
   setInterval(function () {
     if (!sb) return;
     if ($('sheet').classList.contains('on')) return;
@@ -2599,7 +2599,7 @@
       led.loaded = false;
       loadLedgerData().then(redrawLedger).catch(function () {});
     }
-  }, 20000);
+  }, 120000);
   window.addEventListener('offline', function () { syncNote('Offline', '#B08A3E'); });
 
   /* ---------- gates ---------- */
@@ -2870,6 +2870,33 @@
     $('newBtn').textContent = '+ Party';
     $('q').placeholder = 'Search by name, phone or city…';
     loadAll();
+    setupRealtime();
+  }
+  /* ---------- Realtime: 20-second polling ki jagah, sirf jab actual change ho tab refresh ---------- */
+  var realtimeChannel = null, realtimeTimer = null;
+  function scheduleRefresh() {
+    clearTimeout(realtimeTimer);
+    realtimeTimer = setTimeout(function () {
+      if (!sb) return;
+      if ($('sheet').classList.contains('on')) return;   // form khula hai — chhero mat
+      loadAll();
+      if ($('acc').classList.contains('on') && accParty) {
+        led.loaded = false;
+        loadLedgerData().then(redrawLedger).catch(function () {});
+      }
+    }, 700);   // thoda intezar taaki ek-sath aane wali kai tabdeeliyan ek hi refresh mein aa jayen
+  }
+  function setupRealtime() {
+    if (!sb || realtimeChannel) return;
+    try {
+      realtimeChannel = sb.channel('oht-masters-changes')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'parties' }, scheduleRefresh)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'items' }, scheduleRefresh)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'companies' }, scheduleRefresh)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'vouchers' }, scheduleRefresh)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'sheets' }, scheduleRefresh)
+        .subscribe();
+    } catch (e) { /* Realtime na chale to bhi app chalta rahe — neeche wala backup poll sambhal lega */ }
   }
 
   /* ---------- boot ---------- */

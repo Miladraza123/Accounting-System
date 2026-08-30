@@ -945,13 +945,13 @@
     loadParties();
     subscribeRealtime();   // phone lock/background me websocket tut jata hai — yahan dobara joro
   });
-  /* agar yeh tab kabhi hidden hi nahi hui (shuru se khuli padi hai), upar wala tareeqa kaam nahi karega —
-     is liye har 20 second baad khud khamoshi se bhi taaza data mangwao */
+  /* Realtime kabhi disconnect ho jaye to bhi data stale na rahe — is liye
+     2 minute mein ek dafa backup refresh */
   setInterval(function () {
     if (!sb || !online || !ready) return;
     if (Date.now() - lastEditTime < 3000) return;   // sirf "ungli rakhi hai" nahi — "abhi type kiya" dekho
     pullAll().then(function (ok) { if (ok) { renderList(); openSheet(active || todayISO()); } });
-  }, 20000);
+  }, 120000);
   window.addEventListener('offline', function () { online = false; syncNote('Offline', '#B08A3E'); });
 
   function ask(title, body, yesLabel, infoOnly) {

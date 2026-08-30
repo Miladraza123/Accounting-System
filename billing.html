@@ -1049,12 +1049,12 @@
     if (document.visibilityState !== 'visible' || !sb) return;
     loadAll();
   });
-  /* agar yeh tab kabhi hidden hi nahi hui, upar wala tareeqa nahi chalta — is liye
-     har 20 second baad khud khamoshi se bhi taaza data mangwao */
+  /* Realtime kabhi disconnect ho jaye to bhi data stale na rahe — is liye
+     2 minute mein ek dafa backup refresh */
   setInterval(function () {
     if (!sb) return;
     loadAll();
-  }, 20000);
+  }, 120000);
   window.addEventListener('offline', function () { syncNote('Offline', '#B08A3E'); });
 
   /* ---------- gates ---------- */
@@ -1173,6 +1173,25 @@
     $('gateConnect').classList.remove('on'); $('gateLogin').classList.remove('on');
     $('newBtn').textContent = '+ Purchase';
     loadAll();
+    setupRealtime();
+  }
+  /* ---------- Realtime: 20-second polling ki jagah, sirf jab actual change ho tab refresh ---------- */
+  var realtimeChannel = null, realtimeTimer = null;
+  function scheduleRefresh() {
+    clearTimeout(realtimeTimer);
+    realtimeTimer = setTimeout(function () { if (sb) loadAll(); }, 700);
+  }
+  function setupRealtime() {
+    if (!sb || realtimeChannel) return;
+    try {
+      realtimeChannel = sb.channel('oht-billing-changes')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'vouchers' }, scheduleRefresh)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'voucher_lines' }, scheduleRefresh)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'parties' }, scheduleRefresh)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'items' }, scheduleRefresh)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'companies' }, scheduleRefresh)
+        .subscribe();
+    } catch (e) { /* Realtime na chale to bhi app chalta rahe */ }
   }
 
   (function boot() {
