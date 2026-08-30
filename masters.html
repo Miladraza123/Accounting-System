@@ -446,6 +446,8 @@
   <span class="sync" id="syncNote"></span>
   <button class="abtn" id="bkBtn">Backup</button>
   <button class="abtn" id="recycleBtn">Recycle Bin</button>
+  <button class="abtn" id="tbBtn">Trial Balance</button>
+  <button class="abtn" id="lockBtn">Period Lock</button>
   <button class="abtn" id="outBtn">Sign out</button>
 </div>
 
@@ -562,6 +564,38 @@
     </div>
   </div>
 </div>
+
+<div class="ask" id="tbModal">
+  <div class="box" style="max-width:480px">
+    <h4>Trial Balance</h4>
+    <p style="margin-bottom:10px">Har party ka net balance — kitna dena hai (Dr), kitna lena hai (Cr).</p>
+    <div id="tbList" style="max-height:50vh;overflow:auto"></div>
+    <div id="tbTotals" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--hair);
+         font-size:13px;color:var(--slate);display:none"></div>
+    <div class="acts">
+      <button class="btn" id="tbClose">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="ask" id="lockModal">
+  <div class="box" style="max-width:420px">
+    <h4>Period Lock</h4>
+    <p style="margin-bottom:10px">Is tareekh se pehle ka koi bhi bill ya ledger din change/delete nahi ho sakega \u2014 galti se purana hisaab bigadne se bachata hai.</p>
+    <div id="lockCurrent" style="font-size:13px;color:var(--slate);margin-bottom:12px"></div>
+    <label style="font-size:11px;font-weight:700;letter-spacing:.4px;color:var(--mute);text-transform:uppercase">Is se pehle sab lock</label>
+    <input id="lockDate" type="date" style="width:100%;box-sizing:border-box;margin:6px 0 14px;
+      padding:9px 10px;border:1px solid var(--hair);border-radius:8px;font-size:14px">
+    <div class="acts" style="justify-content:space-between">
+      <button class="btn dgr" id="lockClear">Lock hataayein</button>
+      <div>
+        <button class="btn" id="lockClose">Close</button>
+        <button class="btn pri" id="lockSave">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
@@ -709,6 +743,12 @@
                 : 'This firm is used on a bill';
       toast(label + ' — turn off "In use" instead.', true);
       return;
+    }
+    if (e && (String(e.code) === '23514' || String(e.code) === '23502')) {
+      var m = (e.message || '').toLowerCase();
+      if (m.indexOf('name_required') !== -1)  { toast('Name is required', true); return; }
+      if (m.indexOf('opening_nonneg') !== -1) { toast('Opening quantity/rate can\u2019t be negative', true); return; }
+      toast('Please check the values you entered', true); return;
     }
     console.error(e);
     toast((e && e.message) || ('Could not ' + what), true);
@@ -2187,6 +2227,76 @@
   }
   $('recycleClose').addEventListener('click', function () { $('recycle').classList.remove('on'); });
   $('recycleBtn').addEventListener('click', openRecycleBin);
+
+  /* ---------- Trial Balance — Supabase ke trial_balance() function se ---------- */
+  function openTrialBalance() {
+    $('tbModal').classList.add('on');
+    $('tbList').innerHTML = '<p style="color:var(--mute);font-size:13px">Loading\u2026</p>';
+    $('tbTotals').style.display = 'none';
+    sb.rpc('trial_balance').then(function (res) {
+      if (res.error) throw res.error;
+      renderTrialBalance(res.data || []);
+    }).catch(function (e) {
+      var msg = (e && e.message && e.message.indexOf('function') !== -1 && e.message.indexOf('does not exist') !== -1)
+        ? 'Trial Balance abhi set up nahi hui — trial-balance-function.sql Supabase mein run karein.'
+        : ((e && e.message) || 'Could not load Trial Balance');
+      $('tbList').innerHTML = '<p style="color:var(--mute);font-size:13px">' + esc(msg) + '</p>';
+    });
+  }
+  function renderTrialBalance(rows) {
+    var box = $('tbList');
+    if (!rows.length) { box.innerHTML = '<p style="color:var(--mute);font-size:13px">Sab accounts clear hain \u2014 koi balance baaki nahi.</p>'; return; }
+    var dr = 0, cr = 0;
+    box.innerHTML = rows.map(function (r) {
+      var amt = Number(r.balance) || 0;
+      if (r.side === 'dr') dr += amt; else cr += amt;
+      var color = r.side === 'dr' ? '#0B6E99' : '#9B2C2C';
+      return '<div class="catrow"><span class="nm">' + esc(r.party_name) + '</span>' +
+             '<span style="font-weight:600;color:' + color + '">' + fmt(amt) + ' ' + r.side.toUpperCase() + '</span></div>';
+    }).join('');
+    $('tbTotals').style.display = 'block';
+    $('tbTotals').innerHTML = 'Total Dr: <b>' + fmt(dr) + '</b> &nbsp;&middot;&nbsp; Total Cr: <b>' + fmt(cr) + '</b>' +
+      (Math.abs(dr - cr) > 0.5 ? ' &nbsp;<span style="color:#9B2C2C">(match nahi kar rahe — check karein)</span>' : '');
+  }
+  $('tbClose').addEventListener('click', function () { $('tbModal').classList.remove('on'); });
+  $('tbBtn').addEventListener('click', openTrialBalance);
+
+  /* ---------- Period Lock — period_lock table set/dekhna ---------- */
+  function openLockModal() {
+    $('lockModal').classList.add('on');
+    $('lockCurrent').textContent = 'Loading\u2026';
+    $('lockDate').value = '';
+    sb.from('period_lock').select('locked_before').eq('id', 1).single().then(function (res) {
+      if (res.error) {
+        $('lockCurrent').textContent = 'Abhi set up nahi hui \u2014 period-locking.sql Supabase mein run karein.';
+        return;
+      }
+      var d = res.data && res.data.locked_before;
+      $('lockCurrent').textContent = d
+        ? ('Abhi lock hai: ' + dayText(d) + ' se pehle ka sab kuch.')
+        : 'Abhi koi lock nahi hai \u2014 sab kuch edit/delete ho sakta hai.';
+      if (d) $('lockDate').value = d;
+    });
+  }
+  function setLock(dateOrNull) {
+    sb.from('period_lock').update({ locked_before: dateOrNull }).eq('id', 1).then(function (res) {
+      if (res.error) { sayErr(res.error, 'update the lock'); return; }
+      toast(dateOrNull ? 'Lock set ho gaya' : 'Lock hata diya gaya');
+      openLockModal();
+    });
+  }
+  $('lockClose').addEventListener('click', function () { $('lockModal').classList.remove('on'); });
+  $('lockSave').addEventListener('click', function () {
+    if (!$('lockDate').value) { toast('Pehle koi tareekh chunein', true); return; }
+    confirmBox('Period lock set karein?',
+      $('lockDate').value + ' se pehle ka koi bhi bill ya ledger din ab change/delete nahi ho sakega.',
+      'Set karein').then(function (ok) { if (ok) setLock($('lockDate').value); });
+  });
+  $('lockClear').addEventListener('click', function () {
+    confirmBox('Lock hataayein?', 'Sab purana data dobara editable ho jayega.', 'Hataayein')
+      .then(function (ok) { if (ok) setLock(null); });
+  });
+  $('lockBtn').addEventListener('click', openLockModal);
 
   /* ---------- wiring ---------- */
   document.querySelectorAll('.tab').forEach(function (b) {

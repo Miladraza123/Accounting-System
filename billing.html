@@ -427,6 +427,13 @@
     if (isNetErr(e)) { toast('No internet — ' + what + ' not saved', true); syncNote('Offline', '#B08A3E'); return; }
     if (isClockErr(e)) { toast('Your phone\u2019s clock looks slightly off \u2014 check Date & Time settings', true); return; }
     if (e && String(e.code) === '23505') { toast('That bill number is already used', true); return; }
+    if (e && (String(e.code) === '23514' || String(e.code) === '23502')) {
+      var m = (e.message || '').toLowerCase();
+      if (m.indexOf('qty_nonneg') !== -1)  { toast('Quantity can\u2019t be negative', true); return; }
+      if (m.indexOf('rate_nonneg') !== -1) { toast('Rate can\u2019t be negative', true); return; }
+      if (m.indexOf('vdate') !== -1)       { toast('Bill date is required', true); return; }
+      toast('Please check the values you entered', true); return;
+    }
     console.error(e); toast((e && e.message) || ('Could not ' + what), true);
   }
   function partyById(id) { return parties.filter(function (p) { return p.id === id; })[0] || null; }

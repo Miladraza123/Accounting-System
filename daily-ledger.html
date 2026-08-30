@@ -898,9 +898,10 @@
         }
         syncNote('Cloud error', '#E89A9A');
         console.error('Supabase save failed:', e);
+        var isCustomMsg = String(e.code) === 'P0001';   // hamari apni "period locked" jaisi Roman Urdu wali error
         ask('Could not save to cloud',
             (e.message || 'Unknown error') + (e.hint ? '  \u2014  ' + e.hint : '') +
-            (e.code ? '  (code ' + e.code + ')' : ''), 'OK', true);
+            (e.code && !isCustomMsg ? '  (code ' + e.code + ')' : ''), 'OK', true);
         return;
       }
 
