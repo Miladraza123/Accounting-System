@@ -809,10 +809,23 @@
 
     var isNew = !b.id;
     var step = isNew ? sb.from('vouchers').insert(head).select()
-                     : sb.from('vouchers').update(head).eq('id', b.id).select();
+                     : sb.from('vouchers').update(head).eq('id', b.id).eq('version', b.version || 1).select();
 
     step.then(function (res) {
       if (res.error) throw res.error;
+      if (!isNew && (!res.data || !res.data.length)) {
+        // id+version dono match nahi hue — kisi aur ne beech mein isi bill ko save kar diya
+        $('edSave').disabled = false;
+        syncNote('');
+        confirmBox('Kisi aur ne pehle save kar diya',
+          'Ye bill aap ke edit karte waqt kisi aur device/user ne bhi update kar diya. ' +
+          'Aapki tabdeeliyan save nahi hui — taaza data dekh kar dobara edit karein.',
+          'Taaza data dekhein').then(function () {
+          closeBill();
+          loadAll();
+        });
+        return;
+      }
       var row = (res.data || [])[0];
       var vid = row ? row.id : b.id;
       return (isNew ? Promise.resolve({ error:null })

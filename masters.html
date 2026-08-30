@@ -465,6 +465,7 @@
     <button class="clr" id="qClr" aria-label="Clear search">×</button>
   </div>
   <button class="newbtn" id="newBtn">+ New</button>
+  <button class="newbtn" id="importBtn" style="background:#fff;color:var(--ink);border:1px solid var(--hair)">Import</button>
 </div>
 
 <div class="totbar" id="totbar" style="display:none">
@@ -605,6 +606,26 @@
     <div id="agingList" style="max-height:50vh;overflow:auto"></div>
     <div class="acts">
       <button class="btn" id="agingClose">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="ask" id="importModal">
+  <div class="box" style="max-width:520px">
+    <h4 id="importTitle">Bulk Import</h4>
+    <div id="importStep1">
+      <p style="margin-bottom:8px">Excel ya CSV file upload karein. Pehli row mein column headings honi chahiye — in naamon mein se (bade-chhote harf ka farak nahi):</p>
+      <p id="importCols" style="font-size:12.5px;color:var(--slate);background:var(--panel);padding:8px 10px;border-radius:8px;margin-bottom:10px"></p>
+      <input id="importFile" type="file" accept=".xlsx,.xls,.csv" style="margin-bottom:10px">
+      <div id="importMsg" style="font-size:13px;color:#9B2C2C"></div>
+    </div>
+    <div id="importStep2" style="display:none">
+      <p id="importPreviewSummary" style="margin-bottom:8px;font-weight:600"></p>
+      <div id="importPreviewList" style="max-height:38vh;overflow:auto;font-size:12.5px;border:1px solid var(--hair);border-radius:8px;padding:6px 10px"></div>
+    </div>
+    <div class="acts">
+      <button class="btn" id="importClose">Cancel</button>
+      <button class="btn pri" id="importConfirm" style="display:none">Import karein</button>
     </div>
   </div>
 </div>
@@ -2125,11 +2146,25 @@
     if (!body.name) { toast('Name is needed', true); return; }
     var isNew = !(editing && editing.id);
     var q = isNew ? sb.from(tab).insert(body).select()
-                  : sb.from(tab).update(body).eq('id', editing.id).select();
+                  : sb.from(tab).update(body).eq('id', editing.id).eq('version', editing.version || 1).select();
     $('edSave').disabled = true;
     syncNote('Saving…');
     q.then(function (res) {
       if (res.error) throw res.error;
+      if (!isNew && (!res.data || !res.data.length)) {
+        // WHERE clause (id + version) ko koi row nahi mili — matlab kisi aur ne
+        // beech mein isi record ko save kar diya, hamara wala purana ho gaya
+        $('edSave').disabled = false;
+        syncNote('');
+        confirmBox('Kisi aur ne pehle save kar diya',
+          'Is record ko aap ke edit karte waqt kisi aur device/user ne bhi update kar diya. ' +
+          'Aapki tabdeeliyan save nahi hui — pehle taaza data dekh lein, phir dobara edit karein.',
+          'Taaza data dekhein').then(function () {
+          closeEditor();
+          loadAll();
+        });
+        return;
+      }
       var row = (res.data || [])[0];
       if (isNew) { if (row) db[tab].push(row); }
       else {
@@ -2367,6 +2402,127 @@
   $('agingClose').addEventListener('click', function () { $('agingModal').classList.remove('on'); });
   $('agingBtn').addEventListener('click', openAgingReport);
 
+  /* ---------- Bulk Import (Excel/CSV) — parties aur items ke liye ---------- */
+  var IMPORT_SPEC = {
+    parties: {
+      cols: ['name','kind','phone','city','address','ntn','opening','opening_side'],
+      required: ['name'],
+      clean: function (r) {
+        var kindOk = allKinds().map(function (k) { return k[0]; }).concat(customKinds.map(function (c) { return c.value; }));
+        var kind = String(r.kind || 'customer').toLowerCase().trim();
+        return {
+          name: String(r.name || '').trim(),
+          kind: kindOk.indexOf(kind) !== -1 ? kind : 'customer',
+          phone: String(r.phone || '').trim(),
+          city: String(r.city || '').trim(),
+          address: String(r.address || '').trim(),
+          ntn: String(r.ntn || '').trim(),
+          opening: Number(r.opening) || 0,
+          opening_side: String(r.opening_side || 'dr').toLowerCase().trim() === 'cr' ? 'cr' : 'dr',
+          active: true
+        };
+      }
+    },
+    items: {
+      cols: ['name','unit','buy_rate','sale_rate','opening_qty','opening_rate','hs_code','reorder_level'],
+      required: ['name'],
+      clean: function (r) {
+        return {
+          name: String(r.name || '').trim(),
+          unit: String(r.unit || 'pcs').trim(),
+          buy_rate: Number(r.buy_rate) || 0,
+          sale_rate: Number(r.sale_rate) || 0,
+          opening_qty: Number(r.opening_qty) || 0,
+          opening_rate: Number(r.opening_rate) || 0,
+          hs_code: String(r.hs_code || '').trim(),
+          reorder_level: r.reorder_level === '' || r.reorder_level == null ? null : Number(r.reorder_level),
+          active: true
+        };
+      }
+    }
+  };
+  var importRows = [];
+  function openImportModal() {
+    var spec = IMPORT_SPEC[tab];
+    if (!spec) return;
+    $('importTitle').textContent = 'Bulk Import \u2014 ' + (tab === 'parties' ? 'Parties' : 'Items');
+    $('importCols').textContent = spec.cols.join(', ');
+    $('importFile').value = '';
+    $('importMsg').textContent = '';
+    $('importStep1').style.display = '';
+    $('importStep2').style.display = 'none';
+    $('importConfirm').style.display = 'none';
+    importRows = [];
+    $('importModal').classList.add('on');
+  }
+  $('importFile').addEventListener('change', function (e) {
+    var file = e.target.files[0];
+    if (!file) return;
+    var spec = IMPORT_SPEC[tab];
+    $('importMsg').textContent = '';
+    loadXlsxLib().then(function () {
+      var reader = new FileReader();
+      reader.onload = function (ev) {
+        try {
+          var wb = XLSX.read(ev.target.result, { type: 'array' });
+          var ws = wb.Sheets[wb.SheetNames[0]];
+          var raw = XLSX.utils.sheet_to_json(ws, { defval: '' });
+          if (!raw.length) { $('importMsg').textContent = 'File mein koi data nahi mila.'; return; }
+          // column names case-insensitive match karte hain
+          var normalized = raw.map(function (row) {
+            var out = {};
+            Object.keys(row).forEach(function (k) { out[k.toLowerCase().trim()] = row[k]; });
+            return out;
+          });
+          var cleaned = normalized.map(function (r) { return spec.clean(r); });
+          var bad = cleaned.filter(function (r) { return spec.required.some(function (f) { return !r[f]; }); });
+          var good = cleaned.filter(function (r) { return !spec.required.some(function (f) { return !r[f]; }); });
+          importRows = good;
+          $('importStep1').style.display = 'none';
+          $('importStep2').style.display = '';
+          $('importConfirm').style.display = good.length ? '' : 'none';
+          $('importPreviewSummary').textContent = good.length + ' rows import hone ke liye taiyar' +
+            (bad.length ? ', ' + bad.length + ' skip ho rahi hain (naam khali hai)' : '') + '.';
+          $('importPreviewList').innerHTML = good.slice(0, 50).map(function (r) {
+            return '<div style="padding:3px 0;border-bottom:1px solid var(--hair)">' + esc(r.name) +
+                   (r.city ? ' \u00b7 ' + esc(r.city) : '') + (r.unit ? ' \u00b7 ' + esc(r.unit) : '') + '</div>';
+          }).join('') + (good.length > 50 ? '<div style="padding:6px 0;color:var(--mute)">\u2026 aur ' + (good.length - 50) + ' rows</div>' : '');
+        } catch (err) {
+          $('importMsg').textContent = 'File padhi nahi ja saki \u2014 sahi Excel/CSV format check karein.';
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    }).catch(function () { $('importMsg').textContent = 'Excel library load nahi ho saki \u2014 internet check karein.'; });
+  });
+  $('importConfirm').addEventListener('click', function () {
+    if (!importRows.length) return;
+    $('importConfirm').disabled = true;
+    $('importConfirm').textContent = 'Import ho raha hai\u2026';
+    var CHUNK = 200;
+    var chunks = [];
+    for (var i = 0; i < importRows.length; i += CHUNK) chunks.push(importRows.slice(i, i + CHUNK));
+    var done = 0;
+    function next() {
+      if (!chunks.length) {
+        toast(done + ' ' + (tab === 'parties' ? 'parties' : 'items') + ' import ho gaye');
+        $('importModal').classList.remove('on');
+        $('importConfirm').disabled = false;
+        $('importConfirm').textContent = 'Import karein';
+        loadAll();
+        return;
+      }
+      var chunk = chunks.shift();
+      sb.from(tab).insert(chunk).select().then(function (res) {
+        if (res.error) { sayErr(res.error, 'import'); $('importConfirm').disabled = false; $('importConfirm').textContent = 'Import karein'; return; }
+        done += (res.data || []).length;
+        next();
+      });
+    }
+    next();
+  });
+  $('importClose').addEventListener('click', function () { $('importModal').classList.remove('on'); });
+  $('importBtn').addEventListener('click', openImportModal);
+
   /* ---------- wiring ---------- */
   document.querySelectorAll('.tab').forEach(function (b) {
     b.addEventListener('click', function () {
@@ -2378,6 +2534,7 @@
       $('q').value = '';
       $('q').placeholder = tab === 'items' ? 'Search by name…' : 'Search by name, phone or city…';
       $('newBtn').textContent = tab === 'parties' ? '+ Party' : tab === 'companies' ? '+ Firm' : '+ Item';
+      $('importBtn').style.display = (tab === 'parties' || tab === 'items') ? '' : 'none';
       render();
       if (tab === 'items' && db.items.length) {
         loadLedgerData().then(render).catch(function () {});
