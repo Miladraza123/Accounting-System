@@ -568,7 +568,7 @@
 <div class="ask" id="tbModal">
   <div class="box" style="max-width:480px">
     <h4>Trial Balance</h4>
-    <p style="margin-bottom:10px">Har party ka net balance — kitna dena hai (Dr), kitna lena hai (Cr).</p>
+    <p style="margin-bottom:10px">Har party ka net balance — kitna dena hai (Dr), kitna lena hai (Cr). Ye "To Collect"/"To Pay" ka detailed breakdown hai, is liye Dr aur Cr ka aapas mein barabar hona zaroori nahi.</p>
     <div id="tbList" style="max-height:50vh;overflow:auto"></div>
     <div id="tbTotals" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--hair);
          font-size:13px;color:var(--slate);display:none"></div>
@@ -2255,8 +2255,7 @@
              '<span style="font-weight:600;color:' + color + '">' + fmt(amt) + ' ' + r.side.toUpperCase() + '</span></div>';
     }).join('');
     $('tbTotals').style.display = 'block';
-    $('tbTotals').innerHTML = 'Total Dr: <b>' + fmt(dr) + '</b> &nbsp;&middot;&nbsp; Total Cr: <b>' + fmt(cr) + '</b>' +
-      (Math.abs(dr - cr) > 0.5 ? ' &nbsp;<span style="color:#9B2C2C">(match nahi kar rahe — check karein)</span>' : '');
+    $('tbTotals').innerHTML = 'Total to collect (Dr): <b>' + fmt(dr) + '</b> &nbsp;&middot;&nbsp; Total to pay (Cr): <b>' + fmt(cr) + '</b>';
   }
   $('tbClose').addEventListener('click', function () { $('tbModal').classList.remove('on'); });
   $('tbBtn').addEventListener('click', openTrialBalance);
