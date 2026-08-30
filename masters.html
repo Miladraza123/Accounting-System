@@ -116,6 +116,13 @@
                 margin-bottom:7px; }
   .empty .sm { font-size:13px; line-height:1.55; }
 
+  .loadmore { display:none; width:100%; padding:13px 12px; background:var(--paper);
+              border:none; border-top:1px solid var(--hair); font-family:inherit;
+              font-size:12.5px; font-weight:700; color:var(--cash); cursor:pointer; }
+  .loadmore:hover { background:#FAFBFC; }
+  .loadmore:active { background:#F2F4F5; }
+  .loadmore .rem { color:var(--mute); font-weight:600; margin-left:4px; }
+
   /* ---------- editor ---------- */
   .scrim { position:fixed; inset:0; background:rgba(31,41,51,.42); z-index:50; display:none; }
   .scrim.on { display:block; }
@@ -485,7 +492,9 @@
   <span class="lowtoggle" id="lowToggle">Show all</span>
 </button>
 
-<div class="wrap"><div class="rows" id="rows"></div></div>
+<div class="wrap"><div class="rows" id="rows"></div>
+  <button class="loadmore" id="loadMoreBtn">Load 50 more <span class="rem" id="loadMoreRem"></span></button>
+</div>
 
 <!-- ══════════ editor ══════════ -->
 <div class="scrim" id="scrim"></div>
@@ -831,6 +840,8 @@
   }
   var lowOnly = false;   // "Low stock only" chip on/off
   var catFilter = 'all'; // parties category chip filter
+  var PAGE_SIZE = 50;
+  var partyPageLimit = PAGE_SIZE;   // sirf parties list ke liye — items/companies abhi ki tarah pooray render hote hain
   function renderCatbar() {
     var bar = $('catbar');
     if (tab !== 'parties' || !db.parties.length) { bar.style.display = 'none'; return; }
@@ -849,6 +860,7 @@
   $('catbar').addEventListener('click', function (e) {
     var b = e.target.closest('.catchip'); if (!b) return;
     catFilter = b.getAttribute('data-cat');
+    partyPageLimit = PAGE_SIZE;
     render();
   });
   function render() {
@@ -867,6 +879,9 @@
       list.sort(function (a, b) { return norm(a.name) < norm(b.name) ? -1 : 1; });
     }
 
+    var fullCount = list.length;
+    if (tab === 'parties') list = list.slice(0, partyPageLimit);
+
     $('nParties').textContent = db.parties.length ? '(' + db.parties.length + ')' : '';
     $('nItems').textContent   = db.items.length   ? '(' + db.items.length   + ')' : '';
     $('nCompanies').textContent = db.companies.length ? '(' + db.companies.length + ')' : '';
@@ -874,6 +889,7 @@
 
     var box = $('rows');
     if (!list.length) {
+      $('loadMoreBtn').style.display = 'none';
       box.innerHTML = '<div class="empty">' +
         (q ? '<div class="big">Nothing matched “' + esc($('q').value) + '”</div>' +
              '<div class="sm">Try a shorter word, or add it as a new ' +
@@ -910,7 +926,19 @@
     box.innerHTML = html;
     drawTotals();
     drawLowBar();
+
+    var remaining = fullCount - list.length;
+    if (tab === 'parties' && remaining > 0) {
+      $('loadMoreBtn').style.display = 'block';
+      $('loadMoreRem').textContent = '(' + remaining + ' more)';
+    } else {
+      $('loadMoreBtn').style.display = 'none';
+    }
   }
+  $('loadMoreBtn').addEventListener('click', function () {
+    partyPageLimit += PAGE_SIZE;
+    render();
+  });
   function drawLowBar() {
     var bar = $('lowbar');
     if (tab !== 'items' || !db.items.length || !led.loaded) { bar.style.display = 'none'; return; }
@@ -2535,14 +2563,15 @@
       $('q').placeholder = tab === 'items' ? 'Search by name…' : 'Search by name, phone or city…';
       $('newBtn').textContent = tab === 'parties' ? '+ Party' : tab === 'companies' ? '+ Firm' : '+ Item';
       $('importBtn').style.display = (tab === 'parties' || tab === 'items') ? '' : 'none';
+      partyPageLimit = PAGE_SIZE;
       render();
       if (tab === 'items' && db.items.length) {
         loadLedgerData().then(render).catch(function () {});
       }
     });
   });
-  $('q').addEventListener('input', render);
-  $('qClr').addEventListener('click', function () { $('q').value = ''; render(); $('q').focus(); });
+  $('q').addEventListener('input', function () { partyPageLimit = PAGE_SIZE; render(); });
+  $('qClr').addEventListener('click', function () { $('q').value = ''; partyPageLimit = PAGE_SIZE; render(); $('q').focus(); });
   $('newBtn').addEventListener('click', function () { openEditor(null); });
   function openRowById(id) {
     var rec = db[tab].filter(function (r) { return String(r.id) === id; })[0];
