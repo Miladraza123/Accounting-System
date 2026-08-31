@@ -216,6 +216,9 @@
   .stmt-period { font-size:12px; color:var(--mute); white-space:nowrap; }
   .stmt-party { font-size:13.5px; font-weight:700; color:var(--slate); margin-top:6px; }
   .stmt-rule { border-top:2px solid var(--ink); margin:11px 0 12px; }
+  .stmt-snapnote { font-size:11px; color:var(--mute); margin-top:4px; }
+  .stmt-snapnote a { color:var(--cash); font-weight:700; text-decoration:none; margin-left:4px; }
+  .stmt-snapnote a:active { opacity:.6; }
 
   .stmt-balrow { display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
   .stmt-balrow .k { font-size:10.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase;
@@ -1185,30 +1188,158 @@
   }
 
   /* ══════════ party ka khata ══════════ */
-  var led = { loaded:false, loading:false, vouchers:[], lines:[], sheets:[], adjustments:[] };
+  var led = { loaded:false, loading:false, vouchers:[], lines:[], sheets:[], adjustments:[],
+              lockDate:null, snapshotActive:false, openingBalances:{}, forcedFull:false };
   var edView = 'details';
+
+  /* Party ka balance "cutoff" tareekh tak — bilkul buildAccount() wala formula,
+     bas final total chahiye (sorting ki zaroorat nahi kyunke jama-tafriq ka
+     order se koi farq nahi padta). Ye sirf snapshot banane ke liye use hota hai. */
+  function accountBalanceAsOf(p, allVouchers, allSheets, cutoff) {
+    var run = (p.opening_side === 'dr' ? 1 : -1) * n(p.opening);
+    allVouchers.filter(function (v) {
+      return String(v.party_id) === String(p.id) && v.vdate && v.vdate < cutoff;
+    }).forEach(function (v) {
+      var g = n(v.grand_total), paid = n(v.paid);
+      var sale = v.vtype === 'sale';
+      run = r2(run + (sale ? 1 : -1) * g);
+      if (paid) run = r2(run + (sale ? -1 : 1) * paid);
+    });
+    allSheets.forEach(function (s) {
+      if (!s.sheet_date || s.sheet_date >= cutoff) return;
+      (s.rows || []).forEach(function (row) {
+        if (String(row[6] || '') === String(p.id)) { var a = n(row[2]); if (a) run = r2(run - a); }
+        if (String(row[7] || '') === String(p.id)) { var b = n(row[0]); if (b) run = r2(run + b); }
+      });
+    });
+    return run;
+  }
+
+  /* Har active party ka balance lockDateValue tak calculate kar ke
+     party_opening_balances table mein save karta hai. Poori vouchers/sheets
+     history ek dafa fetch hoti hai (sirf ye function chalne par — jab lock
+     set/change ho, ya jab snapshot missing/stale mile aur khud-ba-khud theek
+     ho raha ho). */
+  function computeAndSaveOpeningBalances(lockDateValue) {
+    return Promise.all([
+      sb.from('vouchers').select('party_id,vdate,vtype,grand_total,paid').is('deleted_at', null),
+      sb.from('sheets').select('sheet_date,rows')
+    ]).then(function (r) {
+      if (r[0].error) throw r[0].error;
+      if (r[1].error) throw r[1].error;
+      var allVouchers = r[0].data || [];
+      var allSheets   = r[1].data || [];
+      var rows = db.parties.map(function (p) {
+        return { party_id:p.id, as_of_date:lockDateValue,
+                 balance:accountBalanceAsOf(p, allVouchers, allSheets, lockDateValue) };
+      });
+      // pehle purana snapshot poora saaf karo, phir taaza daalo — taake kisi
+      // purani/hati hui party ka baasi row kabhi peeche na reh jaye
+      return sb.from('party_opening_balances').delete().gte('as_of_date', '1900-01-01')
+        .then(function (delRes) {
+          if (delRes.error) throw delRes.error;
+          if (!rows.length) return;
+          return sb.from('party_opening_balances').insert(rows).then(function (insRes) {
+            if (insRes.error) throw insRes.error;
+          });
+        });
+    });
+  }
 
   function loadLedgerData() {
     if (led.loading) return Promise.resolve();   // ek waqt me ek hi request, magar hamesha taaza mangwao
     led.loading = true;
-    return Promise.all([
-      sb.from('vouchers').select('*').is('deleted_at', null),
-      sb.from('voucher_lines').select('*'),
-      sb.from('sheets').select('sheet_date,rows'),
-      sb.from('stock_adjustments').select('*')
-    ]).then(function (r) {
-      r.slice(0, 3).forEach(function (x) { if (x.error) throw x.error; });
-      led.vouchers    = r[0].data || [];
-      led.lines       = r[1].data || [];
-      led.sheets      = r[2].data || [];
-      led.adjustments = r[3].error ? [] : (r[3].data || []);   // SQL na chali ho to bhi chale
-      led.loaded = true; led.loading = false;
+    return sb.from('period_lock').select('locked_before').eq('id', 1).single().then(function (lockRes) {
+      var lockDate = (!lockRes.error && lockRes.data) ? lockRes.data.locked_before : null;
+      return sb.from('party_opening_balances').select('party_id,as_of_date,balance').then(function (obRes) {
+        var obRows = (!obRes.error && obRes.data) ? obRes.data : [];
+        // snapshot sirf tab "active"/trusted maana jayega jab lock set ho AUR
+        // har snapshot-row isi lock-date ki ho — koi bhi mismatch mile to
+        // seedha poore/safe tareeqe par wapas chale jayenge
+        var snapshotActive = !!lockDate && obRows.length > 0 &&
+          obRows.every(function (r) { return r.as_of_date === lockDate; });
+        var openingBalances = {};
+        if (snapshotActive) obRows.forEach(function (r) { openingBalances[r.party_id] = n(r.balance); });
+
+        var voucherQuery = sb.from('vouchers').select('*').is('deleted_at', null);
+        var sheetQuery   = sb.from('sheets').select('sheet_date,rows');
+        if (snapshotActive) {
+          voucherQuery = voucherQuery.gte('vdate', lockDate);
+          sheetQuery   = sheetQuery.gte('sheet_date', lockDate);
+        }
+
+        return Promise.all([
+          voucherQuery,
+          sheetQuery,
+          sb.from('stock_adjustments').select('*')
+        ]).then(function (r) {
+          r.slice(0, 2).forEach(function (x) { if (x.error) throw x.error; });
+          var vouchers = r[0].data || [];
+          var sheets   = r[1].data || [];
+
+          var lineQuery;
+          if (snapshotActive) {
+            var ids = vouchers.map(function (v) { return v.id; });
+            lineQuery = ids.length ? sb.from('voucher_lines').select('*').in('voucher_id', ids)
+                                    : Promise.resolve({ data:[] });
+          } else {
+            lineQuery = sb.from('voucher_lines').select('*');
+          }
+          return lineQuery.then(function (linesRes) {
+            if (linesRes.error) throw linesRes.error;
+            led.vouchers        = vouchers;
+            led.lines           = linesRes.data || [];
+            led.sheets          = sheets;
+            led.adjustments     = r[2].error ? [] : (r[2].data || []);   // SQL na chali ho to bhi chale
+            led.lockDate        = lockDate;
+            led.snapshotActive  = snapshotActive;
+            led.openingBalances = openingBalances;
+            led.forcedFull      = false;
+            led.loaded = true; led.loading = false;
+
+            // lock set hai lekin snapshot missing/stale mila — background mein
+            // khud theek kar lo (is dafa poora/safe data already load ho chuka hai)
+            if (lockDate && !snapshotActive) {
+              computeAndSaveOpeningBalances(lockDate).catch(function (e) {
+                console.error('opening balance snapshot repair failed', e);
+              });
+            }
+          });
+        });
+      });
     }).catch(function (e) {
       led.loading = false;
       if (isNetErr(e)) toast('No internet — could not load the account', true);
       else if (isClockErr(e)) toast('Your phone\u2019s clock looks slightly off \u2014 try again in a moment', true);
       else { console.error(e); toast('Could not load the account', true); }
       throw e;
+    });
+  }
+
+  /* Statement of Account screen par "Load full history" \u2014 sirf is party ki
+     screen ke liye, ek dafa, poori purani detail (lock-date se pehle) bhi
+     dikhane ke liye. Ye database ka snapshot nahi badalta, sirf is waqt ke
+     liye poora data la kar dikhata hai. */
+  function loadFullHistory() {
+    if (!accParty) return;
+    var was = $('accWrap').innerHTML;
+    $('accWrap').innerHTML = '<div class="stmt-doc"><div class="stmt-inner"><div class="accempty">Loading full history\u2026</div></div></div>';
+    Promise.all([
+      sb.from('vouchers').select('*').is('deleted_at', null),
+      sb.from('voucher_lines').select('*'),
+      sb.from('sheets').select('sheet_date,rows')
+    ]).then(function (r) {
+      r.forEach(function (x) { if (x.error) throw x.error; });
+      led.vouchers       = r[0].data || [];
+      led.lines          = r[1].data || [];
+      led.sheets         = r[2].data || [];
+      led.snapshotActive = false;   // is se buildAccount() party ka manual "opening" field use karega, snapshot nahi
+      led.forcedFull     = true;    // ab dobara "Load full history" note na dikhaayein
+      redrawLedger();
+    }).catch(function (e) {
+      $('accWrap').innerHTML = was;
+      if (isNetErr(e)) toast('No internet — could not load full history', true);
+      else { console.error(e); toast('Could not load full history', true); }
     });
   }
 
@@ -1440,8 +1571,18 @@
   /* + = humara lena (they owe us)   − = humara dena (we owe them) */
   function buildAccount(p) {
     var ev = [];
-    var op = (p.opening_side === 'dr' ? 1 : -1) * n(p.opening);
-    if (op) ev.push({ kind:'open', date:'', label:'Opening balance', delta:op });
+    if (led.snapshotActive && led.openingBalances.hasOwnProperty(p.id)) {
+      // is party ka balance locked-date tak snapshot se aaya — poori purani
+      // history dobara load nahi hui (speed ke liye), lekin number 100% wahi
+      // hai jo trusted formula se locked date par nikla tha
+      var ob = led.openingBalances[p.id];
+      if (ob) ev.push({ kind:'open', date:'', label:'Opening balance (as of ' + dayText(led.lockDate) + ')', delta:ob });
+    } else {
+      // naya party (lock ke baad bana) ya snapshot abhi active nahi — purana/
+      // poora tareeqa, party ka manual opening field use karo
+      var op = (p.opening_side === 'dr' ? 1 : -1) * n(p.opening);
+      if (op) ev.push({ kind:'open', date:'', label:'Opening balance', delta:op });
+    }
 
     led.vouchers.filter(function (v) { return String(v.party_id) === String(p.id); })
       .forEach(function (v) {
@@ -1522,6 +1663,9 @@
     head += '<div class="stmt-title-row"><h2>Statement of Account</h2>' +
       '<span class="stmt-period">' + esc(periodLabel(kind, from, to)) + '</span></div>' +
       '<div class="stmt-party">' + esc(p.name) + '</div>' +
+      (led.snapshotActive && !led.forcedFull ?
+        '<div class="stmt-snapnote">Entries before ' + esc(dayText(led.lockDate)) +
+        ' are summarized in Opening balance. <a href="javascript:void(0)" onclick="loadFullHistory()">Load full history</a></div>' : '') +
       '<div class="stmt-rule"></div>';
 
     // hadd se pehle ka sab jama kar ke "aage laaya gaya" ki ek line
@@ -2357,8 +2501,27 @@
   function setLock(dateOrNull) {
     sb.from('period_lock').update({ locked_before: dateOrNull }).eq('id', 1).then(function (res) {
       if (res.error) { sayErr(res.error, 'update the lock'); return; }
-      toast(dateOrNull ? 'Lock set ho gaya' : 'Lock hata diya gaya');
-      openLockModal();
+      led.loaded = false;   // agli baar loadLedgerData() taaza lock-status/snapshot dekhe
+
+      if (!dateOrNull) {
+        toast('Lock hata diya gaya \u2014 ab sab kuch poore data se calculate hoga');
+        openLockModal();
+        if (tab === 'parties') loadLedgerData().then(drawTotals).catch(function () {});
+        if (accParty) loadLedgerData().then(redrawLedger).catch(function () {});
+        return;
+      }
+
+      toast('Lock set ho gaya \u2014 balances calculate ho rahe hain\u2026');
+      computeAndSaveOpeningBalances(dateOrNull).then(function () {
+        toast('Snapshot taiyaar \u2014 speed ab behtar hogi');
+        openLockModal();
+        if (tab === 'parties') loadLedgerData().then(drawTotals).catch(function () {});
+        if (accParty) loadLedgerData().then(redrawLedger).catch(function () {});
+      }).catch(function (e) {
+        console.error(e);
+        toast('Lock set ho gaya, lekin snapshot calculate karne mein masla hua \u2014 system filhaal poora data use karega (thoda slow, magar sahi)', true);
+        openLockModal();
+      });
     });
   }
   $('lockClose').addEventListener('click', function () { $('lockModal').classList.remove('on'); });
