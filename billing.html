@@ -463,10 +463,19 @@
   function partyBalance(pid) {
     var p = partyById(pid);
     if (!p) return 0;
-    var bal = (p.opening_side === 'dr' ? 1 : -1) * num(p.opening);
+    var bal;
+    if (snapshotActive && openingBalances.hasOwnProperty(pid)) {
+      // is party ka balance locked-date tak snapshot se — poori purani
+      // history dobara load nahi hui, number wahi hai jo trusted formula se aaya
+      bal = openingBalances[pid];
+    } else {
+      // naya party (lock ke baad bana) ya snapshot abhi active nahi
+      bal = (p.opening_side === 'dr' ? 1 : -1) * num(p.opening);
+    }
 
-    // tamam bills — sab shaamil
-    bills.forEach(function (b) {
+    // ledgerVouchers = poore ya lock-ke-baad ke vouchers (snapshot ke mutabiq) — 'bills' list
+    // sirf screen par recent 600 dikhane ke liye hai, balance ke liye alag/mukammal set chahiye
+    ledgerVouchers.forEach(function (b) {
       if (b.party_id !== pid) return;
       var g = num(b.grand_total), pd = num(b.paid);
       if (b.vtype === 'sale')     bal += (g - pd);
@@ -942,37 +951,63 @@
   }
 
   /* ---------- cloud ---------- */
-  var sheets = [];   // ledger sheets — party balance ke liye zaroori
+  var sheets = [];          // ledger sheets — party balance ke liye zaroori
+  var ledgerVouchers = [];  // party balance ke liye — 'bills' se alag (jo sirf recent 600 hai)
+  var lockDate = null, snapshotActive = false, openingBalances = {};
 
   function loadAll() {
     if (!sb) return Promise.resolve();
     syncNote('Loading…');
-    return Promise.all([
-      sb.from('parties').select('*'),
-      sb.from('items').select('*'),
-      sb.from('vouchers').select('*').is('deleted_at', null).order('vdate', { ascending:false }).limit(600),
-      sb.from('voucher_lines').select('*'),
-      sb.from('companies').select('*'),
-      sb.from('sheets').select('sheet_date,rows')   // ledger entries for party balance
-    ]).then(function (r) {
-      r.slice(0, 4).forEach(function (x) { if (x.error) throw x.error; });
-      parties = r[0].data || [];
-      items   = r[1].data || [];
-      bills   = r[2].data || [];
-      firms   = r[4].error ? [] : (r[4].data || []);      // SQL na chali ho to bhi bill bane
-      sheets  = r[5].error ? [] : (r[5].data || []);      // ledger sheets
-      var byV = {};
-      (r[3].data || []).forEach(function (l) { (byV[l.voucher_id] = byV[l.voucher_id] || []).push(l); });
-      bills.forEach(function (b) {
-        b.lines = (byV[b.id] || []).sort(function (a, c) { return (a.line_no || 0) - (c.line_no || 0); });
+    return sb.from('period_lock').select('locked_before').eq('id', 1).single().then(function (lockRes) {
+      var ld = (!lockRes.error && lockRes.data) ? lockRes.data.locked_before : null;
+      return sb.from('party_opening_balances').select('party_id,as_of_date,balance').then(function (obRes) {
+        var obRows = (!obRes.error && obRes.data) ? obRes.data : [];
+        var active = !!ld && obRows.length > 0 && obRows.every(function (r) { return r.as_of_date === ld; });
+        var ob = {};
+        if (active) obRows.forEach(function (r) { ob[r.party_id] = num(r.balance); });
+
+        var ledgerVoucherQuery = sb.from('vouchers').select('id,party_id,vdate,vtype,grand_total,paid').is('deleted_at', null);
+        var ledgerSheetQuery   = sb.from('sheets').select('sheet_date,rows');
+        if (active) {
+          ledgerVoucherQuery = ledgerVoucherQuery.gte('vdate', ld);
+          ledgerSheetQuery   = ledgerSheetQuery.gte('sheet_date', ld);
+        }
+
+        return Promise.all([
+          sb.from('parties').select('*'),
+          sb.from('items').select('*'),
+          sb.from('vouchers').select('*').is('deleted_at', null).order('vdate', { ascending:false }).limit(600),
+          sb.from('voucher_lines').select('*'),
+          sb.from('companies').select('*'),
+          ledgerVoucherQuery,
+          ledgerSheetQuery
+        ]).then(function (r) {
+          r.slice(0, 4).forEach(function (x) { if (x.error) throw x.error; });
+          parties = r[0].data || [];
+          items   = r[1].data || [];
+          bills   = r[2].data || [];
+          firms   = r[4].error ? [] : (r[4].data || []);        // SQL na chali ho to bhi bill bane
+          ledgerVouchers = r[5].error ? [] : (r[5].data || []); // party balance ke liye poora/lock-ke-baad set
+          sheets  = r[6].error ? [] : (r[6].data || []);        // ledger sheets
+          lockDate = ld; snapshotActive = active; openingBalances = ob;
+
+          // lock set hai lekin snapshot missing/stale mile — masters.html khud theek kar lega
+          // agli baar wahan se khula jaye; yahan billing.html mein sirf safe fallback kaafi hai
+
+          var byV = {};
+          (r[3].data || []).forEach(function (l) { (byV[l.voucher_id] = byV[l.voucher_id] || []).push(l); });
+          bills.forEach(function (b) {
+            b.lines = (byV[b.id] || []).sort(function (a, c) { return (a.line_no || 0) - (c.line_no || 0); });
+          });
+          syncNote(''); render(); tryOpenWanted();
+          // agar bill khula hua hai aur sheets ab aa gayi hain to balance dobara theek karo
+          refreshOpenBillBalance();
+          if (!parties.length || !items.length) {
+            toast(!parties.length && !items.length ? 'Add parties and items in Masters first'
+                  : (!parties.length ? 'No parties yet — add them in Masters' : 'No items yet — add them in Masters'), true);
+          }
+        });
       });
-      syncNote(''); render(); tryOpenWanted();
-      // agar bill khula hua hai aur sheets ab aa gayi hain to balance dobara theek karo
-      refreshOpenBillBalance();
-      if (!parties.length || !items.length) {
-        toast(!parties.length && !items.length ? 'Add parties and items in Masters first'
-              : (!parties.length ? 'No parties yet — add them in Masters' : 'No items yet — add them in Masters'), true);
-      }
     }).catch(function (e) {
       if (isNetErr(e)) { syncNote('Offline', '#B08A3E'); toast('No internet — nothing loaded', true); }
       else if (isClockErr(e)) {
