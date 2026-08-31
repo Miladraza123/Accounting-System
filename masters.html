@@ -1200,9 +1200,11 @@
 
   /* Party ka balance "cutoff" tareekh tak — bilkul buildAccount() wala formula,
      bas final total chahiye (sorting ki zaroorat nahi kyunke jama-tafriq ka
-     order se koi farq nahi padta). Ye sirf snapshot banane ke liye use hota hai. */
+     order se koi farq nahi padta). Aakhri transaction ki tareekh bhi wapas
+     karta hai (Aging Report ke sahi bucket ke liye zaroori hai). */
   function accountBalanceAsOf(p, allVouchers, allSheets, cutoff) {
     var run = (p.opening_side === 'dr' ? 1 : -1) * n(p.opening);
+    var lastDate = '';
     allVouchers.filter(function (v) {
       return String(v.party_id) === String(p.id) && v.vdate && v.vdate < cutoff;
     }).forEach(function (v) {
@@ -1210,15 +1212,18 @@
       var sale = v.vtype === 'sale';
       run = r2(run + (sale ? 1 : -1) * g);
       if (paid) run = r2(run + (sale ? -1 : 1) * paid);
+      if (v.vdate > lastDate) lastDate = v.vdate;
     });
     allSheets.forEach(function (s) {
       if (!s.sheet_date || s.sheet_date >= cutoff) return;
+      var touched = false;
       (s.rows || []).forEach(function (row) {
-        if (String(row[6] || '') === String(p.id)) { var a = n(row[2]); if (a) run = r2(run - a); }
-        if (String(row[7] || '') === String(p.id)) { var b = n(row[0]); if (b) run = r2(run + b); }
+        if (String(row[6] || '') === String(p.id)) { var a = n(row[2]); if (a) { run = r2(run - a); touched = true; } }
+        if (String(row[7] || '') === String(p.id)) { var b = n(row[0]); if (b) { run = r2(run + b); touched = true; } }
       });
+      if (touched && s.sheet_date > lastDate) lastDate = s.sheet_date;
     });
-    return run;
+    return { balance:run, lastDate:lastDate };
   }
 
   /* Har active party ka balance lockDateValue tak calculate kar ke
@@ -1236,8 +1241,9 @@
       var allVouchers = r[0].data || [];
       var allSheets   = r[1].data || [];
       var rows = db.parties.map(function (p) {
-        return { party_id:p.id, as_of_date:lockDateValue,
-                 balance:accountBalanceAsOf(p, allVouchers, allSheets, lockDateValue) };
+        var calc = accountBalanceAsOf(p, allVouchers, allSheets, lockDateValue);
+        return { party_id:p.id, as_of_date:lockDateValue, balance:calc.balance,
+                 last_txn_date:calc.lastDate || null };
       });
       // pehle purana snapshot poora saaf karo, phir taaza daalo — taake kisi
       // purani/hati hui party ka baasi row kabhi peeche na reh jaye
@@ -1257,7 +1263,7 @@
     led.loading = true;
     return sb.from('period_lock').select('locked_before').eq('id', 1).single().then(function (lockRes) {
       var lockDate = (!lockRes.error && lockRes.data) ? lockRes.data.locked_before : null;
-      return sb.from('party_opening_balances').select('party_id,as_of_date,balance').then(function (obRes) {
+      return sb.from('party_opening_balances').select('party_id,as_of_date,balance,last_txn_date').then(function (obRes) {
         var obRows = (!obRes.error && obRes.data) ? obRes.data : [];
         // snapshot sirf tab "active"/trusted maana jayega jab lock set ho AUR
         // har snapshot-row isi lock-date ki ho — koi bhi mismatch mile to
@@ -1265,7 +1271,9 @@
         var snapshotActive = !!lockDate && obRows.length > 0 &&
           obRows.every(function (r) { return r.as_of_date === lockDate; });
         var openingBalances = {};
-        if (snapshotActive) obRows.forEach(function (r) { openingBalances[r.party_id] = n(r.balance); });
+        if (snapshotActive) obRows.forEach(function (r) {
+          openingBalances[r.party_id] = { balance:n(r.balance), lastDate:r.last_txn_date || '' };
+        });
 
         var voucherQuery = sb.from('vouchers').select('*').is('deleted_at', null);
         var sheetQuery   = sb.from('sheets').select('sheet_date,rows');
@@ -1580,9 +1588,12 @@
     if (led.snapshotActive && led.openingBalances.hasOwnProperty(p.id)) {
       // is party ka balance locked-date tak snapshot se aaya — poori purani
       // history dobara load nahi hui (speed ke liye), lekin number 100% wahi
-      // hai jo trusted formula se locked date par nikla tha
-      var ob = led.openingBalances[p.id];
-      if (ob) ev.push({ kind:'open', date:'', label:'Opening balance (as of ' + dayText(led.lockDate) + ')', delta:ob });
+      // hai jo trusted formula se locked date par nikla tha. Asal aakhri
+      // transaction ki tareekh bhi saath hai (Aging Report ke liye zaroori).
+      var obEntry = led.openingBalances[p.id];
+      var ob = obEntry.balance;
+      if (ob) ev.push({ kind:'open', date:obEntry.lastDate || '',
+                         label:'Opening balance (as of ' + dayText(led.lockDate) + ')', delta:ob });
     } else {
       // naya party (lock ke baad bana) ya snapshot abhi active nahi — purana/
       // poora tareeqa, party ka manual opening field use karo
