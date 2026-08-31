@@ -1204,8 +1204,9 @@
         'autocomplete="off" enterkeyhint="done">' +
         '<div class="hint" id="hName">Write it once, the way you want to see it everywhere.</div></div>' +
       '<div class="f"><label>They are a</label><select id="eKind">' + opt(allKinds(), r.kind) +
-        '<option value="' + ADD_KIND + '">+ Add new category\u2026</option></select>' +
-        (customKinds.length ? '<div class="hint" id="manageCatsLink" style="cursor:pointer;text-decoration:underline">Manage categories\u2026</div>' : '') +
+        (can('masters_categories') ? '<option value="' + ADD_KIND + '">+ Add new category\u2026</option>' : '') +
+        '</select>' +
+        (customKinds.length && can('masters_categories') ? '<div class="hint" id="manageCatsLink" style="cursor:pointer;text-decoration:underline">Manage categories\u2026</div>' : '') +
         '</div>' +
       '<div class="f2">' +
         '<div class="f"><label>Phone</label><input id="ePhone" type="tel" value="' + esc(r.phone) + '" autocomplete="off"></div>' +
@@ -2145,7 +2146,8 @@
       showLedger(editing, tab === 'items' ? 'item' : 'party');   // khata poori screen par
       return;
     } else {
-      $('edSave').style.display = ''; $('edDel').style.display = (editing && editing.id && can('masters_delete')) ? '' : 'none';
+      $('edSave').style.display = can('masters_edit') ? '' : 'none';
+      $('edDel').style.display = (editing && editing.id && can('masters_delete')) ? '' : 'none';
       $('edBody').innerHTML = fieldset(editing);
       var sw = $('eActive');
       sw.onclick = function () {
@@ -2606,7 +2608,7 @@
 
       if (!dateOrNull) {
         toast('Lock hata diya gaya \u2014 ab sab kuch poore data se calculate hoga');
-        openLockModal();
+        $('lockModal').classList.remove('on');
         if (tab === 'parties') loadLedgerData().then(drawTotals).catch(function () {});
         if (accParty) loadLedgerData().then(redrawLedger).catch(function () {});
         return;
@@ -2615,13 +2617,13 @@
       toast('Lock set ho gaya \u2014 balances calculate ho rahe hain\u2026');
       computeAndSaveOpeningBalances(dateOrNull).then(function () {
         toast('Snapshot taiyaar \u2014 speed ab behtar hogi');
-        openLockModal();
+        $('lockModal').classList.remove('on');
         if (tab === 'parties') loadLedgerData().then(drawTotals).catch(function () {});
         if (accParty) loadLedgerData().then(redrawLedger).catch(function () {});
       }).catch(function (e) {
         console.error(e);
         toast('Lock set ho gaya, lekin snapshot calculate karne mein masla hua \u2014 system filhaal poora data use karega (thoda slow, magar sahi)', true);
-        openLockModal();
+        $('lockModal').classList.remove('on');
       });
     });
   }

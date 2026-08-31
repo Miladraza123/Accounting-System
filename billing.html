@@ -587,6 +587,7 @@
     dirty = false;
     $('edTitle').textContent = (rec ? 'Edit ' : 'New ') + (bill.vtype === 'purchase' ? 'purchase' : 'sale');
     $('edDel').style.display = (rec && can('bill_delete')) ? '' : 'none';
+    $('edSave').style.display = (rec ? can('bill_edit') : can('bill_create')) ? '' : 'none';
     drawEditor();
     $('edBody').scrollTop = 0;
     $('ed').classList.add('on');
