@@ -240,7 +240,7 @@
     .sheet .foot { margin-top:14mm; display:flex; justify-content:space-between; font-size:9pt;
                    color:#3E4C59; }
     .sheet .sign { border-top:0.3mm solid #7B8794; padding-top:1.5mm; width:52mm; text-align:center; }
-    .sheet .note { margin-top:4mm; font-size:9.5pt; color:#3E4C59; }
+    .sheet .note { margin-top:4mm; font-size:9.5pt; color:#3E4C59; white-space:pre-line; }
   }
 
   @media (max-width:560px) {
@@ -602,7 +602,7 @@
         '<div class="nm">' + esc(p ? p.name : 'No party') + '</div>' +
         '<div class="sub">' + cnt + (cnt === 1 ? ' item' : ' items') +
           (d.narration ? ' · ' + esc(d.narration.slice(0, 34)) : '') + '</div></div>' +
-        '<div class="amt clr">' + money(n(d.grand_total)) + '</div></div>';
+        '<div class="amt clr">' + money(num(d.grand_total)) + '</div></div>';
     });
     box.innerHTML = html;
   }
@@ -639,6 +639,7 @@
     if (!bill.lines.length) bill.lines.push(newLine());
     dirty = false;
     $('edTitle').textContent = (rec ? 'Edit ' : 'New ') + (bill.vtype === 'purchase' ? 'purchase' : 'sale');
+    $('edSave').textContent = 'Save bill';
     $('edDel').style.display = (rec && can('bill_delete')) ? '' : 'none';
     $('edSave').style.display = (rec ? can('bill_edit') : can('bill_create')) ? '' : 'none';
     drawEditor();
@@ -680,13 +681,13 @@
     b.lines.forEach(function (l, i) { h += lineHtml(l, i); });
     h += '</div><button class="addln" id="addLn">+ Add another item</button></div>';
 
-    if (!isDoc) {
-      h += '<div class="card"><div class="ttl">Tax</div>' +
-        '<div class="swrow"><div class="lbl">Charge sales tax' +
-        '<div class="sub">Uses each item’s own rate. Off means a plain bill.</div></div>' +
-        '<button class="sw' + (b.tax_on ? ' on' : '') + '" id="bTax" role="switch" aria-checked="' +
-        (b.tax_on ? 'true' : 'false') + '"></button></div></div>';
+    h += '<div class="card"><div class="ttl">Tax</div>' +
+      '<div class="swrow"><div class="lbl">Charge sales tax' +
+      '<div class="sub">Uses each item’s own rate.' + (isDoc ? '' : ' Off means a plain bill.') + '</div></div>' +
+      '<button class="sw' + (b.tax_on ? ' on' : '') + '" id="bTax" role="switch" aria-checked="' +
+      (b.tax_on ? 'true' : 'false') + '"></button></div></div>';
 
+    if (!isDoc) {
       h += '<div class="card"><div class="ttl">Money</div>' +
         '<div class="f2">' +
           '<div class="f num"><label>Discount</label><input id="bDisc" type="text" inputmode="decimal" value="' +
@@ -708,7 +709,7 @@
     h += '<div class="sum">' +
       '<div class="sline"><span class="k">Items total</span><span class="v" id="sSub">' + money(t.sub) + '</span></div>' +
       (!isDoc && t.disc ? '<div class="sline"><span class="k">Discount</span><span class="v">− ' + money(t.disc) + '</span></div>' : '') +
-      (!isDoc && b.tax_on ? '<div class="sline"><span class="k">Sales tax</span><span class="v">+ ' + money(t.tax) + '</span></div>' : '') +
+      (b.tax_on ? '<div class="sline"><span class="k">Sales tax</span><span class="v">+ ' + money(t.tax) + '</span></div>' : '') +
       '<div class="sline big"><span class="k">' + (isDoc ? 'Total' : 'Bill total') + '</span><span class="v">' + money(t.grand) + '</span></div>' +
       (!isDoc && t.paid ? '<div class="sline"><span class="k">Paid now</span><span class="v">− ' + money(t.paid) + '</span></div>' : '') +
       (!isDoc ? '<div class="sline ' + (t.due > 0 ? 'due' : 'done') + '"><span class="k">' +
@@ -859,6 +860,7 @@
       if (isDoc) {
         sums.innerHTML =
           '<div class="sline"><span class="k">Items total</span><span class="v" id="sSub">' + money(t.sub) + '</span></div>' +
+          (b.tax_on ? '<div class="sline"><span class="k">Sales tax</span><span class="v">+ ' + money(t.tax) + '</span></div>' : '') +
           '<div class="sline big"><span class="k">Total</span><span class="v">' + money(t.grand) + '</span></div>';
       } else {
         sums.innerHTML =
@@ -968,6 +970,7 @@
     if (!bill.lines.length) bill.lines.push(newLine());
     dirty = false;
     $('edTitle').textContent = (rec ? 'Edit ' : 'New ') + (isQ ? 'quotation' : 'purchase order');
+    $('edSave').textContent = isQ ? 'Save quotation' : 'Save purchase order';
     var createPerm = isQ ? 'quotation_create' : 'po_create';
     var editPerm   = isQ ? 'quotation_edit'   : 'po_edit';
     var deletePerm = isQ ? 'quotation_delete' : 'po_delete';
@@ -993,7 +996,7 @@
     head[dateField] = b.vdate || today();
     head.party_id = b.party_id; head.company_id = b.company_id || null;
     head.narration = b.narration || ''; head.subtotal = t.sub;
-    head.tax_on = false; head.discount = 0; head.tax_total = 0; head.grand_total = t.grand;
+    head.tax_on = !!b.tax_on; head.discount = 0; head.tax_total = t.tax; head.grand_total = t.grand;
     head.updated_at = new Date().toISOString();
 
     $('edSave').disabled = true; syncNote('Saving…');
@@ -1016,7 +1019,7 @@
         if (d.error) throw d.error;
         var payload = good.map(function (l, i) {
           var o = { line_no:i + 1, item_id:l.item_id, qty:num(l.qty), rate:num(l.rate),
-                    amount:round2(num(l.qty) * num(l.rate)) };
+                    tax_pct:num(l.tax_pct), amount:round2(num(l.qty) * num(l.rate)) };
           o[fkCol] = did; return o;
         });
         return sb.from(lineTable).insert(payload).select();
@@ -1051,9 +1054,9 @@
     var newBill = {
       vtype:target, vno:nextNo(target), vdate:today(), party_id:b.party_id,
       narration:b.narration || '', company_id:b.company_id || null,
-      tax_on:false, discount:0, paid:0,
+      tax_on:!!b.tax_on, discount:0, paid:0,
       lines:(b.lines || []).filter(function (l) { return l.item_id && num(l.qty) > 0; }).map(function (l) {
-        return { key:'L' + (++lineSeq), item_id:l.item_id, qty:l.qty, rate:l.rate, tax_pct:0, amount:l.amount };
+        return { key:'L' + (++lineSeq), item_id:l.item_id, qty:l.qty, rate:l.rate, tax_pct:num(l.tax_pct), amount:l.amount };
       })
     };
     if (!newBill.lines.length) newBill.lines.push(newLine());
@@ -1063,6 +1066,7 @@
     document.querySelectorAll('.tab').forEach(function (x) { x.classList.toggle('on', x.getAttribute('data-t') === target); });
     dirty = true;
     $('edTitle').textContent = 'New ' + target + ' (from ' + esc(sourceNo || '') + ')';
+    $('edSave').textContent = 'Save bill';
     $('edDel').style.display = 'none';
     $('edSave').style.display = can('bill_create') ? '' : 'none';
     drawEditor();
