@@ -2506,7 +2506,9 @@
       sb.from('items').select('*').not('deleted_at', 'is', null),
       sb.from('companies').select('*').not('deleted_at', 'is', null),
       sb.from('vouchers').select('*').not('deleted_at', 'is', null),
-      sb.from('sheets').select('sheet_date,page,deleted_at').not('deleted_at', 'is', null)
+      sb.from('sheets').select('sheet_date,page,deleted_at').not('deleted_at', 'is', null),
+      sb.from('quotations').select('*').not('deleted_at', 'is', null),
+      sb.from('purchase_orders').select('*').not('deleted_at', 'is', null)
     ]).then(function (r) {
       if (r[0].error) throw r[0].error;
       var rows = []
@@ -2514,17 +2516,22 @@
         .concat((r[1].data || []).map(function (x) { return Object.assign({ _tab:'items' }, x); }))
         .concat((r[2].error ? [] : r[2].data || []).map(function (x) { return Object.assign({ _tab:'companies' }, x); }))
         .concat((r[3].error ? [] : r[3].data || []).map(function (x) { return Object.assign({ _tab:'vouchers' }, x); }))
-        .concat((r[4].error ? [] : r[4].data || []).map(function (x) { return Object.assign({ _tab:'sheets' }, x); }));
+        .concat((r[4].error ? [] : r[4].data || []).map(function (x) { return Object.assign({ _tab:'sheets' }, x); }))
+        .concat((r[5].error ? [] : r[5].data || []).map(function (x) { return Object.assign({ _tab:'quotations' }, x); }))
+        .concat((r[6].error ? [] : r[6].data || []).map(function (x) { return Object.assign({ _tab:'purchase_orders' }, x); }));
       rows.sort(function (a, b) { return new Date(b.deleted_at) - new Date(a.deleted_at); });
       renderRecycleList(rows);
     }).catch(function (e) {
       $('recycleList').innerHTML = '<p style="color:var(--mute);font-size:13px">Could not load — ' + esc((e && e.message) || 'try again') + '</p>';
     });
   }
-  var TAB_LABEL = { parties:'Party', items:'Item', companies:'Firm', vouchers:'Bill', sheets:'Ledger day' };
+  var TAB_LABEL = { parties:'Party', items:'Item', companies:'Firm', vouchers:'Bill', sheets:'Ledger day',
+                    quotations:'Quotation', purchase_orders:'Purchase Order' };
   var REC_KEY = { sheets:'sheet_date' };   // baaki sab tables 'id' use karti hain
   function recName(r) {
     if (r._tab === 'vouchers') return (r.vtype === 'purchase' ? 'Purchase' : 'Sale') + (r.vno ? ' #' + r.vno : '');
+    if (r._tab === 'quotations') return 'Quotation' + (r.qno ? ' #' + r.qno : '');
+    if (r._tab === 'purchase_orders') return 'PO' + (r.pono ? ' #' + r.pono : '');
     if (r._tab === 'sheets') {
       var d = new Date(r.sheet_date);
       return d.toLocaleDateString(undefined, { day:'numeric', month:'short', year:'numeric' }) + (r.page ? ' (page ' + esc(r.page) + ')' : '');
@@ -2549,7 +2556,7 @@
         btn.disabled = true; btn.textContent = 'Restoring\u2026';
         sb.from(t).update({ deleted_at: null }).eq(keyCol, id).select().then(function (res) {
           if (res.error) { sayErr(res.error, 'restore'); btn.disabled = false; btn.textContent = 'Restore'; return; }
-          if (t !== 'vouchers' && t !== 'sheets' && res.data && res.data[0]) db[t].push(res.data[0]);
+          if (t !== 'vouchers' && t !== 'sheets' && t !== 'quotations' && t !== 'purchase_orders' && res.data && res.data[0]) db[t].push(res.data[0]);
           if (t === 'vouchers') led.loaded = false;
           toast('Restored');
           openRecycleBin();
