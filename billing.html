@@ -274,9 +274,9 @@
 <div class="gate" id="gateLogin">
   <div class="gcard">
     <h1>Sign in</h1>
-    <div class="lede">Same email and password as the Daily Ledger.</div>
+    <div class="lede">Apna username aur password daalein.</div>
     <div class="err" id="lErr"></div>
-    <div class="f"><label>Email</label><input id="lMail" type="email" autocomplete="username"></div>
+    <div class="f"><label>Username</label><input id="lMail" type="text" autocomplete="username"></div>
     <div class="f"><label>Password</label><input id="lPass" type="password" autocomplete="current-password"></div>
     <button class="btn pri" id="lGo" style="width:100%">Sign in</button>
     <div class="note"><button class="btn" id="cfgReset" style="font-size:12px;padding:0;border:none;background:none;color:var(--mute);text-decoration:underline">Use a different project</button></div>
@@ -586,7 +586,7 @@
     if (!bill.lines.length) bill.lines.push(newLine());
     dirty = false;
     $('edTitle').textContent = (rec ? 'Edit ' : 'New ') + (bill.vtype === 'purchase' ? 'purchase' : 'sale');
-    $('edDel').style.display = rec ? '' : 'none';
+    $('edDel').style.display = (rec && can('bill_delete')) ? '' : 'none';
     drawEditor();
     $('edBody').scrollTop = 0;
     $('ed').classList.add('on');
@@ -1120,15 +1120,16 @@
     });
   });
   $('lGo').addEventListener('click', function () {
-    var mail = $('lMail').value.trim(), pass = $('lPass').value;
+    var raw = $('lMail').value.trim(), pass = $('lPass').value;
     showErr('lErr', '');
-    if (!mail || !pass) { showErr('lErr', 'Enter both email and password.'); return; }
+    if (!raw || !pass) { showErr('lErr', 'Enter both username and password.'); return; }
+    var mail = raw.indexOf('@') > -1 ? raw : (raw.toLowerCase() + '@oht.internal');
     $('lGo').disabled = true; $('lGo').textContent = 'Signing in…';
     sb.auth.signInWithPassword({ email:mail, password:pass }).then(function (res) {
       $('lGo').disabled = false; $('lGo').textContent = 'Sign in';
       if (res.error) { showErr('lErr', isNetErr(res.error) ? 'No internet. Connect and try again.'
                                         : isClockErr(res.error) ? 'Your phone\u2019s clock looks slightly off \u2014 check Date & Time settings and try again.'
-                                        : 'That email and password did not match.'); return; }
+                                        : 'That username and password did not match.'); return; }
       $('lPass').value = ''; $('gateLogin').classList.remove('on'); start();
     }).catch(function (e) {
       $('lGo').disabled = false; $('lGo').textContent = 'Sign in';
@@ -1206,10 +1207,35 @@
 
   function start() {
     $('gateConnect').classList.remove('on'); $('gateLogin').classList.remove('on');
-    $('newBtn').textContent = '+ Purchase';
-    loadAll();
-    setupRealtime();
+    loadMe().then(function () {
+      $('newBtn').textContent = '+ Purchase';
+      $('newBtn').style.display = can('bill_create') ? '' : 'none';
+      loadAll();
+      setupRealtime();
+    }).catch(function (e) {
+      var msg = (e && e.message === 'disabled')
+        ? 'Aapka access band kar diya gaya hai. Admin se raabta karein.'
+        : (e && e.message === 'not_setup')
+        ? 'Aapka account abhi set up nahi hua. Admin se raabta karein.'
+        : 'Sign-in check nahi ho saka. Dobara koshish karein.';
+      sb.auth.signOut().then(function () { $('gateLogin').classList.add('on'); showErr('lErr', msg); });
+    });
   }
+
+  /* ---------- me / permissions ---------- */
+  var me = null;
+  function loadMe() {
+    return sb.auth.getUser().then(function (res) {
+      var user = res.data && res.data.user;
+      if (!user) return Promise.reject(new Error('no_user'));
+      return sb.from('app_users').select('*').eq('id', user.id).single().then(function (r) {
+        if (r.error || !r.data) return Promise.reject(new Error('not_setup'));
+        if (!r.data.is_active) return Promise.reject(new Error('disabled'));
+        me = { id:r.data.id, username:r.data.username, isAdmin:!!r.data.is_admin, perms:r.data.perms || {} };
+      });
+    });
+  }
+  function can(key) { return !!(me && (me.isAdmin || me.perms[key])); }
   /* ---------- Realtime: 20-second polling ki jagah, sirf jab actual change ho tab refresh ---------- */
   var realtimeChannel = null, realtimeTimer = null;
   function scheduleRefresh() {

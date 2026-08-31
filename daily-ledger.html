@@ -370,8 +370,8 @@
     <!-- step 2: sign in -->
     <div id="stepLogin" style="padding:18px 22px;display:none">
       <label style="font-size:10px;letter-spacing:1.2px;text-transform:uppercase;
-             color:#7B8794;font-weight:600">Email</label>
-      <input id="loginEmail" type="email" autocomplete="username"
+             color:#7B8794;font-weight:600">Username</label>
+      <input id="loginEmail" type="text" autocomplete="username"
              style="width:100%;padding:10px;margin:6px 0 14px;border:1px solid #CBD2D9;
                     border-radius:6px;font-size:14px">
       <label style="font-size:10px;letter-spacing:1.2px;text-transform:uppercase;
@@ -1958,22 +1958,48 @@
 
   function startApp() {
     $('gate').style.display = 'none';
-    store.get(KEY).then(function (raw) {
-      if (raw) { try { data = JSON.parse(raw); } catch (e) {} }
-      if (!data.sheets) data.sheets = {};
-      $('firmName').value = data.firm || '';
-      $('shFirm').textContent = (data.firm || '').trim() || 'Daily Register';
-      ready = true;
-      openSheet(todayISO());
-      setPageRule();
-      fit();
-      pullAll().then(function (ok) {
-        if (ok) { renderList(); openSheet(active || todayISO()); }
-        loadParties();
+    loadMe().then(function () {
+      $('delSheet').style.display = can('ledger_delete') ? '' : 'none';
+      $('newSheet').style.display = can('ledger_create') ? '' : 'none';
+      store.get(KEY).then(function (raw) {
+        if (raw) { try { data = JSON.parse(raw); } catch (e) {} }
+        if (!data.sheets) data.sheets = {};
+        $('firmName').value = data.firm || '';
+        $('shFirm').textContent = (data.firm || '').trim() || 'Daily Register';
+        ready = true;
+        openSheet(todayISO());
+        setPageRule();
+        fit();
+        pullAll().then(function (ok) {
+          if (ok) { renderList(); openSheet(active || todayISO()); }
+          loadParties();
+        });
+        subscribeRealtime();
       });
-      subscribeRealtime();
+    }).catch(function (e) {
+      var msg = (e && e.message === 'disabled')
+        ? 'Aapka access band kar diya gaya hai. Admin se raabta karein.'
+        : (e && e.message === 'not_setup')
+        ? 'Aapka account abhi set up nahi hua. Admin se raabta karein.'
+        : 'Sign-in check nahi ho saka. Dobara koshish karein.';
+      sb.auth.signOut().then(function () { showLogin(); $('loginErr').textContent = msg; });
     });
   }
+
+  /* ---------- me / permissions ---------- */
+  var me = null;
+  function loadMe() {
+    return sb.auth.getUser().then(function (res) {
+      var user = res.data && res.data.user;
+      if (!user) return Promise.reject(new Error('no_user'));
+      return sb.from('app_users').select('*').eq('id', user.id).single().then(function (r) {
+        if (r.error || !r.data) return Promise.reject(new Error('not_setup'));
+        if (!r.data.is_active) return Promise.reject(new Error('disabled'));
+        me = { id:r.data.id, username:r.data.username, isAdmin:!!r.data.is_admin, perms:r.data.perms || {} };
+      });
+    });
+  }
+  function can(key) { return !!(me && (me.isAdmin || me.perms[key])); }
 
   /* koi bhi phone kisi bhi sheet me kuch badle — Supabase foran khabar kar deta hai,
      20-second wale intezar ki zaroorat nahi rehti. Yeh sirf ek "khabar" hai, khud data nahi bhejta —
@@ -2043,15 +2069,16 @@
   });
 
   $('loginBtn').addEventListener('click', function () {
-    var email = $('loginEmail').value.trim();
+    var raw = $('loginEmail').value.trim();
     var pass = $('loginPass').value;
-    if (!email || !pass) { $('loginErr').textContent = 'Enter your email and password.'; return; }
+    if (!raw || !pass) { $('loginErr').textContent = 'Enter your username and password.'; return; }
+    var email = raw.indexOf('@') > -1 ? raw : (raw.toLowerCase() + '@oht.internal');
     $('loginErr').textContent = 'Signing in\u2026';
     sb.auth.signInWithPassword({ email: email, password: pass }).then(function (res) {
       if (res.error) {
         $('loginErr').textContent = isClockErr(res.error)
           ? 'Your phone\u2019s clock looks slightly off \u2014 check Date & Time settings and try again.'
-          : res.error.message;
+          : 'That username and password did not match.';
         return;
       }
       startApp();

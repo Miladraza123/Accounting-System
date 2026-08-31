@@ -402,6 +402,14 @@
   .ask h4 { margin:0 0 7px; font-size:15.5px; font-weight:600; }
   .ask p { margin:0 0 17px; font-size:13.5px; color:var(--slate); line-height:1.55; }
   .ask .acts { display:flex; gap:8px; justify-content:flex-end; }
+  .permgrp { border:1px solid var(--hair); border-radius:8px; padding:8px 10px; margin-bottom:8px; }
+  .permgrp label { display:flex; align-items:center; gap:8px; font-size:12.5px; padding:3px 0; }
+  .permgrp .permhead { border-bottom:1px solid var(--hair); padding-bottom:6px; margin-bottom:4px; font-size:13px; }
+  .userrow { display:flex; align-items:center; justify-content:space-between; padding:9px 0; border-bottom:1px solid var(--hair); }
+  .userrow .nm { font-weight:700; font-size:13.5px; }
+  .userrow .badge { font-size:10px; font-weight:700; letter-spacing:.4px; padding:2px 7px; border-radius:20px; margin-left:6px; }
+  .userrow .badge.admin { background:#EAF3EC; color:#1E7A4C; }
+  .userrow .badge.off { background:#F4E7E7; color:#9B2C2C; }
 
   @media (max-width:560px) {
     .sheet { top:auto; left:0; right:0; bottom:0; width:100%; max-height:92%;
@@ -443,9 +451,9 @@
 <div class="gate" id="gateLogin">
   <div class="card">
     <h1>Sign in</h1>
-    <div class="lede">Use the same email and password as the Daily Ledger.</div>
+    <div class="lede">Apna username aur password daalein.</div>
     <div class="err" id="lErr"></div>
-    <div class="f"><label>Email</label><input id="lMail" type="email" autocomplete="username"></div>
+    <div class="f"><label>Username</label><input id="lMail" type="text" autocomplete="username"></div>
     <div class="f"><label>Password</label>
       <input id="lPass" type="password" autocomplete="current-password"></div>
     <button class="btn pri" id="lGo" style="width:100%">Sign in</button>
@@ -465,6 +473,8 @@
   <button class="abtn" id="tbBtn">Trial Balance</button>
   <button class="abtn" id="lockBtn">Period Lock</button>
   <button class="abtn" id="agingBtn">Aging Report</button>
+  <button class="abtn" id="usersBtn" style="display:none">Manage Users</button>
+  <button class="abtn" id="pwBtn">Change Password</button>
   <button class="abtn" id="outBtn">Sign out</button>
 </div>
 
@@ -559,6 +569,76 @@
     <div class="acts">
       <button class="btn" id="askNo">Cancel</button>
       <button class="btn dgr" id="askYes">Delete</button>
+    </div>
+  </div>
+</div>
+
+<div class="ask" id="usersModal">
+  <div class="box" style="max-width:480px">
+    <h4 id="usersTitle">Manage Users</h4>
+    <div id="usersList" style="max-height:50vh;overflow:auto"></div>
+    <div id="usersForm" style="display:none">
+      <div class="err" id="usersErr" style="margin-bottom:8px"></div>
+      <div id="uidField">
+        <label style="font-size:11px;font-weight:700;letter-spacing:.4px;color:var(--mute);text-transform:uppercase">Supabase User ID</label>
+        <input id="uNewId" placeholder="Dashboard se paste karein" style="width:100%;box-sizing:border-box;margin:6px 0 12px;
+          padding:9px 10px;border:1px solid var(--hair);border-radius:8px;font-size:13px">
+      </div>
+      <label style="font-size:11px;font-weight:700;letter-spacing:.4px;color:var(--mute);text-transform:uppercase">Username</label>
+      <input id="uName" placeholder="e.g. ahmed" style="width:100%;box-sizing:border-box;margin:6px 0 12px;
+        padding:9px 10px;border:1px solid var(--hair);border-radius:8px;font-size:14px">
+      <label style="display:flex;align-items:center;gap:8px;font-size:13.5px;margin-bottom:10px">
+        <input type="checkbox" id="uIsAdmin"> Admin (sab kuch access — checkboxes ki zaroorat nahi)
+      </label>
+      <div id="uPermsWrap">
+        <div class="permgrp">
+          <label class="permhead"><input type="checkbox" class="permAll" data-grp="bills"> <b>Bills &amp; Entries</b></label>
+          <label><input type="checkbox" class="perm" data-grp="bills" data-key="bill_create"> Naya bill banayein</label>
+          <label><input type="checkbox" class="perm" data-grp="bills" data-key="bill_edit"> Purana bill edit karein</label>
+          <label><input type="checkbox" class="perm" data-grp="bills" data-key="bill_delete"> Bill delete karein</label>
+          <label><input type="checkbox" class="perm" data-grp="bills" data-key="ledger_create"> Ledger entry karein</label>
+          <label><input type="checkbox" class="perm" data-grp="bills" data-key="ledger_delete"> Ledger din delete karein</label>
+        </div>
+        <div class="permgrp">
+          <label class="permhead"><input type="checkbox" class="permAll" data-grp="masters"> <b>Masters</b></label>
+          <label><input type="checkbox" class="perm" data-grp="masters" data-key="masters_edit"> Party/Item/Firm add-edit karein</label>
+          <label><input type="checkbox" class="perm" data-grp="masters" data-key="masters_categories"> Categories manage karein</label>
+          <label><input type="checkbox" class="perm" data-grp="masters" data-key="masters_import"> Bulk import karein</label>
+          <label><input type="checkbox" class="perm" data-grp="masters" data-key="masters_delete"> Delete karein</label>
+        </div>
+        <div class="permgrp">
+          <label class="permhead"><input type="checkbox" class="permAll" data-grp="reports"> <b>Reports &amp; Tools</b></label>
+          <label><input type="checkbox" class="perm" data-grp="reports" data-key="reports_view"> Trial Balance / Aging dekhein</label>
+          <label><input type="checkbox" class="perm" data-grp="reports" data-key="period_lock"> Period Lock set karein</label>
+          <label><input type="checkbox" class="perm" data-grp="reports" data-key="backup_restore"> Backup/Restore karein</label>
+          <label><input type="checkbox" class="perm" data-grp="reports" data-key="recycle_bin"> Recycle Bin</label>
+        </div>
+      </div>
+      <label id="uActiveField" style="display:none;align-items:center;gap:8px;font-size:13.5px;margin:10px 0 4px">
+        <input type="checkbox" id="uIsActive"> Active (uncheck = access band, data mehfooz rahega)
+      </label>
+    </div>
+    <div class="acts" id="usersListActs">
+      <button class="btn" id="usersClose">Close</button>
+      <button class="btn pri" id="usersAddBtn">+ New User</button>
+    </div>
+    <div class="acts" id="usersFormActs" style="display:none">
+      <button class="btn" id="usersFormCancel">Cancel</button>
+      <button class="btn pri" id="usersFormSave">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="ask" id="pwModal">
+  <div class="box" style="max-width:380px">
+    <h4>Change password</h4>
+    <div class="err" id="pwErr" style="margin-bottom:8px"></div>
+    <label style="font-size:11px;font-weight:700;letter-spacing:.4px;color:var(--mute);text-transform:uppercase">New password</label>
+    <input id="pwNew" type="password" style="width:100%;box-sizing:border-box;margin:6px 0 14px;
+      padding:9px 10px;border:1px solid var(--hair);border-radius:8px;font-size:14px">
+    <div class="acts">
+      <button class="btn" id="pwClose">Cancel</button>
+      <button class="btn pri" id="pwSave">Save</button>
     </div>
   </div>
 </div>
@@ -1922,7 +2002,7 @@
       x.classList.toggle('on', x.getAttribute('data-v') === 'details');
     });
     $('edBody').innerHTML = fieldset(editing);
-    $('edDel').style.display = rec ? '' : 'none';
+    $('edDel').style.display = (rec && can('masters_delete')) ? '' : 'none';
     $('edBody').scrollTop = 0;
     $('scrim').classList.add('on');
     $('sheet').classList.add('on');
@@ -2061,7 +2141,7 @@
       showLedger(editing, tab === 'items' ? 'item' : 'party');   // khata poori screen par
       return;
     } else {
-      $('edSave').style.display = ''; $('edDel').style.display = editing && editing.id ? '' : 'none';
+      $('edSave').style.display = ''; $('edDel').style.display = (editing && editing.id && can('masters_delete')) ? '' : 'none';
       $('edBody').innerHTML = fieldset(editing);
       var sw = $('eActive');
       sw.onclick = function () {
@@ -2742,7 +2822,8 @@
       $('q').value = '';
       $('q').placeholder = tab === 'items' ? 'Search by name…' : 'Search by name, phone or city…';
       $('newBtn').textContent = tab === 'parties' ? '+ Party' : tab === 'companies' ? '+ Firm' : '+ Item';
-      $('importBtn').style.display = (tab === 'parties' || tab === 'items') ? '' : 'none';
+      $('newBtn').style.display = can('masters_edit') ? '' : 'none';
+      $('importBtn').style.display = (can('masters_import') && (tab === 'parties' || tab === 'items')) ? '' : 'none';
       partyPageLimit = PAGE_SIZE;
       render();
       if (tab === 'items' && db.items.length) {
@@ -2846,15 +2927,16 @@
     });
   });
   $('lGo').addEventListener('click', function () {
-    var mail = $('lMail').value.trim(), pass = $('lPass').value;
+    var raw = $('lMail').value.trim(), pass = $('lPass').value;
     showErr('lErr', '');
-    if (!mail || !pass) { showErr('lErr', 'Enter both email and password.'); return; }
+    if (!raw || !pass) { showErr('lErr', 'Enter both username and password.'); return; }
+    var mail = raw.indexOf('@') > -1 ? raw : (raw.toLowerCase() + '@oht.internal');
     $('lGo').disabled = true; $('lGo').textContent = 'Signing in…';
     sb.auth.signInWithPassword({ email: mail, password: pass }).then(function (res) {
       $('lGo').disabled = false; $('lGo').textContent = 'Sign in';
       if (res.error) {
         showErr('lErr', isNetErr(res.error) ? 'No internet. Connect and try again.'
-                                            : 'That email and password did not match.');
+                                            : 'That username and password did not match.');
         return;
       }
       $('lPass').value = '';
@@ -3060,11 +3142,164 @@
   $('bkBtn').addEventListener('click', backupNow);
 
   $('outBtn').addEventListener('click', function () {
-    confirmBox('Sign out?', 'You will need your email and password to get back in.', 'Sign out')
+    confirmBox('Sign out?', 'You will need your username and password to get back in.', 'Sign out')
       .then(function (ok) {
         if (!ok) return;
         sb.auth.signOut().then(function () { location.reload(); });
       });
+  });
+
+  /* ---------- Change my own password ---------- */
+  $('pwBtn').addEventListener('click', function () {
+    $('pwNew').value = ''; showErr('pwErr', '');
+    $('pwModal').classList.add('on');
+  });
+  $('pwClose').addEventListener('click', function () { $('pwModal').classList.remove('on'); });
+  $('pwSave').addEventListener('click', function () {
+    var v = $('pwNew').value;
+    if (!v || v.length < 6) { showErr('pwErr', 'Password kam se kam 6 characters ka ho.'); return; }
+    $('pwSave').disabled = true; $('pwSave').textContent = 'Saving…';
+    sb.auth.updateUser({ password:v }).then(function (res) {
+      $('pwSave').disabled = false; $('pwSave').textContent = 'Save';
+      if (res.error) { showErr('pwErr', res.error.message || 'Could not update password.'); return; }
+      $('pwModal').classList.remove('on');
+      toast('Password badal diya gaya');
+    }).catch(function (e) {
+      $('pwSave').disabled = false; $('pwSave').textContent = 'Save';
+      showErr('pwErr', isNetErr(e) ? 'No internet.' : 'Could not update password.');
+    });
+  });
+
+  /* ---------- Manage Users (Admin only) ---------- */
+  var usersCache = [], editingUserId = null;   // null = naya user bana rahe hain
+  var PERM_KEYS = ['bill_create','bill_edit','bill_delete','ledger_create','ledger_delete',
+                   'masters_edit','masters_categories','masters_import','masters_delete',
+                   'reports_view','period_lock','backup_restore','recycle_bin'];
+
+  function openUsersModal() {
+    $('usersModal').classList.add('on');
+    showUsersList();
+    loadUsersList();
+  }
+  function showUsersList() {
+    $('usersForm').style.display = 'none';
+    $('usersList').style.display = '';
+    $('usersFormActs').style.display = 'none';
+    $('usersListActs').style.display = '';
+    $('usersTitle').textContent = 'Manage Users';
+  }
+  function loadUsersList() {
+    $('usersList').innerHTML = '<p style="color:var(--mute);font-size:13px">Loading…</p>';
+    sb.from('app_users').select('*').order('created_at', { ascending:true }).then(function (res) {
+      if (res.error) { $('usersList').innerHTML = '<p style="color:var(--mute);font-size:13px">Could not load.</p>'; return; }
+      usersCache = res.data || [];
+      renderUsersList();
+    });
+  }
+  function renderUsersList() {
+    $('usersList').innerHTML = usersCache.map(function (u) {
+      var permCount = PERM_KEYS.filter(function (k) { return !!u.perms[k]; }).length;
+      var sub = u.is_admin ? 'Sab kuch access' : (permCount ? permCount + ' permission' + (permCount === 1 ? '' : 's') + ' di gayi hain' : 'Koi permission nahi di gayi');
+      return '<div class="userrow"><div><span class="nm">' + esc(u.username) + '</span>' +
+        (u.is_admin ? '<span class="badge admin">ADMIN</span>' : '') +
+        (!u.is_active ? '<span class="badge off">INACTIVE</span>' : '') +
+        '<div style="font-size:11.5px;color:var(--mute);margin-top:2px">' + esc(sub) + '</div></div>' +
+        '<button class="btn" data-id="' + esc(u.id) + '" style="font-size:12px;padding:6px 10px">Edit</button></div>';
+    }).join('') || '<p style="color:var(--mute);font-size:13px">Koi user nahi mila.</p>';
+    $('usersList').querySelectorAll('button[data-id]').forEach(function (btn) {
+      btn.addEventListener('click', function () { openUserForm(btn.getAttribute('data-id')); });
+    });
+  }
+  function setPermCheckboxes(perms) {
+    document.querySelectorAll('#uPermsWrap .perm').forEach(function (cb) {
+      cb.checked = !!(perms && perms[cb.getAttribute('data-key')]);
+    });
+    updatePermAllState();
+  }
+  function updatePermAllState() {
+    ['bills','masters','reports'].forEach(function (grp) {
+      var boxes = document.querySelectorAll('#uPermsWrap .perm[data-grp="' + grp + '"]');
+      var all = Array.prototype.every.call(boxes, function (b) { return b.checked; });
+      document.querySelector('#uPermsWrap .permAll[data-grp="' + grp + '"]').checked = all;
+    });
+  }
+  document.querySelectorAll('#uPermsWrap .perm').forEach(function (cb) {
+    cb.addEventListener('change', updatePermAllState);
+  });
+  document.querySelectorAll('#uPermsWrap .permAll').forEach(function (cb) {
+    cb.addEventListener('change', function () {
+      var grp = cb.getAttribute('data-grp');
+      document.querySelectorAll('#uPermsWrap .perm[data-grp="' + grp + '"]').forEach(function (b) { b.checked = cb.checked; });
+    });
+  });
+  function openUserForm(id) {
+    editingUserId = id || null;
+    var u = id ? usersCache.filter(function (x) { return String(x.id) === String(id); })[0] : null;
+    showErr('usersErr', '');
+    $('usersTitle').textContent = u ? 'Edit user' : 'New user';
+    $('uidField').style.display = u ? 'none' : '';
+    $('uNewId').value = '';
+    $('uName').value = u ? u.username : '';
+    $('uIsAdmin').checked = u ? !!u.is_admin : false;
+    setPermCheckboxes(u ? u.perms : {});
+    $('uActiveField').style.display = u ? 'flex' : 'none';
+    $('uIsActive').checked = u ? u.is_active !== false : true;
+    $('usersList').style.display = 'none';
+    $('usersListActs').style.display = 'none';
+    $('usersForm').style.display = '';
+    $('usersFormActs').style.display = 'flex';
+  }
+  $('usersAddBtn').addEventListener('click', function () { openUserForm(null); });
+  $('usersFormCancel').addEventListener('click', showUsersList);
+  $('usersClose').addEventListener('click', function () { $('usersModal').classList.remove('on'); });
+  $('usersBtn').addEventListener('click', openUsersModal);
+
+  $('usersFormSave').addEventListener('click', function () {
+    var username = $('uName').value.trim().toLowerCase().replace(/\s+/g, '');
+    if (!username) { showErr('usersErr', 'Username daalein.'); return; }
+    var perms = {};
+    PERM_KEYS.forEach(function (k) {
+      var box = document.querySelector('#uPermsWrap .perm[data-key="' + k + '"]');
+      perms[k] = !!(box && box.checked);
+    });
+    var isAdmin = $('uIsAdmin').checked;
+
+    if (!editingUserId) {
+      var uid = $('uNewId').value.trim();
+      if (!uid) { showErr('usersErr', 'Supabase User ID daalein (Dashboard se copy karein).'); return; }
+      $('usersFormSave').disabled = true; $('usersFormSave').textContent = 'Saving…';
+      sb.from('app_users').insert({ id:uid, username:username, is_admin:isAdmin, is_active:true, perms:perms })
+        .then(function (res) {
+          $('usersFormSave').disabled = false; $('usersFormSave').textContent = 'Save';
+          if (res.error) {
+            showErr('usersErr', /duplicate|unique/i.test(res.error.message || '') ? 'Ye username ya ID pehle se mojood hai.'
+                                                                                    : (res.error.message || 'Could not save.'));
+            return;
+          }
+          toast('User ban gaya');
+          showUsersList(); loadUsersList();
+        }).catch(function (e) {
+          $('usersFormSave').disabled = false; $('usersFormSave').textContent = 'Save';
+          showErr('usersErr', isNetErr(e) ? 'No internet.' : 'Could not save.');
+        });
+    } else {
+      var isActive = $('uIsActive').checked;
+      $('usersFormSave').disabled = true; $('usersFormSave').textContent = 'Saving…';
+      sb.from('app_users').update({ username:username, is_admin:isAdmin, is_active:isActive, perms:perms })
+        .eq('id', editingUserId).then(function (res) {
+          $('usersFormSave').disabled = false; $('usersFormSave').textContent = 'Save';
+          if (res.error) {
+            showErr('usersErr', /duplicate|unique/i.test(res.error.message || '') ? 'Ye username pehle se mojood hai.'
+                                                                                    : (res.error.message || 'Could not save.'));
+            return;
+          }
+          toast('Update ho gaya');
+          showUsersList(); loadUsersList();
+        }).catch(function (e) {
+          $('usersFormSave').disabled = false; $('usersFormSave').textContent = 'Save';
+          showErr('usersErr', isNetErr(e) ? 'No internet.' : 'Could not save.');
+        });
+    }
   });
 
   function afterConnect() {
@@ -3076,10 +3311,48 @@
   function start() {
     $('gateConnect').classList.remove('on');
     $('gateLogin').classList.remove('on');
-    $('newBtn').textContent = '+ Party';
-    $('q').placeholder = 'Search by name, phone or city…';
-    loadAll();
-    setupRealtime();
+    loadMe().then(function () {
+      applyPermissionsUI();
+      $('newBtn').textContent = '+ Party';
+      $('newBtn').style.display = can('masters_edit') ? '' : 'none';
+      $('q').placeholder = 'Search by name, phone or city…';
+      loadAll();
+      setupRealtime();
+    }).catch(function (e) {
+      var msg = (e && e.message === 'disabled')
+        ? 'Aapka access band kar diya gaya hai. Admin se raabta karein.'
+        : (e && e.message === 'not_setup')
+        ? 'Aapka account abhi set up nahi hua. Admin se raabta karein.'
+        : 'Sign-in check nahi ho saka. Dobara koshish karein.';
+      sb.auth.signOut().then(function () {
+        $('gateLogin').classList.add('on');
+        showErr('lErr', msg);
+      });
+    });
+  }
+
+  /* ---------- me / permissions ---------- */
+  var me = null;
+  function loadMe() {
+    return sb.auth.getUser().then(function (res) {
+      var user = res.data && res.data.user;
+      if (!user) return Promise.reject(new Error('no_user'));
+      return sb.from('app_users').select('*').eq('id', user.id).single().then(function (r) {
+        if (r.error || !r.data) return Promise.reject(new Error('not_setup'));
+        if (!r.data.is_active) return Promise.reject(new Error('disabled'));
+        me = { id:r.data.id, username:r.data.username, isAdmin:!!r.data.is_admin, perms:r.data.perms || {} };
+      });
+    });
+  }
+  function can(key) { return !!(me && (me.isAdmin || me.perms[key])); }
+  function applyPermissionsUI() {
+    $('lockBtn').style.display    = can('period_lock')     ? '' : 'none';
+    $('bkBtn').style.display      = can('backup_restore')  ? '' : 'none';
+    $('recycleBtn').style.display = can('recycle_bin')     ? '' : 'none';
+    $('agingBtn').style.display   = can('reports_view')    ? '' : 'none';
+    $('tbBtn').style.display      = can('reports_view')    ? '' : 'none';
+    $('usersBtn').style.display   = (me && me.isAdmin) ? '' : 'none';
+    $('importBtn').style.display  = can('masters_import') && (tab === 'parties' || tab === 'items') ? '' : 'none';
   }
   /* ---------- Realtime: 20-second polling ki jagah, sirf jab actual change ho tab refresh ---------- */
   var realtimeChannel = null, realtimeTimer = null;
