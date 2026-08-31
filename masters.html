@@ -3321,7 +3321,9 @@
     }).catch(function (e) {
       var msg = (e && e.message === 'disabled')
         ? 'Aapka access band kar diya gaya hai. Admin se raabta karein.'
-        : 'DEBUG: ' + (e && e.message);
+        : (e && e.message === 'not_setup')
+        ? 'Aapka account abhi set up nahi hua. Admin se raabta karein.'
+        : 'Sign-in check nahi ho saka. Dobara koshish karein.';
       sb.auth.signOut().then(function () {
         $('gateLogin').classList.add('on');
         showErr('lErr', msg);
@@ -3334,9 +3336,9 @@
   function loadMe() {
     return sb.auth.getUser().then(function (res) {
       var user = res.data && res.data.user;
-      if (!user) return Promise.reject(new Error('no_user: ' + (res.error && res.error.message)));
+      if (!user) return Promise.reject(new Error('no_user'));
       return sb.from('app_users').select('*').eq('id', user.id).single().then(function (r) {
-        if (r.error || !r.data) return Promise.reject(new Error('DEBUG: ' + JSON.stringify(r.error) + ' | uid=' + user.id));
+        if (r.error || !r.data) return Promise.reject(new Error('not_setup'));
         if (!r.data.is_active) return Promise.reject(new Error('disabled'));
         me = { id:r.data.id, username:r.data.username, isAdmin:!!r.data.is_admin, perms:r.data.perms || {} };
       });
