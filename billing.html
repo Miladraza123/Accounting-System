@@ -293,6 +293,8 @@
 <div class="tabs">
   <button class="tab on" data-t="purchase">Purchase <span class="n" id="nPur"></span></button>
   <button class="tab" data-t="sale">Sale <span class="n" id="nSal"></span></button>
+  <button class="tab" data-t="quotation">Quotation <span class="n" id="nQuo"></span></button>
+  <button class="tab" data-t="po">PO <span class="n" id="nPo"></span></button>
 </div>
 
 <div class="tools">
@@ -343,6 +345,7 @@
   };
 
   var sb = null, vtype = 'purchase', bill = null, dirty = false;
+  var quotes = [], pos = [];   // Quotations aur Purchase Orders — alag arrays, vouchers/balance se koi taluq nahi
   var parties = [], items = [], bills = [], firms = [], lineSeq = 0;
   var firmName = 'Osman Haji Tayyab';
 
@@ -510,6 +513,7 @@
 
   /* ---------- list ---------- */
   function render() {
+    if (vtype === 'quotation' || vtype === 'po') { renderDocs(); return; }
     var q = norm($('q').value);
     var list = bills.filter(function (b) { return b.vtype === vtype; });
     if (q) list = list.filter(function (b) {
@@ -523,6 +527,8 @@
 
     $('nPur').textContent = countOf('purchase');
     $('nSal').textContent = countOf('sale');
+    $('nQuo').textContent = quotes.length ? '(' + quotes.length + ')' : '';
+    $('nPo').textContent = pos.length ? '(' + pos.length + ')' : '';
     $('searchWrap').classList.toggle('has', !!$('q').value);
 
     var box = $('rows');
@@ -550,6 +556,53 @@
           (b.narration ? ' · ' + esc(b.narration.slice(0, 34)) : '') + '</div></div>' +
         '<div class="amt ' + (t.due > 0 ? 'due' : 'clr') + '">' + money(t.grand) +
         '<span class="tag">' + (t.due > 0 ? money(t.due) + ' DUE' : 'PAID') + '</span></div></div>';
+    });
+    box.innerHTML = html;
+  }
+
+  /* ---------- Quotations / Purchase Orders list — bilkul alag, koi due/paid concept nahi ---------- */
+  function renderDocs() {
+    var isQ = vtype === 'quotation';
+    var src = isQ ? quotes : pos;
+    var dateKey = isQ ? 'qdate' : 'podate';
+    var q = norm($('q').value);
+    var list = src.slice();
+    if (q) list = list.filter(function (d) {
+      var p = partyById(d.party_id);
+      var no = isQ ? d.qno : d.pono;
+      return (norm(no) + ' ' + norm(p && p.name) + ' ' + norm(d.narration)).indexOf(q) !== -1;
+    });
+    list.sort(function (a, b) {
+      if (a[dateKey] !== b[dateKey]) return a[dateKey] < b[dateKey] ? 1 : -1;
+      return 0;
+    });
+
+    $('nPur').textContent = countOf('purchase');
+    $('nSal').textContent = countOf('sale');
+    $('nQuo').textContent = quotes.length ? '(' + quotes.length + ')' : '';
+    $('nPo').textContent = pos.length ? '(' + pos.length + ')' : '';
+    $('searchWrap').classList.toggle('has', !!$('q').value);
+
+    var box = $('rows');
+    if (!list.length) {
+      box.innerHTML = '<div class="empty">' + (q
+        ? '<div class="big">Nothing matched “' + esc($('q').value) + '”</div><div class="sm">Try the party name or number.</div>'
+        : '<div class="big">No ' + (isQ ? 'quotations' : 'purchase orders') + ' yet</div>' +
+          '<div class="sm">' + (isQ ? 'A quotation is just a document — it never touches stock or the ledger.'
+                                     : 'A purchase order is just a document — it never touches stock or the ledger.') + '</div>') + '</div>';
+      return;
+    }
+    var html = '', day = '';
+    list.forEach(function (d) {
+      if (d[dateKey] !== day) { day = d[dateKey]; html += '<div class="datehead">' + esc(human(day)) + '</div>'; }
+      var p = partyById(d.party_id);
+      var cnt = (d.lines || []).length;
+      html += '<div class="brow" data-doc="' + (isQ ? 'quotation' : 'po') + '" data-id="' + d.id + '" tabindex="0" role="button">' +
+        '<div class="no">' + esc((isQ ? d.qno : d.pono) || '—') + '</div><div class="mid">' +
+        '<div class="nm">' + esc(p ? p.name : 'No party') + '</div>' +
+        '<div class="sub">' + cnt + (cnt === 1 ? ' item' : ' items') +
+          (d.narration ? ' · ' + esc(d.narration.slice(0, 34)) : '') + '</div></div>' +
+        '<div class="amt clr">' + money(n(d.grand_total)) + '</div></div>';
     });
     box.innerHTML = html;
   }
@@ -596,11 +649,14 @@
 
   function drawEditor() {
     var b = bill, t = totals(b);
+    var isDoc = !!b.doc;
     var other = b.vtype === 'purchase' ? 'supplier' : 'customer';
     var p = partyById(b.party_id);
     var h = '';
+    var cardLabel = isDoc ? (b.doc === 'quotation' ? 'Quotation' : 'Purchase Order') : 'Bill';
+    var noLabel = isDoc ? (b.doc === 'quotation' ? 'Quotation no' : 'PO no') : 'Bill no';
 
-    h += '<div class="card"><div class="ttl">Bill</div>' +
+    h += '<div class="card"><div class="ttl">' + cardLabel + '</div>' +
       (firms.length > 1
         ? '<div class="f"><label>Billed by</label><select id="bFirm">' +
             firms.filter(function (c) { return (c.active !== false && !c.deleted_at) || c.id === b.company_id; })
@@ -611,48 +667,58 @@
                  }).join('') + '</select></div>'
         : '') +
       '<div class="f2">' +
-        '<div class="f"><label>Bill no</label><input id="bNo" type="text" value="' + esc(b.vno) + '" autocomplete="off"></div>' +
+        '<div class="f"><label>' + noLabel + '</label><input id="bNo" type="text" value="' + esc(b.vno) + '" autocomplete="off"></div>' +
         '<div class="f"><label>Date</label><input id="bDate" type="date" value="' + esc(b.vdate) + '"></div>' +
       '</div>' +
       '<div class="f"><label>' + (other === 'supplier' ? 'Bought from' : 'Sold to') + '</label>' +
         pickBox('bParty', p ? p.name : '', 'Type a name…') +
-        (b.party_id ? balText(b.party_id) : '<div class="hint">Pick from your parties list. Add new ones in Masters.</div>') +
+        (b.party_id && !isDoc ? balText(b.party_id) : '<div class="hint">' +
+          (isDoc ? 'This is only a document — it never affects their account balance.' : 'Pick from your parties list. Add new ones in Masters.') + '</div>') +
       '</div></div>';
 
     h += '<div class="card"><div class="ttl">Items</div><div class="lines" id="lineBox">';
     b.lines.forEach(function (l, i) { h += lineHtml(l, i); });
     h += '</div><button class="addln" id="addLn">+ Add another item</button></div>';
 
-    h += '<div class="card"><div class="ttl">Tax</div>' +
-      '<div class="swrow"><div class="lbl">Charge sales tax' +
-      '<div class="sub">Uses each item’s own rate. Off means a plain bill.</div></div>' +
-      '<button class="sw' + (b.tax_on ? ' on' : '') + '" id="bTax" role="switch" aria-checked="' +
-      (b.tax_on ? 'true' : 'false') + '"></button></div></div>';
+    if (!isDoc) {
+      h += '<div class="card"><div class="ttl">Tax</div>' +
+        '<div class="swrow"><div class="lbl">Charge sales tax' +
+        '<div class="sub">Uses each item’s own rate. Off means a plain bill.</div></div>' +
+        '<button class="sw' + (b.tax_on ? ' on' : '') + '" id="bTax" role="switch" aria-checked="' +
+        (b.tax_on ? 'true' : 'false') + '"></button></div></div>';
 
-    h += '<div class="card"><div class="ttl">Money</div>' +
-      '<div class="f2">' +
-        '<div class="f num"><label>Discount</label><input id="bDisc" type="text" inputmode="decimal" value="' +
-          (num(b.discount) ? fmt(b.discount) : '') + '" placeholder="0"></div>' +
-        '<div class="f num"><label>Paid now</label><input id="bPaid" type="text" inputmode="decimal" value="' +
-          (num(b.paid) ? fmt(b.paid) : '') + '" placeholder="0"></div>' +
-      '</div>' +
-      '<div class="f"><div class="hint">Leave “Paid now” empty for a credit bill — the whole amount stays on their account.</div></div>' +
-      '<div class="f"><label>Note</label><textarea id="bNote" placeholder="Vehicle no, order ref, anything worth remembering">' + esc(b.narration) + '</textarea></div>' +
-      '</div>';
+      h += '<div class="card"><div class="ttl">Money</div>' +
+        '<div class="f2">' +
+          '<div class="f num"><label>Discount</label><input id="bDisc" type="text" inputmode="decimal" value="' +
+            (num(b.discount) ? fmt(b.discount) : '') + '" placeholder="0"></div>' +
+          '<div class="f num"><label>Paid now</label><input id="bPaid" type="text" inputmode="decimal" value="' +
+            (num(b.paid) ? fmt(b.paid) : '') + '" placeholder="0"></div>' +
+        '</div>' +
+        '<div class="f"><div class="hint">Leave “Paid now” empty for a credit bill — the whole amount stays on their account.</div></div>' +
+        '<div class="f"><label>Note</label><textarea id="bNote" placeholder="Vehicle no, order ref, anything worth remembering">' + esc(b.narration) + '</textarea></div>' +
+        '</div>';
+    } else {
+      h += '<div class="card"><div class="ttl">Note</div>' +
+        '<div class="f"><textarea id="bNote" placeholder="Terms, validity, anything worth remembering">' + esc(b.narration) + '</textarea></div>' +
+        (b.id && can('bill_create') ? '<button class="btn pri" id="convertBtn" style="width:100%;margin-top:4px">' +
+          (b.doc === 'quotation' ? 'Convert to Sale' : 'Convert to Purchase') + '</button>' : '') +
+        '</div>';
+    }
 
     h += '<div class="sum">' +
       '<div class="sline"><span class="k">Items total</span><span class="v" id="sSub">' + money(t.sub) + '</span></div>' +
-      (t.disc ? '<div class="sline"><span class="k">Discount</span><span class="v">− ' + money(t.disc) + '</span></div>' : '') +
-      (b.tax_on ? '<div class="sline"><span class="k">Sales tax</span><span class="v">+ ' + money(t.tax) + '</span></div>' : '') +
-      '<div class="sline big"><span class="k">Bill total</span><span class="v">' + money(t.grand) + '</span></div>' +
-      (t.paid ? '<div class="sline"><span class="k">Paid now</span><span class="v">− ' + money(t.paid) + '</span></div>' : '') +
-      '<div class="sline ' + (t.due > 0 ? 'due' : 'done') + '"><span class="k">' +
+      (!isDoc && t.disc ? '<div class="sline"><span class="k">Discount</span><span class="v">− ' + money(t.disc) + '</span></div>' : '') +
+      (!isDoc && b.tax_on ? '<div class="sline"><span class="k">Sales tax</span><span class="v">+ ' + money(t.tax) + '</span></div>' : '') +
+      '<div class="sline big"><span class="k">' + (isDoc ? 'Total' : 'Bill total') + '</span><span class="v">' + money(t.grand) + '</span></div>' +
+      (!isDoc && t.paid ? '<div class="sline"><span class="k">Paid now</span><span class="v">− ' + money(t.paid) + '</span></div>' : '') +
+      (!isDoc ? '<div class="sline ' + (t.due > 0 ? 'due' : 'done') + '"><span class="k">' +
         (t.due > 0 ? (other === 'supplier' ? 'We still owe' : 'They still owe') : 'Settled') +
-        '</span><span class="v">' + money(t.due) + '</span></div>' +
+        '</span><span class="v">' + money(t.due) + '</span></div>' : '') +
       '</div>';
 
     $('edBody').innerHTML = h;
     wireEditor();
+    if (isDoc && $('convertBtn')) $('convertBtn').addEventListener('click', convertDocToBill);
   }
   function lineHtml(l, i) {
     var it = itemById(l.item_id);
@@ -723,9 +789,9 @@
     $('bNo').addEventListener('input', function () { b.vno = this.value.trim(); dirty = true; });
     $('bDate').addEventListener('change', function () { b.vdate = this.value || today(); dirty = true; });
     $('bNote').addEventListener('input', function () { b.narration = this.value; dirty = true; });
-    $('bDisc').addEventListener('input', function () { b.discount = num(this.value); dirty = true; refreshSum(); });
-    $('bPaid').addEventListener('input', function () { b.paid = num(this.value); dirty = true; refreshSum(); });
-    $('bTax').addEventListener('click', function () {
+    if ($('bDisc')) $('bDisc').addEventListener('input', function () { b.discount = num(this.value); dirty = true; refreshSum(); });
+    if ($('bPaid')) $('bPaid').addEventListener('input', function () { b.paid = num(this.value); dirty = true; refreshSum(); });
+    if ($('bTax'))  $('bTax').addEventListener('click', function () {
       b.tax_on = !b.tax_on; dirty = true; drawEditor();
     });
 
@@ -789,16 +855,22 @@
     var s = $('sSub'); if (s) s.textContent = money(t.sub);
     var sums = $('edBody').querySelector('.sum');
     if (sums) {
-      var b = bill, other = b.vtype === 'purchase' ? 'supplier' : 'customer';
-      sums.innerHTML =
-        '<div class="sline"><span class="k">Items total</span><span class="v" id="sSub">' + money(t.sub) + '</span></div>' +
-        (t.disc ? '<div class="sline"><span class="k">Discount</span><span class="v">− ' + money(t.disc) + '</span></div>' : '') +
-        (b.tax_on ? '<div class="sline"><span class="k">Sales tax</span><span class="v">+ ' + money(t.tax) + '</span></div>' : '') +
-        '<div class="sline big"><span class="k">Bill total</span><span class="v">' + money(t.grand) + '</span></div>' +
-        (t.paid ? '<div class="sline"><span class="k">Paid now</span><span class="v">− ' + money(t.paid) + '</span></div>' : '') +
-        '<div class="sline ' + (t.due > 0 ? 'due' : 'done') + '"><span class="k">' +
-          (t.due > 0 ? (other === 'supplier' ? 'We still owe' : 'They still owe') : 'Settled') +
-          '</span><span class="v">' + money(t.due) + '</span></div>';
+      var b = bill, other = b.vtype === 'purchase' ? 'supplier' : 'customer', isDoc = !!b.doc;
+      if (isDoc) {
+        sums.innerHTML =
+          '<div class="sline"><span class="k">Items total</span><span class="v" id="sSub">' + money(t.sub) + '</span></div>' +
+          '<div class="sline big"><span class="k">Total</span><span class="v">' + money(t.grand) + '</span></div>';
+      } else {
+        sums.innerHTML =
+          '<div class="sline"><span class="k">Items total</span><span class="v" id="sSub">' + money(t.sub) + '</span></div>' +
+          (t.disc ? '<div class="sline"><span class="k">Discount</span><span class="v">− ' + money(t.disc) + '</span></div>' : '') +
+          (b.tax_on ? '<div class="sline"><span class="k">Sales tax</span><span class="v">+ ' + money(t.tax) + '</span></div>' : '') +
+          '<div class="sline big"><span class="k">Bill total</span><span class="v">' + money(t.grand) + '</span></div>' +
+          (t.paid ? '<div class="sline"><span class="k">Paid now</span><span class="v">− ' + money(t.paid) + '</span></div>' : '') +
+          '<div class="sline ' + (t.due > 0 ? 'due' : 'done') + '"><span class="k">' +
+            (t.due > 0 ? (other === 'supplier' ? 'We still owe' : 'They still owe') : 'Settled') +
+            '</span><span class="v">' + money(t.due) + '</span></div>';
+      }
     }
   }
 
@@ -864,6 +936,139 @@
     });
   }
 
+  /* ---------- Quotations / Purchase Orders: open/save/delete/convert ---------- */
+  function blankDoc(docType) {
+    var d = defFirm();
+    return { vtype:(docType === 'po' ? 'purchase' : 'sale'), doc:docType, vno:nextDocNo(docType),
+             vdate:today(), party_id:null, narration:'', company_id:d ? d.id : null,
+             tax_on:false, discount:0, paid:0, lines:[newLine()] };
+  }
+  function nextDocNo(docType) {
+    var isQ = docType === 'quotation';
+    var src = isQ ? quotes : pos, field = isQ ? 'qno' : 'pono', pre = isQ ? 'QT-' : 'PO-';
+    var max = 0;
+    src.forEach(function (d) {
+      var m = String(d[field] || '').match(/(\d+)\s*$/);
+      if (m) max = Math.max(max, parseInt(m[1], 10));
+    });
+    return pre + String(max + 1).padStart(4, '0');
+  }
+  function openDoc(docType, rec) {
+    var isQ = docType === 'quotation';
+    bill = rec ? JSON.parse(JSON.stringify(rec)) : blankDoc(docType);
+    if (rec) {
+      bill.doc = docType;
+      bill.vtype = isQ ? 'sale' : 'purchase';
+      bill.vno = isQ ? rec.qno : rec.pono;
+      bill.vdate = isQ ? rec.qdate : rec.podate;
+    }
+    bill.lines = (bill.lines || []).map(function (l) {
+      if (!l.key) l.key = 'L' + (++lineSeq); return l;
+    });
+    if (!bill.lines.length) bill.lines.push(newLine());
+    dirty = false;
+    $('edTitle').textContent = (rec ? 'Edit ' : 'New ') + (isQ ? 'quotation' : 'purchase order');
+    var createPerm = isQ ? 'quotation_create' : 'po_create';
+    var editPerm   = isQ ? 'quotation_edit'   : 'po_edit';
+    var deletePerm = isQ ? 'quotation_delete' : 'po_delete';
+    $('edDel').style.display = (rec && can(deletePerm)) ? '' : 'none';
+    $('edSave').style.display = (rec ? can(editPerm) : can(createPerm)) ? '' : 'none';
+    drawEditor();
+    $('edBody').scrollTop = 0;
+    $('ed').classList.add('on');
+  }
+  function saveDoc() {
+    var b = bill, isQ = b.doc === 'quotation';
+    if (!b.party_id) { toast('Pick a party first', true); return; }
+    var good = b.lines.filter(function (l) { return l.item_id && num(l.qty) > 0; });
+    if (!good.length) { toast('Add at least one item with a quantity', true); return; }
+    var t = totals(b);
+    var table = isQ ? 'quotations' : 'purchase_orders';
+    var lineTable = isQ ? 'quotation_lines' : 'po_lines';
+    var fkCol = isQ ? 'quotation_id' : 'po_id';
+    var noField = isQ ? 'qno' : 'pono';
+    var dateField = isQ ? 'qdate' : 'podate';
+    var head = {};
+    head[noField] = (b.vno || '').trim();
+    head[dateField] = b.vdate || today();
+    head.party_id = b.party_id; head.company_id = b.company_id || null;
+    head.narration = b.narration || ''; head.subtotal = t.sub;
+    head.tax_on = false; head.discount = 0; head.tax_total = 0; head.grand_total = t.grand;
+    head.updated_at = new Date().toISOString();
+
+    $('edSave').disabled = true; syncNote('Saving…');
+    var isNew = !b.id;
+    var step = isNew ? sb.from(table).insert(head).select()
+                     : sb.from(table).update(head).eq('id', b.id).eq('version', b.version || 1).select();
+
+    step.then(function (res) {
+      if (res.error) throw res.error;
+      if (!isNew && (!res.data || !res.data.length)) {
+        $('edSave').disabled = false; syncNote('');
+        confirmBox('Kisi aur ne pehle save kar diya',
+          'Ye document aap ke edit karte waqt kisi aur ne bhi update kar diya. Aapki tabdeeliyan save nahi hui \u2014 taaza data dekh kar dobara edit karein.',
+          'Taaza data dekhein').then(function () { closeBill(); loadAll(); });
+        return;
+      }
+      var row = (res.data || [])[0];
+      var did = row ? row.id : b.id;
+      return sb.from(lineTable).delete().eq(fkCol, did).then(function (d) {
+        if (d.error) throw d.error;
+        var payload = good.map(function (l, i) {
+          var o = { line_no:i + 1, item_id:l.item_id, qty:num(l.qty), rate:num(l.rate),
+                    amount:round2(num(l.qty) * num(l.rate)) };
+          o[fkCol] = did; return o;
+        });
+        return sb.from(lineTable).insert(payload).select();
+      }).then(function (r2) {
+        if (r2.error) throw r2.error;
+        $('edSave').disabled = false; syncNote('Saved', '#7DC9A9');
+        toast((isNew ? 'Saved ' : 'Updated ') + (head[noField] || (isQ ? 'quotation' : 'purchase order')));
+        closeBill(); loadAll();
+      });
+    }).catch(function (e) {
+      $('edSave').disabled = false; syncNote(''); sayErr(e, 'save');
+    });
+  }
+  function deleteDoc() {
+    var b = bill, isQ = b.doc === 'quotation';
+    if (!b || !b.id) return;
+    var table = isQ ? 'quotations' : 'purchase_orders';
+    confirmBox('Delete ' + (isQ ? 'quotation' : 'purchase order') + ' ' + (b.vno || '') + '?',
+      'It moves to the Recycle Bin in Masters \u2014 you can restore it from there. This never affected stock or the ledger.',
+      'Delete').then(function (ok) {
+      if (!ok) return;
+      sb.from(table).update({ deleted_at:new Date().toISOString() }).eq('id', b.id).then(function (res) {
+        if (res.error) { sayErr(res.error, 'delete'); return; }
+        toast('Deleted ' + (b.vno || ''));
+        closeBill(); loadAll();
+      });
+    });
+  }
+  function convertDocToBill() {
+    var b = bill, isQ = b.doc === 'quotation';
+    var target = isQ ? 'sale' : 'purchase';
+    var newBill = {
+      vtype:target, vno:nextNo(target), vdate:today(), party_id:b.party_id,
+      narration:b.narration || '', company_id:b.company_id || null,
+      tax_on:false, discount:0, paid:0,
+      lines:(b.lines || []).filter(function (l) { return l.item_id && num(l.qty) > 0; }).map(function (l) {
+        return { key:'L' + (++lineSeq), item_id:l.item_id, qty:l.qty, rate:l.rate, tax_pct:0, amount:l.amount };
+      })
+    };
+    if (!newBill.lines.length) newBill.lines.push(newLine());
+    var sourceNo = b.vno;
+    bill = newBill;
+    vtype = target;
+    document.querySelectorAll('.tab').forEach(function (x) { x.classList.toggle('on', x.getAttribute('data-t') === target); });
+    dirty = true;
+    $('edTitle').textContent = 'New ' + target + ' (from ' + esc(sourceNo || '') + ')';
+    $('edDel').style.display = 'none';
+    $('edSave').style.display = can('bill_create') ? '' : 'none';
+    drawEditor();
+    toast('Ab review kar ke Save karein \u2014 ' + (isQ ? 'quotation' : 'PO') + ' apni jagah mehfooz rahega');
+  }
+
   function delBill() {
     if (!bill || !bill.id) return;
     confirmBox('Delete bill ' + (bill.vno || '') + '?',
@@ -908,20 +1113,22 @@
     if (t.disc)  foot += frow('Discount', '− ' + money(t.disc));
     if (b.tax_on) foot += frow('Sales tax', '+ ' + money(t.tax));
     foot += frow('Total', money(t.grand), 'grand');
-    if (t.paid)  foot += frow('Paid', '− ' + money(t.paid));
-    if (t.due)   foot += frow(b.vtype === 'purchase' ? 'Balance payable' : 'Balance receivable', money(t.due));
+    if (!b.doc && t.paid)  foot += frow('Paid', '− ' + money(t.paid));
+    if (!b.doc && t.due)   foot += frow(b.vtype === 'purchase' ? 'Balance payable' : 'Balance receivable', money(t.due));
 
     var co = firmById(b.company_id) || defFirm();
     var coAdr = co ? [co.address, co.city, co.phone, co.email,
                       co.ntn ? 'NTN ' + co.ntn : '',
                       (b.tax_on && co.strn) ? 'STRN ' + co.strn : '']
                      .filter(Boolean).map(esc).join('<br>') : '';
+    var kindLabel = b.doc === 'quotation' ? 'Quotation' : b.doc === 'po' ? 'Purchase Order'
+                    : (b.vtype === 'purchase' ? 'Purchase Bill' : 'Sales Invoice');
     $('sheet').innerHTML =
       '<div class="hd">' +
       (co && co.logo ? '<img class="logo" src="' + esc(co.logo) + '" alt="">' : '') +
       '<div><div class="firm">' + esc(co ? co.name : firmName) + '</div>' +
       (coAdr ? '<div class="adr">' + coAdr + '</div>' : '') +
-      '<div class="kind">' + (b.vtype === 'purchase' ? 'Purchase Bill' : 'Sales Invoice') +
+      '<div class="kind">' + kindLabel +
       (b.tax_on ? ' · Sales Tax' : '') + '</div></div>' +
       '<div class="rt"><div class="no">' + esc(b.vno || '') + '</div><div>' + esc(human(b.vdate)) + '</div></div></div>' +
 
@@ -981,7 +1188,11 @@
           sb.from('voucher_lines').select('*'),
           sb.from('companies').select('*'),
           ledgerVoucherQuery,
-          ledgerSheetQuery
+          ledgerSheetQuery,
+          sb.from('quotations').select('*').is('deleted_at', null).order('qdate', { ascending:false }).limit(300),
+          sb.from('quotation_lines').select('*'),
+          sb.from('purchase_orders').select('*').is('deleted_at', null).order('podate', { ascending:false }).limit(300),
+          sb.from('po_lines').select('*')
         ]).then(function (r) {
           r.slice(0, 4).forEach(function (x) { if (x.error) throw x.error; });
           parties = r[0].data || [];
@@ -991,6 +1202,14 @@
           ledgerVouchers = r[5].error ? [] : (r[5].data || []); // party balance ke liye poora/lock-ke-baad set
           sheets  = r[6].error ? [] : (r[6].data || []);        // ledger sheets
           lockDate = ld; snapshotActive = active; openingBalances = ob;
+
+          // Quotations aur Purchase Orders — bilkul alag, koi balance/stock impact nahi
+          quotes = r[7].error ? [] : (r[7].data || []);
+          pos    = r[9].error ? [] : (r[9].data || []);
+          var byQ = {}; (r[8].error ? [] : (r[8].data || [])).forEach(function (l) { (byQ[l.quotation_id] = byQ[l.quotation_id] || []).push(l); });
+          quotes.forEach(function (q) { q.lines = (byQ[q.id] || []).sort(function (a, c) { return (a.line_no || 0) - (c.line_no || 0); }); });
+          var byP = {}; (r[10].error ? [] : (r[10].data || [])).forEach(function (l) { (byP[l.po_id] = byP[l.po_id] || []).push(l); });
+          pos.forEach(function (p) { p.lines = (byP[p.id] || []).sort(function (a, c) { return (a.line_no || 0) - (c.line_no || 0); }); });
 
           // lock set hai lekin snapshot missing/stale mile — masters.html khud theek kar lega
           // agli baar wahan se khula jaye; yahan billing.html mein sirf safe fallback kaafi hai
@@ -1028,7 +1247,9 @@
       btn.classList.add('on');
       vtype = btn.getAttribute('data-t');
       $('q').value = '';
-      $('newBtn').textContent = vtype === 'purchase' ? '+ Purchase' : '+ Sale';
+      $('newBtn').textContent = vtype === 'purchase' ? '+ Purchase' : vtype === 'sale' ? '+ Sale'
+                               : vtype === 'quotation' ? '+ Quotation' : '+ Purchase Order';
+      updateNewBtnPerm();
       render();
     });
   });
@@ -1037,19 +1258,37 @@
   $('newBtn').addEventListener('click', function () {
     if (!parties.length) { toast('Add a party in Masters first', true); return; }
     if (!items.length)   { toast('Add an item in Masters first', true); return; }
+    if (vtype === 'quotation') { openDoc('quotation', null); return; }
+    if (vtype === 'po')        { openDoc('po', null); return; }
     openBill(null);
   });
-  function openRowById(id) {
+  function updateNewBtnPerm() {
+    var ok = vtype === 'quotation' ? can('quotation_create')
+           : vtype === 'po'        ? can('po_create')
+           : can('bill_create');
+    $('newBtn').style.display = ok ? '' : 'none';
+  }
+  function openRowById(id, docType) {
+    if (docType === 'quotation') {
+      var q = quotes.filter(function (x) { return String(x.id) === id; })[0];
+      if (q) openDoc('quotation', q);
+      return;
+    }
+    if (docType === 'po') {
+      var p = pos.filter(function (x) { return String(x.id) === id; })[0];
+      if (p) openDoc('po', p);
+      return;
+    }
     var b = bills.filter(function (x) { return String(x.id) === id; })[0];
     if (b) openBill(b);
   }
   $('rows').addEventListener('click', function (e) {
     var row = e.target.closest('.brow'); if (!row) return;
-    openRowById(row.getAttribute('data-id'));
+    openRowById(row.getAttribute('data-id'), row.getAttribute('data-doc'));
   });
   $('rows').addEventListener('keydown', function (e) {
     var row = e.target.closest('.brow'); if (!row) return;
-    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openRowById(row.getAttribute('data-id')); return; }
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openRowById(row.getAttribute('data-id'), row.getAttribute('data-doc')); return; }
     var rows = [].slice.call($('rows').querySelectorAll('.brow'));
     var i = rows.indexOf(row);
     if (e.key === 'ArrowDown') { e.preventDefault(); if (rows[i+1]) rows[i+1].focus(); }
@@ -1057,8 +1296,8 @@
     else if (e.key === 'Home') { e.preventDefault(); if (rows[0]) rows[0].focus(); }
     else if (e.key === 'End') { e.preventDefault(); if (rows[rows.length-1]) rows[rows.length-1].focus(); }
   });
-  $('edSave').addEventListener('click', saveBill);
-  $('edDel').addEventListener('click', delBill);
+  $('edSave').addEventListener('click', function () { (bill && bill.doc) ? saveDoc() : saveBill(); });
+  $('edDel').addEventListener('click', function () { (bill && bill.doc) ? deleteDoc() : delBill(); });
   $('edPrint').addEventListener('click', printBill);
   $('edBack').addEventListener('click', tryClose);
   function tryClose() {
@@ -1211,6 +1450,7 @@
     loadMe().then(function () {
       $('newBtn').textContent = '+ Purchase';
       $('newBtn').style.display = can('bill_create') ? '' : 'none';
+      updateNewBtnPerm();
       loadAll();
       setupRealtime();
     }).catch(function (e) {
