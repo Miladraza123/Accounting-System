@@ -617,6 +617,15 @@
           <label><input type="checkbox" class="perm" data-grp="reports" data-key="backup_restore"> Backup/Restore karein</label>
           <label><input type="checkbox" class="perm" data-grp="reports" data-key="recycle_bin"> Recycle Bin</label>
         </div>
+        <div class="permgrp">
+          <label class="permhead"><input type="checkbox" class="permAll" data-grp="qpo"> <b>Quotations &amp; Purchase Orders</b></label>
+          <label><input type="checkbox" class="perm" data-grp="qpo" data-key="quotation_create"> Naya quotation banayein</label>
+          <label><input type="checkbox" class="perm" data-grp="qpo" data-key="quotation_edit"> Quotation edit karein</label>
+          <label><input type="checkbox" class="perm" data-grp="qpo" data-key="quotation_delete"> Quotation delete karein</label>
+          <label><input type="checkbox" class="perm" data-grp="qpo" data-key="po_create"> Naya Purchase Order banayein</label>
+          <label><input type="checkbox" class="perm" data-grp="qpo" data-key="po_edit"> Purchase Order edit karein</label>
+          <label><input type="checkbox" class="perm" data-grp="qpo" data-key="po_delete"> Purchase Order delete karein</label>
+        </div>
       </div>
       <label id="uActiveField" style="display:none;align-items:center;gap:8px;font-size:13.5px;margin:10px 0 4px">
         <input type="checkbox" id="uIsActive"> Active (uncheck = access band, data mehfooz rahega)
@@ -3180,7 +3189,8 @@
   var usersCache = [], editingUserId = null;   // null = naya user bana rahe hain
   var PERM_KEYS = ['bill_create','bill_edit','bill_delete','ledger_create','ledger_delete',
                    'masters_edit','masters_categories','masters_import','masters_delete',
-                   'reports_view','period_lock','backup_restore','recycle_bin'];
+                   'reports_view','period_lock','backup_restore','recycle_bin',
+                   'quotation_create','quotation_edit','quotation_delete','po_create','po_edit','po_delete'];
 
   function openUsersModal() {
     $('usersModal').classList.add('on');
@@ -3223,7 +3233,7 @@
     updatePermAllState();
   }
   function updatePermAllState() {
-    ['bills','masters','reports'].forEach(function (grp) {
+    ['bills','masters','reports','qpo'].forEach(function (grp) {
       var boxes = document.querySelectorAll('#uPermsWrap .perm[data-grp="' + grp + '"]');
       var all = Array.prototype.every.call(boxes, function (b) { return b.checked; });
       document.querySelector('#uPermsWrap .permAll[data-grp="' + grp + '"]').checked = all;
