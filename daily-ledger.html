@@ -256,6 +256,12 @@
   .overlay { position:fixed; inset:0; background:rgba(31,41,51,.55); z-index:60;
              display:none; align-items:center; justify-content:center; padding:18px; }
   .overlay.open { display:flex; }
+  /* ask()/askOverlay hamesha upar rahe — chahe Backup, Restore, ya kisi bhi
+     doosre ".overlay" ke andar se khula ho (jaise "Nothing to save" ya
+     "Cannot read file" jaisay info-dialogs). ID-specific rule class se zyada
+     priority leta hai, is liye DOM order ya konsa overlay pehle khula, iska
+     koi farq nahi padta. */
+  #askOverlay { z-index:62; }
   .dialog { background:#fff; border-radius:10px; width:100%; max-width:390px; overflow:hidden;
             box-shadow:0 16px 48px rgba(0,0,0,.3); max-height:90vh; display:flex; flex-direction:column; }
   .dialog header { padding:15px 18px 12px; border-bottom:1px solid var(--hair); }
