@@ -548,6 +548,7 @@
   /* ---------- list ---------- */
   function render() {
     if (vtype === 'quotation' || vtype === 'po') { renderDocs(); return; }
+    if (vtype === 'return') { renderReturns(); return; }
     var q = norm($('q').value);
     var list = bills.filter(function (b) { return b.vtype === vtype; });
     if (q) list = list.filter(function (b) {
@@ -1212,6 +1213,296 @@
   }
 
   /* ---------- print ---------- */
+  /* ---------- Sales Returns ---------- */
+  function nextReturnNo() {
+    var max = 0;
+    returns.forEach(function (rr) {
+      var m = String(rr.rno || '').match(/(\d+)\s*$/);
+      if (m) max = Math.max(max, parseInt(m[1], 10));
+    });
+    return 'R-' + String(max + 1).padStart(4, '0');
+  }
+
+  function renderReturns() {
+    var q = norm($('q').value);
+    var list = returns.slice();
+    if (q) list = list.filter(function (rr) {
+      var p = partyById(rr.party_id);
+      var orig = bills.filter(function (b) { return b.id === rr.sale_id; })[0];
+      return (norm(rr.rno) + ' ' + norm(p && p.name) + ' ' + norm(orig && orig.vno)).indexOf(q) !== -1;
+    });
+    list.sort(function (a, b) { return a.rdate < b.rdate ? 1 : (a.rdate > b.rdate ? -1 : 0); });
+
+    $('nPur').textContent = countOf('purchase');
+    $('nSal').textContent = countOf('sale');
+    $('nQuo').textContent = quotes.length ? '(' + quotes.length + ')' : '';
+    $('nPo').textContent = pos.length ? '(' + pos.length + ')' : '';
+    $('nRet').textContent = returns.length ? '(' + returns.length + ')' : '';
+    $('searchWrap').classList.toggle('has', !!$('q').value);
+
+    var box = $('rows');
+    if (!list.length) {
+      box.innerHTML = '<div class="empty">' + (q
+        ? '<div class="big">Nothing matched “' + esc($('q').value) + '”</div>'
+        : '<div class="big">Koi Sales Return nahi</div><div class="sm">Kisi Sale invoice ke against return banayein.</div>') + '</div>';
+      return;
+    }
+    var html = '', day = '';
+    list.forEach(function (rr) {
+      if (rr.rdate !== day) { day = rr.rdate; html += '<div class="datehead">' + esc(human(day)) + '</div>'; }
+      var p = partyById(rr.party_id);
+      var orig = bills.filter(function (b) { return b.id === rr.sale_id; })[0];
+      var cnt = (rr.lines || []).length;
+      html += '<div class="brow" data-doc="return" data-id="' + rr.id + '" tabindex="0" role="button">' +
+        '<div class="no">' + esc(rr.rno || '\u2014') + '</div><div class="mid">' +
+        '<div class="nm">' + esc(p ? p.name : 'No party') + '</div>' +
+        '<div class="sub">Against ' + esc(orig ? (orig.vno || '') : '\u2014') + ' \u00b7 ' + cnt + (cnt === 1 ? ' item' : ' items') + '</div></div>' +
+        '<div class="amt clr">\u2212 ' + money(num(rr.grand_total)) + '</div></div>';
+    });
+    box.innerHTML = html;
+  }
+
+  function openPickSaleModal() {
+    $('pickSaleModal').classList.add('on');
+    $('pickSaleSearch').value = '';
+    renderPickSaleList('');
+    $('pickSaleSearch').oninput = function () { renderPickSaleList(this.value); };
+  }
+  function renderPickSaleList(q) {
+    q = norm(q);
+    var list = bills.filter(function (b) { return b.vtype === 'sale'; });
+    if (q) list = list.filter(function (b) {
+      var p = partyById(b.party_id);
+      return (norm(b.vno) + ' ' + norm(p && p.name)).indexOf(q) !== -1;
+    });
+    list.sort(function (a, b) { return a.vdate < b.vdate ? 1 : -1; });
+    $('pickSaleList').innerHTML = list.slice(0, 60).map(function (b) {
+      var p = partyById(b.party_id);
+      return '<div class="userrow" data-pick-sale="' + b.id + '" style="cursor:pointer">' +
+        '<div><span class="nm">' + esc(b.vno || '') + '</span>' +
+        '<div style="font-size:11.5px;color:var(--mute)">' + esc(p ? p.name : '') + ' \u00b7 ' + esc(human(b.vdate)) + '</div></div>' +
+        '<span style="font-weight:600">' + money(num(b.grand_total)) + '</span></div>';
+    }).join('') || '<p style="color:var(--mute);font-size:13px">Koi sale nahi mili.</p>';
+    $('pickSaleList').querySelectorAll('[data-pick-sale]').forEach(function (row) {
+      row.addEventListener('click', function () {
+        $('pickSaleModal').classList.remove('on');
+        startReturn(row.getAttribute('data-pick-sale'), null);
+      });
+    });
+  }
+  $('pickSaleClose').addEventListener('click', function () { $('pickSaleModal').classList.remove('on'); });
+
+  function returnableQtyFor(saleLineId, saleLineQty) {
+    var used = 0;
+    returns.forEach(function (rr) {
+      (rr.lines || []).forEach(function (l) { if (l.sale_line_id === saleLineId) used += num(l.qty); });
+    });
+    return round2(saleLineQty - used);
+  }
+
+  function startReturn(saleId, existingReturn) {
+    var sale = bills.filter(function (b) { return b.id === saleId; })[0];
+    if (!sale) { toast('Original sale nahi mili', true); return; }
+    var existingQtyByLine = {};
+    if (existingReturn) (existingReturn.lines || []).forEach(function (l) { existingQtyByLine[l.sale_line_id] = num(l.qty); });
+
+    var retLines = (sale.lines || []).map(function (sl) {
+      var it = itemById(sl.item_id);
+      var avail = returnableQtyFor(sl.id, num(sl.qty));
+      if (existingReturn) avail = round2(avail + (existingQtyByLine[sl.id] || 0));   // apni hi purani qty wapas jodo (edit ke liye)
+      return {
+        sale_line_id:sl.id, item_id:sl.item_id, item_name:it ? it.name : '', unit:it ? it.unit : '',
+        rate:num(sl.rate), max:avail, qty:existingReturn ? (existingQtyByLine[sl.id] || 0) : 0
+      };
+    });
+
+    bill = {
+      isReturn:true, id:existingReturn ? existingReturn.id : null,
+      rno:existingReturn ? existingReturn.rno : nextReturnNo(),
+      rdate:existingReturn ? existingReturn.rdate : today(),
+      party_id:sale.party_id, sale_id:sale.id, sale_vno:sale.vno,
+      narration:existingReturn ? (existingReturn.narration || '') : '',
+      version:existingReturn ? (existingReturn.version || 1) : 1,
+      lines:retLines
+    };
+    dirty = false;
+    vtype = 'return';
+    document.querySelectorAll('.tab').forEach(function (x) { x.classList.toggle('on', x.getAttribute('data-t') === 'return'); });
+    $('edTitle').textContent = (existingReturn ? 'Edit ' : 'New ') + 'Sales Return (' + esc(sale.vno || '') + ')';
+    $('edDel').style.display = (existingReturn && can('bill_delete')) ? '' : 'none';
+    $('edSave').style.display = can(existingReturn ? 'bill_edit' : 'bill_create') ? '' : 'none';
+    $('edSave').textContent = 'Save Sales Return';
+    drawReturnEditor();
+    $('edBody').scrollTop = 0;
+    $('ed').classList.add('on');
+  }
+
+  function returnTotals(b) {
+    var total = 0;
+    b.lines.forEach(function (l) { total += round2(num(l.qty) * l.rate); });
+    return { total:round2(total) };
+  }
+  function refreshReturnSum() {
+    var t = returnTotals(bill);
+    var el = $('edBody').querySelector('.sum .v');
+    if (el) el.textContent = money(t.total);
+  }
+
+  function drawReturnEditor() {
+    var b = bill, p = partyById(b.party_id);
+    var h = '<div class="card"><div class="ttl">Sales Return</div>' +
+      '<div class="f2">' +
+        '<div class="f"><label>Return no</label><input value="' + esc(b.rno) + '" readonly style="background:var(--panel)"></div>' +
+        '<div class="f"><label>Date</label><input id="rDate" type="date" value="' + esc(b.rdate) + '"></div>' +
+      '</div>' +
+      '<div class="f"><label>Customer</label><input value="' + esc(p ? p.name : '') + '" readonly style="background:var(--panel)"></div>' +
+      '<div class="f"><label>Against Sale</label><input value="' + esc(b.sale_vno || '') + '" readonly style="background:var(--panel)"></div>' +
+    '</div>';
+
+    h += '<div class="card"><div class="ttl">Items</div>';
+    b.lines.forEach(function (l, i) {
+      h += '<div class="ln"><div class="top"><div style="font-weight:600;font-size:14px">' + esc(l.item_name) + '</div></div>' +
+        '<div class="qr">' +
+          '<div class="f num"><label>Return qty (' + esc(l.unit) + ') \u2014 max ' + fmt(l.max) + '</label>' +
+            '<input class="retq" data-i="' + i + '" type="text" inputmode="decimal" value="' +
+            (num(l.qty) ? fmt(l.qty) : '') + '" placeholder="0"></div>' +
+          '<div class="f num"><label>Rate</label><input value="' + fmt(l.rate) + '" readonly style="background:var(--panel)"></div>' +
+          '<div class="tot" data-t="' + i + '">' + (num(l.qty) ? money(round2(num(l.qty) * l.rate)) : '\u2014') + '</div>' +
+        '</div></div>';
+    });
+    h += '</div>';
+
+    h += '<div class="card"><div class="ttl">Reason / Remarks</div>' +
+      '<div class="f"><textarea id="rNote" placeholder="Kyun return ho raha hai">' + esc(b.narration) + '</textarea></div></div>';
+
+    var t = returnTotals(b);
+    h += '<div class="sum"><div class="sline big"><span class="k">Return total</span><span class="v">' + money(t.total) + '</span></div></div>';
+
+    $('edBody').innerHTML = h;
+    $('rDate').addEventListener('change', function () { b.rdate = this.value || today(); dirty = true; });
+    $('rNote').addEventListener('input', function () { b.narration = this.value; dirty = true; });
+    $('edBody').querySelectorAll('.retq').forEach(function (el) {
+      el.addEventListener('input', function () {
+        var i = parseInt(this.getAttribute('data-i'), 10);
+        var v = num(this.value), l = b.lines[i];
+        if (v > l.max) { v = l.max; this.value = fmt(v); toast('Zyada se zyada ' + fmt(l.max) + ' hi return ho sakta hai', true); }
+        if (v < 0) v = 0;
+        l.qty = v; dirty = true;
+        var totEl = $('edBody').querySelector('[data-t="' + i + '"]');
+        if (totEl) totEl.textContent = v ? money(round2(v * l.rate)) : '\u2014';
+        refreshReturnSum();
+      });
+    });
+  }
+
+  function saveReturn() {
+    var b = bill;
+    var good = b.lines.filter(function (l) { return num(l.qty) > 0; });
+    if (!good.length) { toast('Kam se kam ek item ki quantity daalein', true); return; }
+    var t = returnTotals(b);
+    var head = {
+      rno:(b.rno || '').trim(), sale_id:b.sale_id, party_id:b.party_id, rdate:b.rdate || today(),
+      narration:b.narration || '', subtotal:t.total, grand_total:t.total,
+      updated_at:new Date().toISOString()
+    };
+    $('edSave').disabled = true; syncNote('Saving…');
+    var isNew = !b.id;
+    var step = isNew ? sb.from('sales_returns').insert(head).select()
+                     : sb.from('sales_returns').update(head).eq('id', b.id).eq('version', b.version || 1).select();
+    step.then(function (res) {
+      if (res.error) throw res.error;
+      if (!isNew && (!res.data || !res.data.length)) {
+        $('edSave').disabled = false; syncNote('');
+        confirmBox('Kisi aur ne pehle save kar diya',
+          'Ye return aap ke edit karte waqt kisi aur ne bhi update kar diya. Taaza data dekh kar dobara edit karein.',
+          'Taaza data dekhein').then(function () { closeBill(); loadAll(); });
+        return;
+      }
+      var row = (res.data || [])[0];
+      var rid = row ? row.id : b.id;
+      return sb.from('sales_return_lines').delete().eq('return_id', rid).then(function (d) {
+        if (d.error) throw d.error;
+        var payload = good.map(function (l, i) {
+          return { return_id:rid, sale_line_id:l.sale_line_id, item_id:l.item_id,
+                   qty:num(l.qty), rate:l.rate, amount:round2(num(l.qty) * l.rate), line_no:i + 1 };
+        });
+        return sb.from('sales_return_lines').insert(payload).select();
+      }).then(function (r2) {
+        if (r2.error) throw r2.error;
+        $('edSave').disabled = false; syncNote('Saved', '#7DC9A9');
+        toast((isNew ? 'Saved ' : 'Updated ') + (head.rno || 'return'));
+        closeBill(); loadAll();
+      });
+    }).catch(function (e) {
+      $('edSave').disabled = false; syncNote(''); sayErr(e, 'save');
+    });
+  }
+
+  function deleteReturn() {
+    var b = bill;
+    if (!b || !b.id) return;
+    confirmBox('Delete ' + (b.rno || '') + '?',
+      'Recycle Bin mein chala jayega \u2014 aap wahan se restore kar sakte hain. Stock/COGS/customer balance us hisaab se wapas adjust ho jayega.',
+      'Delete').then(function (ok) {
+      if (!ok) return;
+      sb.from('sales_returns').update({ deleted_at:new Date().toISOString() }).eq('id', b.id).then(function (res) {
+        if (res.error) { sayErr(res.error, 'delete'); return; }
+        toast('Deleted ' + (b.rno || ''));
+        closeBill(); loadAll();
+      });
+    });
+  }
+
+  function printReturn() {
+    var b = bill;
+    var p = partyById(b.party_id);
+    var good = b.lines.filter(function (l) { return num(l.qty) > 0; });
+    if (!good.length) { toast('Kam se kam ek item ki quantity honi chahiye', true); return; }
+    var t = returnTotals(b);
+    var rows = good.map(function (l, i) {
+      return '<tr><td class="c">' + (i + 1) + '</td><td>' + esc(l.item_name) + '</td>' +
+        '<td class="c">' + esc(l.unit) + '</td><td class="r">' + fmt(l.qty) + '</td>' +
+        '<td class="r">' + money(l.rate) + '</td><td class="r">' + money(round2(num(l.qty) * l.rate)) + '</td></tr>';
+    }).join('');
+    function rfrow(k, v, cls) {
+      return '<tr' + (cls ? ' class="' + cls + '"' : '') + '><td colspan="4" class="k">' + k + '</td><td class="v">' + v + '</td></tr>';
+    }
+    var foot = rfrow('Return total', money(t.total), 'grand');
+
+    var co = defFirm();
+    var coAdr = co ? [co.address, co.city, co.phone, co.email].filter(Boolean).map(esc).join('<br>') : '';
+    $('sheet').innerHTML =
+      '<div class="hd">' + (co && co.logo ? '<img class="logo" src="' + esc(co.logo) + '" alt="">' : '') +
+      '<div><div class="firm">' + esc(co ? co.name : firmName) + '</div>' +
+      (coAdr ? '<div class="adr">' + coAdr + '</div>' : '') +
+      '<div class="kind">Sales Return \u00b7 Against Sale ' + esc(b.sale_vno || '') + '</div></div>' +
+      '<div class="rt"><div class="no">' + esc(b.rno || '') + '</div><div>' + esc(human(b.rdate)) + '</div></div></div>' +
+
+      '<div class="who"><div><div class="lb">Customer</div>' +
+      '<div class="nm">' + esc(p ? p.name : '') + '</div>' +
+      (p && p.address ? '<div>' + esc(p.address) + '</div>' : '') +
+      (p && p.city ? '<div>' + esc(p.city) + '</div>' : '') + '</div></div>' +
+
+      '<table><thead><tr><th class="c" style="width:8mm">#</th><th>Item</th>' +
+      '<th class="c" style="width:16mm">Unit</th><th class="r" style="width:20mm">Qty</th>' +
+      '<th class="r" style="width:26mm">Rate</th><th class="r" style="width:30mm">Amount</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody><tfoot>' + foot + '</tfoot></table>' +
+
+      (b.narration ? '<div class="note">' + esc(b.narration) + '</div>' : '') +
+      '<div class="foot"><div class="sign">Prepared by</div><div class="sign">Received by</div></div>';
+
+    var oldTitle = document.title;
+    var oldTopTitle = (function () { try { return window.top && window.top !== window ? window.top.document.title : oldTitle; } catch (e) { return oldTitle; } })();
+    setPrintTitle(fileSafe(b.rno) + '-' + fileSafe(p ? p.name : 'Party') + '-' + fileDate(b.rdate));
+    window.addEventListener('afterprint', function restore() {
+      restorePrintTitle(oldTitle, oldTopTitle);
+      window.removeEventListener('afterprint', restore);
+    });
+    printWhenReady($('sheet'));
+  }
+
+  function openReturnRec(rr) { startReturn(rr.sale_id, rr); }
+
   function printBill() {
     var b = bill; if (!b) return;
     if (!b.party_id) { toast('Pick a party before printing', true); return; }
@@ -1392,7 +1683,7 @@
       vtype = btn.getAttribute('data-t');
       $('q').value = '';
       $('newBtn').textContent = vtype === 'purchase' ? '+ Purchase' : vtype === 'sale' ? '+ Sale'
-                               : vtype === 'quotation' ? '+ Quotation' : '+ Purchase Order';
+                               : vtype === 'quotation' ? '+ Quotation' : vtype === 'po' ? '+ Purchase Order' : '+ Return';
       updateNewBtnPerm();
       render();
     });
@@ -1404,11 +1695,13 @@
     if (!items.length)   { toast('Add an item in Masters first', true); return; }
     if (vtype === 'quotation') { openDoc('quotation', null); return; }
     if (vtype === 'po')        { openDoc('po', null); return; }
+    if (vtype === 'return')    { openPickSaleModal(); return; }
     openBill(null);
   });
   function updateNewBtnPerm() {
     var ok = vtype === 'quotation' ? can('quotation_create')
            : vtype === 'po'        ? can('po_create')
+           : vtype === 'return'    ? can('bill_create')
            : can('bill_create');
     $('newBtn').style.display = ok ? '' : 'none';
   }
@@ -1421,6 +1714,11 @@
     if (docType === 'po') {
       var p = pos.filter(function (x) { return String(x.id) === id; })[0];
       if (p) openDoc('po', p);
+      return;
+    }
+    if (docType === 'return') {
+      var rr = returns.filter(function (x) { return String(x.id) === id; })[0];
+      if (rr) openReturnRec(rr);
       return;
     }
     var b = bills.filter(function (x) { return String(x.id) === id; })[0];
@@ -1440,9 +1738,18 @@
     else if (e.key === 'Home') { e.preventDefault(); if (rows[0]) rows[0].focus(); }
     else if (e.key === 'End') { e.preventDefault(); if (rows[rows.length-1]) rows[rows.length-1].focus(); }
   });
-  $('edSave').addEventListener('click', function () { (bill && bill.doc) ? saveDoc() : saveBill(); });
-  $('edDel').addEventListener('click', function () { (bill && bill.doc) ? deleteDoc() : delBill(); });
-  $('edPrint').addEventListener('click', printBill);
+  $('edSave').addEventListener('click', function () {
+    if (bill && bill.isReturn) { saveReturn(); return; }
+    (bill && bill.doc) ? saveDoc() : saveBill();
+  });
+  $('edDel').addEventListener('click', function () {
+    if (bill && bill.isReturn) { deleteReturn(); return; }
+    (bill && bill.doc) ? deleteDoc() : delBill();
+  });
+  $('edPrint').addEventListener('click', function () {
+    if (bill && bill.isReturn) { printReturn(); return; }
+    printBill();
+  });
   $('edBack').addEventListener('click', tryClose);
   function tryClose() {
     if (!dirty) { closeBill(); return; }
