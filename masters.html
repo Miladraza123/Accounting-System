@@ -1064,8 +1064,12 @@
     db.parties.forEach(function (p) {
       var acc = buildAccount(p);
       var v = acc.balance;
-      if (v > 0) dr += v; else cr += -v;
-      if (v > 0) {
+      // Bank/Expense head ka balance asal cash-position ya kharcha hai — customer/supplier
+      // jaisa "receivable/payable" nahi, is liye To Collect/To Pay mein shamil nahi karte
+      if (p.kind !== 'bank' && p.kind !== 'expense') { if (v > 0) dr += v; else cr += -v; }
+      // Aging sirf Customer receivables ke liye maayne rakhti hai — Bank/Expense
+      // head jaisi parties ka koi "kitne din se bakaya hai" nahi hota, sirf balance hota hai
+      if (v > 0 && p.kind === 'customer') {
         var lastDate = '';
         acc.events.forEach(function (e) { if (e.date && e.date > lastDate) lastDate = e.date; });
         var days = lastDate ? Math.floor((today - new Date(lastDate + 'T00:00:00')) / 86400000) : 9999;
