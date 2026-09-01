@@ -1229,6 +1229,11 @@
         '</select>' +
         (customKinds.length && can('masters_categories') ? '<div class="hint" id="manageCatsLink" style="cursor:pointer;text-decoration:underline">Manage categories\u2026</div>' : '') +
         '</div>' +
+      '<div class="f" id="fExpenseType" style="display:' + (r.kind === 'expense' ? '' : 'none') + '">' +
+        '<label>Expense type</label><select id="eExpenseType">' +
+          opt([['rent', 'Rent'], ['utilities', 'Utilities'], ['bank_charges', 'Bank Charges'],
+               ['tax', 'Tax'], ['other', 'Other']], r.expense_type || 'other') +
+        '</select><div class="hint">P&amp;L mein "Finance Charges" (Bank Charges) baaki expenses se alag dikhta hai.</div></div>' +
       '<div class="f2">' +
         '<div class="f"><label>Phone</label><input id="ePhone" type="tel" value="' + esc(r.phone) + '" autocomplete="off"></div>' +
         '<div class="f"><label>City</label><input id="eCity" type="text" value="' + esc(r.city) + '" autocomplete="off"></div>' +
@@ -2068,6 +2073,8 @@
     var sel = $('eKind');
     var last = sel.value;
     sel.addEventListener('change', function () {
+      var box = $('fExpenseType');
+      if (box) box.style.display = (sel.value === 'expense') ? '' : 'none';
       if (sel.value !== ADD_KIND) { last = sel.value; return; }
       promptBox('New category', 'What should this category be called?', 'e.g. Landlord').then(function (name) {
         if (!name) { sel.value = last; return; }
@@ -2398,7 +2405,8 @@
       return { name:readVal('eName'), kind:readVal('eKind'), phone:readVal('ePhone'),
                city:readVal('eCity'), address:readVal('eAddr'), ntn:readVal('eNtn'),
                opening:readNum('eOpen'), opening_side:readVal('eSide'),
-               notes:readVal('eNotes'), active:act };
+               notes:readVal('eNotes'), active:act,
+               expense_type:readVal('eKind') === 'expense' ? readVal('eExpenseType') : null };
     }
     return { name:readVal('eName'), unit:readVal('eUnit'), sale_rate:readNum('eSale'),
              buy_rate:readNum('eBuy'), tax_pct:readNum('eTax'), opening_qty:readNum('eOQty'),
@@ -2662,6 +2670,7 @@
 
       if (!dateOrNull) {
         toast('Lock hata diya gaya \u2014 ab sab kuch poore data se calculate hoga');
+        sb.rpc('recompute_all_item_costs', { lock_date:null }).catch(function () {});
         $('lockModal').classList.remove('on');
         if (tab === 'parties') loadLedgerData().then(render).catch(function () {});
         if (accParty) loadLedgerData().then(redrawLedger).catch(function () {});
@@ -2669,7 +2678,10 @@
       }
 
       toast('Lock set ho gaya \u2014 balances calculate ho rahe hain\u2026');
-      computeAndSaveOpeningBalances(dateOrNull).then(function () {
+      Promise.all([
+        computeAndSaveOpeningBalances(dateOrNull),
+        sb.rpc('recompute_all_item_costs', { lock_date:dateOrNull })
+      ]).then(function () {
         toast('Snapshot taiyaar \u2014 speed ab behtar hogi');
         $('lockModal').classList.remove('on');
         if (tab === 'parties') loadLedgerData().then(render).catch(function () {});

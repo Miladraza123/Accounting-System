@@ -470,9 +470,12 @@
     });
     sub = round2(sub); tax = round2(tax);
     var disc = round2(num(b.discount));
-    var grand = round2(sub - disc + tax);
+    var extras = round2((b.loading_on ? num(b.loading_amt) : 0) +
+                         (b.cartage_on ? num(b.cartage_amt) : 0) +
+                         (b.cutting_on ? num(b.cutting_amt) : 0));
+    var grand = round2(sub - disc + tax + extras);
     var paid = round2(num(b.paid));
-    return { sub:sub, tax:tax, disc:disc, grand:grand, paid:paid, due:round2(grand - paid) };
+    return { sub:sub, tax:tax, disc:disc, extras:extras, grand:grand, paid:paid, due:round2(grand - paid) };
   }
 
   /* party ka abhi tak ka baqaya — opening + sab bills */
@@ -642,7 +645,8 @@
   function blank() {
     var d = defFirm();
     return { vtype:vtype, vno:nextNo(vtype), vdate:today(), party_id:null, narration:'',
-             company_id:d ? d.id : null, tax_on:false, discount:0, paid:0, lines:[newLine()] };
+             company_id:d ? d.id : null, tax_on:false, discount:0, paid:0, lines:[newLine()],
+             loading_on:false, loading_amt:0, cartage_on:false, cartage_amt:0, cutting_on:false, cutting_amt:0 };
   }
   function newLine() { return { key:'L' + (++lineSeq), item_id:null, qty:'', rate:'', tax_pct:0, amount:0 }; }
 
@@ -702,6 +706,17 @@
       '<button class="sw' + (b.tax_on ? ' on' : '') + '" id="bTax" role="switch" aria-checked="' +
       (b.tax_on ? 'true' : 'false') + '"></button></div></div>';
 
+    var showExtras = !isDoc || b.doc === 'quotation';   // PO mein ye card nahi
+    if (showExtras) {
+      h += '<div class="card"><div class="ttl">Additional Charges</div>' +
+        chargeRow(b, 'loading', 'Loading') +
+        chargeRow(b, 'cartage', 'Cartage') +
+        chargeRow(b, 'cutting', 'Cutting') +
+        '<div class="hint">' + (b.vtype === 'purchase'
+          ? 'Ye amount item ki cost mein shamil ho jayega (average cost badhega).'
+          : 'Ye amount P&L ke "Other Income" mein alag se record hoga.') + '</div></div>';
+    }
+
     if (!isDoc) {
       h += '<div class="card"><div class="ttl">Money</div>' +
         '<div class="f2">' +
@@ -725,6 +740,7 @@
       '<div class="sline"><span class="k">Items total</span><span class="v" id="sSub">' + money(t.sub) + '</span></div>' +
       (!isDoc && t.disc ? '<div class="sline"><span class="k">Discount</span><span class="v">− ' + money(t.disc) + '</span></div>' : '') +
       (b.tax_on ? '<div class="sline"><span class="k">Sales tax</span><span class="v">+ ' + money(t.tax) + '</span></div>' : '') +
+      (t.extras ? '<div class="sline"><span class="k">Loading/Cartage/Cutting</span><span class="v">+ ' + money(t.extras) + '</span></div>' : '') +
       '<div class="sline big"><span class="k">' + (isDoc ? 'Total' : 'Bill total') + '</span><span class="v">' + money(t.grand) + '</span></div>' +
       (!isDoc && t.paid ? '<div class="sline"><span class="k">Paid now</span><span class="v">− ' + money(t.paid) + '</span></div>' : '') +
       (!isDoc ? '<div class="sline ' + (t.due > 0 ? 'due' : 'done') + '"><span class="k">' +
@@ -735,6 +751,13 @@
     $('edBody').innerHTML = h;
     wireEditor();
     if (isDoc && $('convertBtn')) $('convertBtn').addEventListener('click', convertDocToBill);
+  }
+  function chargeRow(b, key, label) {
+    var on = !!b[key + '_on'];
+    return '<div class="swrow"><div class="lbl">' + label + '</div>' +
+      '<button class="sw' + (on ? ' on' : '') + '" data-charge="' + key + '" role="switch" aria-checked="' + (on ? 'true' : 'false') + '"></button></div>' +
+      (on ? '<div class="f num"><input id="b' + key + 'Amt" type="text" inputmode="decimal" value="' +
+        (num(b[key + '_amt']) ? fmt(b[key + '_amt']) : '') + '" placeholder="0"></div>' : '');
   }
   function lineHtml(l, i) {
     var it = itemById(l.item_id);
@@ -810,6 +833,17 @@
     if ($('bTax'))  $('bTax').addEventListener('click', function () {
       b.tax_on = !b.tax_on; dirty = true; drawEditor();
     });
+    document.querySelectorAll('[data-charge]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var key = btn.getAttribute('data-charge');
+        b[key + '_on'] = !b[key + '_on'];
+        dirty = true; drawEditor();
+      });
+    });
+    ['loading', 'cartage', 'cutting'].forEach(function (key) {
+      var el = $('b' + key + 'Amt');
+      if (el) el.addEventListener('input', function () { b[key + '_amt'] = num(this.value); dirty = true; refreshSum(); });
+    });
 
     attachPick('bParty', function () {
       return parties.filter(function (p) { return !p.deleted_at; }).map(function (p) {
@@ -876,12 +910,14 @@
         sums.innerHTML =
           '<div class="sline"><span class="k">Items total</span><span class="v" id="sSub">' + money(t.sub) + '</span></div>' +
           (b.tax_on ? '<div class="sline"><span class="k">Sales tax</span><span class="v">+ ' + money(t.tax) + '</span></div>' : '') +
+          (t.extras ? '<div class="sline"><span class="k">Loading/Cartage/Cutting</span><span class="v">+ ' + money(t.extras) + '</span></div>' : '') +
           '<div class="sline big"><span class="k">Total</span><span class="v">' + money(t.grand) + '</span></div>';
       } else {
         sums.innerHTML =
           '<div class="sline"><span class="k">Items total</span><span class="v" id="sSub">' + money(t.sub) + '</span></div>' +
           (t.disc ? '<div class="sline"><span class="k">Discount</span><span class="v">− ' + money(t.disc) + '</span></div>' : '') +
           (b.tax_on ? '<div class="sline"><span class="k">Sales tax</span><span class="v">+ ' + money(t.tax) + '</span></div>' : '') +
+          (t.extras ? '<div class="sline"><span class="k">Loading/Cartage/Cutting</span><span class="v">+ ' + money(t.extras) + '</span></div>' : '') +
           '<div class="sline big"><span class="k">Bill total</span><span class="v">' + money(t.grand) + '</span></div>' +
           (t.paid ? '<div class="sline"><span class="k">Paid now</span><span class="v">− ' + money(t.paid) + '</span></div>' : '') +
           '<div class="sline ' + (t.due > 0 ? 'due' : 'done') + '"><span class="k">' +
@@ -902,7 +938,10 @@
       vtype:b.vtype, vno:(b.vno || '').trim(), vdate:b.vdate || today(), party_id:b.party_id,
       narration:b.narration || '', company_id:b.company_id || null,
       tax_on:!!b.tax_on, sub_total:t.sub, discount:t.disc,
-      tax_total:t.tax, grand_total:t.grand, paid:t.paid, updated_at:new Date().toISOString()
+      tax_total:t.tax, grand_total:t.grand, paid:t.paid, updated_at:new Date().toISOString(),
+      loading_on:!!b.loading_on, loading_amt:num(b.loading_amt),
+      cartage_on:!!b.cartage_on, cartage_amt:num(b.cartage_amt),
+      cutting_on:!!b.cutting_on, cutting_amt:num(b.cutting_amt)
     };
     $('edSave').disabled = true; syncNote('Saving…');
 
@@ -968,7 +1007,8 @@
     var d = defFirm();
     return { vtype:(docType === 'po' ? 'purchase' : 'sale'), doc:docType, vno:nextDocNo(docType),
              vdate:today(), party_id:null, narration:'', company_id:d ? d.id : null,
-             tax_on:false, discount:0, paid:0, lines:[newLine()] };
+             tax_on:false, discount:0, paid:0, lines:[newLine()],
+             loading_on:false, loading_amt:0, cartage_on:false, cartage_amt:0, cutting_on:false, cutting_amt:0 };
   }
   function nextDocNo(docType) {
     var isQ = docType === 'quotation';
@@ -1023,6 +1063,11 @@
     head.narration = b.narration || ''; head.subtotal = t.sub;
     head.tax_on = !!b.tax_on; head.discount = 0; head.tax_total = t.tax; head.grand_total = t.grand;
     head.updated_at = new Date().toISOString();
+    if (isQ) {   // PO mein ye charges nahi hote
+      head.loading_on = !!b.loading_on; head.loading_amt = num(b.loading_amt);
+      head.cartage_on = !!b.cartage_on; head.cartage_amt = num(b.cartage_amt);
+      head.cutting_on = !!b.cutting_on; head.cutting_amt = num(b.cutting_amt);
+    }
 
     $('edSave').disabled = true; syncNote('Saving…');
     var isNew = !b.id;
@@ -1080,6 +1125,9 @@
       vtype:target, vno:nextNo(target), vdate:today(), party_id:b.party_id,
       narration:b.narration || '', company_id:b.company_id || null,
       tax_on:!!b.tax_on, discount:0, paid:0,
+      loading_on:!!b.loading_on, loading_amt:num(b.loading_amt),
+      cartage_on:!!b.cartage_on, cartage_amt:num(b.cartage_amt),
+      cutting_on:!!b.cutting_on, cutting_amt:num(b.cutting_amt),
       lines:(b.lines || []).filter(function (l) { return l.item_id && num(l.qty) > 0; }).map(function (l) {
         return { key:'L' + (++lineSeq), item_id:l.item_id, qty:l.qty, rate:l.rate, tax_pct:num(l.tax_pct), amount:l.amount };
       })
@@ -1141,6 +1189,7 @@
     foot += frow('Items total', money(t.sub));
     if (t.disc)  foot += frow('Discount', '− ' + money(t.disc));
     if (b.tax_on) foot += frow('Sales tax', '+ ' + money(t.tax));
+    if (t.extras) foot += frow('Loading/Cartage/Cutting', '+ ' + money(t.extras));
     foot += frow('Total', money(t.grand), 'grand');
     if (!b.doc && t.paid)  foot += frow('Paid', '− ' + money(t.paid));
     if (!b.doc && t.due)   foot += frow(b.vtype === 'purchase' ? 'Balance payable' : 'Balance receivable', money(t.due));
