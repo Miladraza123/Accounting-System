@@ -410,6 +410,9 @@
   .permgrp label { display:flex; align-items:center; gap:8px; font-size:12.5px; padding:3px 0; }
   .permgrp .permhead { border-bottom:1px solid var(--hair); padding-bottom:6px; margin-bottom:4px; font-size:13px; }
   .userrow { display:flex; align-items:center; justify-content:space-between; padding:9px 0; border-bottom:1px solid var(--hair); }
+  .chip { border:1px solid var(--hair); background:#fff; color:var(--slate); font-size:12px; font-weight:600;
+          padding:6px 11px; border-radius:20px; }
+  .chip.on { background:var(--ink); color:#fff; border-color:var(--ink); }
   .userrow .nm { font-weight:700; font-size:13.5px; }
   .userrow .badge { font-size:10px; font-weight:700; letter-spacing:.4px; padding:2px 7px; border-radius:20px; margin-left:6px; }
   .userrow .badge.admin { background:#EAF3EC; color:#1E7A4C; }
@@ -477,6 +480,7 @@
   <button class="abtn" id="tbBtn">Trial Balance</button>
   <button class="abtn" id="lockBtn">Period Lock</button>
   <button class="abtn" id="agingBtn">Aging Report</button>
+  <button class="abtn" id="plBtn">Profit &amp; Loss</button>
   <button class="abtn" id="usersBtn" style="display:none">Manage Users</button>
   <button class="abtn" id="pwBtn">Change Password</button>
   <button class="abtn" id="outBtn">Sign out</button>
@@ -705,6 +709,21 @@
         <button class="btn" id="lockClose">Close</button>
         <button class="btn pri" id="lockSave">Save</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<div class="ask" id="plModal">
+  <div class="box" style="max-width:480px">
+    <h4>Profit &amp; Loss</h4>
+    <div id="plRange" style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap"></div>
+    <div id="plCustomRange" style="display:none;gap:8px;margin-bottom:10px">
+      <input type="date" id="plFrom" style="flex:1;padding:8px 9px;border:1px solid var(--hair);border-radius:8px;font-size:13px">
+      <input type="date" id="plTo" style="flex:1;padding:8px 9px;border:1px solid var(--hair);border-radius:8px;font-size:13px">
+    </div>
+    <div id="plBody" style="max-height:55vh;overflow:auto"></div>
+    <div class="acts">
+      <button class="btn" id="plClose">Close</button>
     </div>
   </div>
 </div>
@@ -2762,6 +2781,196 @@
   $('agingClose').addEventListener('click', function () { $('agingModal').classList.remove('on'); });
   $('agingBtn').addEventListener('click', openAgingReport);
 
+  /* ---------- Profit & Loss ---------- */
+  var plRangeKey = 'month', plGroupBy = 'invoice';
+
+  function plRangeDates(key) {
+    var t = new Date();
+    var y = t.getFullYear(), m = t.getMonth(), d = t.getDate();
+    function iso(dt) { return dt.toISOString().slice(0, 10); }
+    if (key === 'today')     return { from:today(), to:today() };
+    if (key === 'month')     return { from:iso(new Date(y, m, 1)), to:today() };
+    if (key === 'year')      return { from:iso(new Date(y, 0, 1)), to:today() };
+    if (key === 'lastmonth') return { from:iso(new Date(y, m - 1, 1)), to:iso(new Date(y, m, 0)) };
+    return { from:$('plFrom').value || today(), to:$('plTo').value || today() };
+  }
+
+  function openProfitLoss() {
+    $('plModal').classList.add('on');
+    var chips = [['today', 'Today'], ['month', 'This month'], ['lastmonth', 'Last month'],
+                 ['year', 'This year'], ['custom', 'Custom']];
+    $('plRange').innerHTML = chips.map(function (c) {
+      return '<button class="chip' + (plRangeKey === c[0] ? ' on' : '') + '" data-range="' + c[0] + '">' + c[1] + '</button>';
+    }).join('');
+    $('plRange').querySelectorAll('[data-range]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        plRangeKey = btn.getAttribute('data-range');
+        $('plCustomRange').style.display = plRangeKey === 'custom' ? 'flex' : 'none';
+        openProfitLoss();
+      });
+    });
+    if (plRangeKey === 'custom') {
+      $('plCustomRange').style.display = 'flex';
+      if (!$('plFrom').value) $('plFrom').value = today();
+      if (!$('plTo').value) $('plTo').value = today();
+      $('plFrom').onchange = renderPL; $('plTo').onchange = renderPL;
+    } else {
+      $('plCustomRange').style.display = 'none';
+    }
+    renderPL();
+  }
+
+  function renderPL() {
+    var range = plRangeDates(plRangeKey);
+    $('plBody').innerHTML = '<p style="color:var(--mute);font-size:13px;padding:20px 0;text-align:center">Calculate ho raha hai\u2026</p>';
+    computeProfitLoss(range.from, range.to).then(function (pl) {
+      drawPL(pl, range);
+    }).catch(function (e) {
+      $('plBody').innerHTML = '<p style="color:var(--mute);font-size:13px">Could not calculate \u2014 ' + esc((e && e.message) || 'try again') + '</p>';
+    });
+  }
+
+  function computeProfitLoss(from, to) {
+    return sb.from('vouchers')
+      .select('id,vtype,vdate,subtotal,discount,tax_total,grand_total,party_id,loading_on,loading_amt,cartage_on,cartage_amt,cutting_on,cutting_amt')
+      .is('deleted_at', null).eq('vtype', 'sale').gte('vdate', from).lte('vdate', to)
+      .then(function (vr) {
+        if (vr.error) throw vr.error;
+        var saleVouchers = vr.data || [];
+        var saleIds = saleVouchers.map(function (v) { return v.id; });
+
+        var linesQ = saleIds.length
+          ? sb.from('voucher_lines').select('voucher_id,item_id,qty,rate,amount,cost_amount').in('voucher_id', saleIds)
+          : Promise.resolve({ data:[] });
+        var sheetsQ = sb.from('sheets').select('sheet_date,rows').is('deleted_at', null).gte('sheet_date', from).lte('sheet_date', to);
+
+        return Promise.all([linesQ, sheetsQ]).then(function (r) {
+          var lines = r[0].error ? [] : (r[0].data || []);
+          var sheets = r[1].error ? [] : (r[1].data || []);
+
+          var grossSales = 0, discounts = 0, otherIncome = 0, cogs = 0;
+          saleVouchers.forEach(function (v) {
+            grossSales += n(v.subtotal);
+            discounts += n(v.discount);
+            if (v.loading_on) otherIncome += n(v.loading_amt);
+            if (v.cartage_on) otherIncome += n(v.cartage_amt);
+            if (v.cutting_on) otherIncome += n(v.cutting_amt);
+          });
+          lines.forEach(function (l) { cogs += n(l.cost_amount); });
+
+          var netSales = r2(grossSales - discounts);
+          cogs = r2(cogs); otherIncome = r2(otherIncome);
+          var grossProfit = r2(netSales - cogs);
+
+          var expenseType = {};
+          db.parties.forEach(function (p) { if (p.kind === 'expense') expenseType[p.id] = p.expense_type || 'other'; });
+          var opEx = 0, finance = 0;
+          sheets.forEach(function (s) {
+            (s.rows || []).forEach(function (row) {
+              var pid = row && row[7];
+              if (pid && expenseType.hasOwnProperty(pid)) {
+                var amt = n(row[0]);
+                if (expenseType[pid] === 'bank_charges') finance += amt; else opEx += amt;
+              }
+            });
+          });
+          opEx = r2(opEx); finance = r2(finance);
+          var operatingProfit = r2(grossProfit + otherIncome - opEx);
+          var netProfit = r2(operatingProfit - finance);
+
+          return {
+            grossSales:r2(grossSales), discounts:r2(discounts), netSales:netSales, cogs:cogs,
+            grossProfit:grossProfit, grossMarginPct: netSales ? r2(grossProfit / netSales * 100) : 0,
+            otherIncome:otherIncome, opEx:opEx, operatingProfit:operatingProfit,
+            finance:finance, netProfit:netProfit,
+            netMarginPct: netSales ? r2(netProfit / netSales * 100) : 0,
+            saleVouchers:saleVouchers, lines:lines
+          };
+        });
+      });
+  }
+
+  function drawPL(pl, range) {
+    function row(label, val, opts) {
+      opts = opts || {};
+      return '<div style="display:flex;justify-content:space-between;padding:' + (opts.pad || '4px') + ' 0;' +
+        (opts.bold ? 'font-weight:700;' : '') + (opts.top ? 'border-top:1px solid var(--hair);margin-top:4px;padding-top:8px;' : '') +
+        (opts.indent ? 'padding-left:12px;color:var(--mute);font-size:12.5px;' : 'font-size:13.5px;') + '">' +
+        '<span>' + label + '</span><span style="color:' + (opts.color || 'var(--ink)') + '">' + val + '</span></div>';
+    }
+    var h = '<div style="font-size:11.5px;color:var(--mute);margin-bottom:8px">' + dayText(range.from) + ' \u2014 ' + dayText(range.to) + '</div>';
+    h += row('Gross Sales', fmt(pl.grossSales));
+    h += row('Less: Sales Discounts', pl.discounts ? '\u2212 ' + fmt(pl.discounts) : '\u2014', { indent:true });
+    h += row('Net Sales', fmt(pl.netSales), { bold:true, top:true });
+    h += row('Cost of Goods Sold', '\u2212 ' + fmt(pl.cogs));
+    h += row('Gross Profit', fmt(pl.grossProfit) + '  (' + fmt(pl.grossMarginPct) + '%)', { bold:true, top:true,
+      color: pl.grossProfit >= 0 ? 'var(--credit)' : 'var(--debit)' });
+    h += row('Other Income', pl.otherIncome ? '+ ' + fmt(pl.otherIncome) : '\u2014');
+    h += row('Operating Expenses', pl.opEx ? '\u2212 ' + fmt(pl.opEx) : '\u2014');
+    h += row('Operating Profit', fmt(pl.operatingProfit), { bold:true, top:true });
+    h += row('Finance / Bank Charges', pl.finance ? '\u2212 ' + fmt(pl.finance) : '\u2014');
+    h += row('Net Profit / Loss', fmt(pl.netProfit) + '  (' + fmt(pl.netMarginPct) + '% margin)', { bold:true, top:true,
+      color: pl.netProfit >= 0 ? 'var(--credit)' : 'var(--debit)' });
+
+    h += '<div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--hair)">' +
+      '<div style="display:flex;gap:6px;margin-bottom:8px">' +
+        ['invoice', 'product', 'customer'].map(function (g) {
+          var lbl = g === 'invoice' ? 'By Invoice' : g === 'product' ? 'By Product' : 'By Customer';
+          return '<button class="chip' + (plGroupBy === g ? ' on' : '') + '" data-plgroup="' + g + '">' + lbl + '</button>';
+        }).join('') + '</div>' +
+      '<div id="plGroupList">' + plGroupHtml(pl) + '</div></div>';
+
+    $('plBody').innerHTML = h;
+    $('plBody').querySelectorAll('[data-plgroup]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        plGroupBy = btn.getAttribute('data-plgroup');
+        $('plBody').querySelectorAll('[data-plgroup]').forEach(function (b) { b.classList.toggle('on', b === btn); });
+        $('plGroupList').innerHTML = plGroupHtml(pl);
+      });
+    });
+  }
+
+  function plGroupHtml(pl) {
+    var byV = {};
+    pl.lines.forEach(function (l) { (byV[l.voucher_id] = byV[l.voucher_id] || []).push(l); });
+    var groups = {};   // key -> { label, revenue, cost }
+    if (plGroupBy === 'invoice') {
+      pl.saleVouchers.forEach(function (v) {
+        var ls = byV[v.id] || [];
+        var cost = ls.reduce(function (s, l) { return s + n(l.cost_amount); }, 0);
+        groups[v.id] = { label:v.vno || '\u2014', revenue:n(v.subtotal) - n(v.discount), cost:cost };
+      });
+    } else if (plGroupBy === 'product') {
+      pl.lines.forEach(function (l) {
+        var it = db.items.filter(function (x) { return String(x.id) === String(l.item_id); })[0];
+        var key = l.item_id;
+        if (!groups[key]) groups[key] = { label:it ? it.name : '\u2014', revenue:0, cost:0 };
+        groups[key].revenue += n(l.amount); groups[key].cost += n(l.cost_amount);
+      });
+    } else {
+      pl.saleVouchers.forEach(function (v) {
+        var ls = byV[v.id] || [];
+        var cost = ls.reduce(function (s, l) { return s + n(l.cost_amount); }, 0);
+        var p = db.parties.filter(function (x) { return String(x.id) === String(v.party_id); })[0];
+        var key = v.party_id || 'none';
+        if (!groups[key]) groups[key] = { label:p ? p.name : 'No party', revenue:0, cost:0 };
+        groups[key].revenue += n(v.subtotal) - n(v.discount); groups[key].cost += cost;
+      });
+    }
+    var list = Object.keys(groups).map(function (k) { return groups[k]; });
+    list.forEach(function (g) { g.profit = r2(g.revenue - g.cost); });
+    list.sort(function (a, b) { return b.profit - a.profit; });
+    if (!list.length) return '<p style="color:var(--mute);font-size:12.5px">Is period mein koi sale nahi mili.</p>';
+    return list.slice(0, 30).map(function (g) {
+      return '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--panel);font-size:12.5px">' +
+        '<span>' + esc(g.label) + '</span>' +
+        '<span style="font-weight:600;color:' + (g.profit >= 0 ? 'var(--credit)' : 'var(--debit)') + '">' + fmt(g.profit) + '</span></div>';
+    }).join('');
+  }
+
+  $('plClose').addEventListener('click', function () { $('plModal').classList.remove('on'); });
+  $('plBtn').addEventListener('click', openProfitLoss);
+
   /* ---------- Bulk Import (Excel/CSV) — parties aur items ke liye ---------- */
   var IMPORT_SPEC = {
     parties: {
@@ -3422,6 +3631,7 @@
     $('bkBtn').style.display      = can('backup_restore')  ? '' : 'none';
     $('recycleBtn').style.display = can('recycle_bin')     ? '' : 'none';
     $('agingBtn').style.display   = can('reports_view')    ? '' : 'none';
+    $('plBtn').style.display      = can('reports_view')    ? '' : 'none';
     $('tbBtn').style.display      = can('reports_view')    ? '' : 'none';
     $('usersBtn').style.display   = (me && me.isAdmin) ? '' : 'none';
     $('importBtn').style.display  = can('masters_import') && (tab === 'parties' || tab === 'items') ? '' : 'none';
