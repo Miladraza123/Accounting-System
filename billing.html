@@ -295,6 +295,7 @@
   <button class="tab" data-t="sale">Sale <span class="n" id="nSal"></span></button>
   <button class="tab" data-t="quotation">Quotation <span class="n" id="nQuo"></span></button>
   <button class="tab" data-t="po">PO <span class="n" id="nPo"></span></button>
+  <button class="tab" data-t="return">Return <span class="n" id="nRet"></span></button>
 </div>
 
 <div class="tools">
@@ -332,6 +333,16 @@
   </div>
 </div>
 
+<div class="ask" id="pickSaleModal">
+  <div class="box" style="max-width:420px">
+    <h4>Konsa Sale return ho raha hai?</h4>
+    <input id="pickSaleSearch" type="text" placeholder="Bill number ya party ka naam"
+      style="width:100%;box-sizing:border-box;margin:8px 0 10px;padding:9px 10px;border:1px solid var(--hair);border-radius:8px;font-size:14px">
+    <div id="pickSaleList" style="max-height:50vh;overflow:auto"></div>
+    <div class="acts"><button class="btn" id="pickSaleClose">Cancel</button></div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 (function () {
@@ -347,6 +358,7 @@
   var sb = null, vtype = 'purchase', bill = null, dirty = false;
   var allVnos = [];   // sab vouchers ke numbers (deleted bhi shamil) — takraav se bachne ke liye
   var quotes = [], pos = [];   // Quotations aur Purchase Orders — alag arrays, vouchers/balance se koi taluq nahi
+  var returns = [];   // Sales Returns — asal financial impact hai, is liye alag nahi (ledger/stock mein shamil)
   var parties = [], items = [], bills = [], firms = [], lineSeq = 0;
   var firmName = 'Osman Haji Tayyab';
 
@@ -499,6 +511,12 @@
       var g = num(b.grand_total), pd = num(b.paid);
       if (b.vtype === 'sale')     bal += (g - pd);
       else                        bal -= (g - pd);
+    });
+
+    // Sales Returns — customer ka receivable ghata dete hain (payment jaisa hi asar)
+    ledgerReturns.forEach(function (rr) {
+      if (rr.party_id !== pid) return;
+      bal -= num(rr.grand_total);
     });
 
     // ledger entries — row[6]=credit party_id, row[7]=debit party_id
@@ -1272,6 +1290,7 @@
   /* ---------- cloud ---------- */
   var sheets = [];          // ledger sheets — party balance ke liye zaroori
   var ledgerVouchers = [];  // party balance ke liye — 'bills' se alag (jo sirf recent 600 hai)
+  var ledgerReturns = [];   // party balance ke liye — sales returns bhi customer ka balance ghataate hain
   var lockDate = null, snapshotActive = false, openingBalances = {};
 
   function loadAll() {
@@ -1287,9 +1306,11 @@
 
         var ledgerVoucherQuery = sb.from('vouchers').select('id,party_id,vdate,vtype,grand_total,paid').is('deleted_at', null);
         var ledgerSheetQuery   = sb.from('sheets').select('sheet_date,rows');
+        var ledgerReturnQuery  = sb.from('sales_returns').select('grand_total,party_id,rdate').is('deleted_at', null);
         if (active) {
           ledgerVoucherQuery = ledgerVoucherQuery.gte('vdate', ld);
           ledgerSheetQuery   = ledgerSheetQuery.gte('sheet_date', ld);
+          ledgerReturnQuery  = ledgerReturnQuery.gte('rdate', ld);
         }
 
         return Promise.all([
@@ -1304,7 +1325,10 @@
           sb.from('quotation_lines').select('*'),
           sb.from('purchase_orders').select('*').is('deleted_at', null).order('podate', { ascending:false }).limit(300),
           sb.from('po_lines').select('*'),
-          sb.from('vouchers').select('vno,vtype')   // halka query — DELETED bills bhi shamil, sirf numbering ke liye
+          sb.from('vouchers').select('vno,vtype'),   // halka query — DELETED bills bhi shamil, sirf numbering ke liye
+          sb.from('sales_returns').select('*').is('deleted_at', null).order('rdate', { ascending:false }).limit(300),
+          sb.from('sales_return_lines').select('*'),
+          ledgerReturnQuery
         ]).then(function (r) {
           r.slice(0, 4).forEach(function (x) { if (x.error) throw x.error; });
           parties = r[0].data || [];
@@ -1323,6 +1347,13 @@
           quotes.forEach(function (q) { q.lines = (byQ[q.id] || []).sort(function (a, c) { return (a.line_no || 0) - (c.line_no || 0); }); });
           var byP = {}; (r[10].error ? [] : (r[10].data || [])).forEach(function (l) { (byP[l.po_id] = byP[l.po_id] || []).push(l); });
           pos.forEach(function (p) { p.lines = (byP[p.id] || []).sort(function (a, c) { return (a.line_no || 0) - (c.line_no || 0); }); });
+
+          // Sales Returns — asal financial impact hai (party balance/stock), is liye
+          // ledgerReturns ledgerVouchers jaisa hi scope follow karta hai (lock-ke-baad ya poora)
+          returns = r[12].error ? [] : (r[12].data || []);
+          var byR = {}; (r[13].error ? [] : (r[13].data || [])).forEach(function (l) { (byR[l.return_id] = byR[l.return_id] || []).push(l); });
+          returns.forEach(function (rr) { rr.lines = (byR[rr.id] || []).sort(function (a, c) { return (a.line_no || 0) - (c.line_no || 0); }); });
+          ledgerReturns = r[14].error ? [] : (r[14].data || []);
 
           // lock set hai lekin snapshot missing/stale mile — masters.html khud theek kar lega
           // agli baar wahan se khula jaye; yahan billing.html mein sirf safe fallback kaafi hai

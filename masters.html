@@ -1324,7 +1324,7 @@
   }
 
   /* ══════════ party ka khata ══════════ */
-  var led = { loaded:false, loading:false, vouchers:[], lines:[], sheets:[], adjustments:[],
+  var led = { loaded:false, loading:false, vouchers:[], lines:[], sheets:[], adjustments:[], returns:[],
               lockDate:null, snapshotActive:false, openingBalances:{}, forcedFull:false };
   var edView = 'details';
 
@@ -1332,7 +1332,7 @@
      bas final total chahiye (sorting ki zaroorat nahi kyunke jama-tafriq ka
      order se koi farq nahi padta). Aakhri transaction ki tareekh bhi wapas
      karta hai (Aging Report ke sahi bucket ke liye zaroori hai). */
-  function accountBalanceAsOf(p, allVouchers, allSheets, cutoff) {
+  function accountBalanceAsOf(p, allVouchers, allSheets, cutoff, allReturns) {
     var run = (p.opening_side === 'dr' ? 1 : -1) * n(p.opening);
     var lastDate = '';
     allVouchers.filter(function (v) {
@@ -1353,6 +1353,12 @@
       });
       if (touched && s.sheet_date > lastDate) lastDate = s.sheet_date;
     });
+    (allReturns || []).filter(function (rr) {
+      return String(rr.party_id) === String(p.id) && rr.rdate && rr.rdate < cutoff;
+    }).forEach(function (rr) {
+      run = r2(run - n(rr.grand_total));
+      if (rr.rdate > lastDate) lastDate = rr.rdate;
+    });
     return { balance:run, lastDate:lastDate };
   }
 
@@ -1364,14 +1370,16 @@
   function computeAndSaveOpeningBalances(lockDateValue) {
     return Promise.all([
       sb.from('vouchers').select('party_id,vdate,vtype,grand_total,paid').is('deleted_at', null),
-      sb.from('sheets').select('sheet_date,rows')
+      sb.from('sheets').select('sheet_date,rows'),
+      sb.from('sales_returns').select('party_id,rdate,grand_total').is('deleted_at', null)
     ]).then(function (r) {
       if (r[0].error) throw r[0].error;
       if (r[1].error) throw r[1].error;
       var allVouchers = r[0].data || [];
       var allSheets   = r[1].data || [];
+      var allReturns  = r[2].error ? [] : (r[2].data || []);   // SQL na chali ho to bhi bilkul purana tareeqa chale
       var rows = db.parties.map(function (p) {
-        var calc = accountBalanceAsOf(p, allVouchers, allSheets, lockDateValue);
+        var calc = accountBalanceAsOf(p, allVouchers, allSheets, lockDateValue, allReturns);
         return { party_id:p.id, as_of_date:lockDateValue, balance:calc.balance,
                  last_txn_date:calc.lastDate || null };
       });
@@ -1407,34 +1415,50 @@
 
         var voucherQuery = sb.from('vouchers').select('*').is('deleted_at', null);
         var sheetQuery   = sb.from('sheets').select('sheet_date,rows');
+        var returnQuery  = sb.from('sales_returns').select('*').is('deleted_at', null);
         if (snapshotActive) {
           voucherQuery = voucherQuery.gte('vdate', lockDate);
           sheetQuery   = sheetQuery.gte('sheet_date', lockDate);
+          returnQuery  = returnQuery.gte('rdate', lockDate);
         }
 
         return Promise.all([
           voucherQuery,
           sheetQuery,
-          sb.from('stock_adjustments').select('*')
+          sb.from('stock_adjustments').select('*'),
+          returnQuery
         ]).then(function (r) {
           r.slice(0, 2).forEach(function (x) { if (x.error) throw x.error; });
           var vouchers = r[0].data || [];
           var sheets   = r[1].data || [];
+          var srets    = r[3].error ? [] : (r[3].data || []);
 
-          var lineQuery;
+          var lineQuery, retLineQuery;
           if (snapshotActive) {
             var ids = vouchers.map(function (v) { return v.id; });
             lineQuery = ids.length ? sb.from('voucher_lines').select('*').in('voucher_id', ids)
                                     : Promise.resolve({ data:[] });
+            var rids = srets.map(function (rr) { return rr.id; });
+            retLineQuery = rids.length ? sb.from('sales_return_lines').select('*').in('return_id', rids)
+                                        : Promise.resolve({ data:[] });
           } else {
             lineQuery = sb.from('voucher_lines').select('*');
+            retLineQuery = sb.from('sales_return_lines').select('*');
           }
-          return lineQuery.then(function (linesRes) {
+          return Promise.all([lineQuery, retLineQuery]).then(function (rr2) {
+            var linesRes = rr2[0], retLinesRes = rr2[1];
             if (linesRes.error) throw linesRes.error;
+            var byR = {};
+            (retLinesRes.error ? [] : (retLinesRes.data || [])).forEach(function (l) {
+              (byR[l.return_id] = byR[l.return_id] || []).push(l);
+            });
+            srets.forEach(function (rr) { rr.lines = byR[rr.id] || []; });
+
             led.vouchers        = vouchers;
             led.lines           = linesRes.data || [];
             led.sheets          = sheets;
             led.adjustments     = r[2].error ? [] : (r[2].data || []);   // SQL na chali ho to bhi chale
+            led.returns         = srets;
             led.lockDate        = lockDate;
             led.snapshotActive  = snapshotActive;
             led.openingBalances = openingBalances;
@@ -1471,12 +1495,14 @@
     Promise.all([
       sb.from('vouchers').select('*').is('deleted_at', null),
       sb.from('voucher_lines').select('*'),
-      sb.from('sheets').select('sheet_date,rows')
+      sb.from('sheets').select('sheet_date,rows'),
+      sb.from('sales_returns').select('*').is('deleted_at', null)
     ]).then(function (r) {
-      r.forEach(function (x) { if (x.error) throw x.error; });
+      r.slice(0, 3).forEach(function (x) { if (x.error) throw x.error; });
       led.vouchers       = r[0].data || [];
       led.lines          = r[1].data || [];
       led.sheets         = r[2].data || [];
+      led.returns        = r[3].error ? [] : (r[3].data || []);
       led.snapshotActive = false;   // is se buildAccount() party ka manual "opening" field use karega, snapshot nahi
       led.forcedFull     = true;    // ab dobara "Load full history" note na dikhaayein
       redrawLedger();
@@ -1749,6 +1775,17 @@
         if (paid) ev.push({ kind:'billpaid', date:v.vdate, id:v.id, vtype:v.vtype,
                   label:sale ? 'Received with bill' : 'Paid with bill',
                   sub:v.vno || '', delta:(sale ? -1 : 1) * paid });
+      });
+
+    led.returns.filter(function (rr) { return String(rr.party_id) === String(p.id); })
+      .forEach(function (rr) {
+        var cnt = (rr.lines || []).length;
+        var origSale = led.vouchers.filter(function (v) { return v.id === rr.sale_id; })[0];
+        ev.push({ kind:'return', date:rr.rdate, id:rr.id,
+                  label:'Sales Return ' + (rr.rno || ''),
+                  sub:'Against Sale ' + (origSale ? (origSale.vno || '') : '') +
+                      (cnt ? ' \u00B7 ' + cnt + (cnt === 1 ? ' item' : ' items') : ''),
+                  delta:-n(rr.grand_total) });
       });
 
     led.sheets.forEach(function (s) {
@@ -2832,7 +2869,7 @@
 
   function computeProfitLoss(from, to) {
     return sb.from('vouchers')
-      .select('id,vtype,vdate,subtotal,discount,tax_total,grand_total,party_id,loading_on,loading_amt,cartage_on,cartage_amt,cutting_on,cutting_amt')
+      .select('id,vtype,vdate,sub_total,discount,tax_total,grand_total,party_id,loading_on,loading_amt,cartage_on,cartage_amt,cutting_on,cutting_amt')
       .is('deleted_at', null).eq('vtype', 'sale').gte('vdate', from).lte('vdate', to)
       .then(function (vr) {
         if (vr.error) throw vr.error;
@@ -2850,7 +2887,7 @@
 
           var grossSales = 0, discounts = 0, otherIncome = 0, cogs = 0;
           saleVouchers.forEach(function (v) {
-            grossSales += n(v.subtotal);
+            grossSales += n(v.sub_total);
             discounts += n(v.discount);
             if (v.loading_on) otherIncome += n(v.loading_amt);
             if (v.cartage_on) otherIncome += n(v.cartage_amt);
@@ -2938,7 +2975,7 @@
       pl.saleVouchers.forEach(function (v) {
         var ls = byV[v.id] || [];
         var cost = ls.reduce(function (s, l) { return s + n(l.cost_amount); }, 0);
-        groups[v.id] = { label:v.vno || '\u2014', revenue:n(v.subtotal) - n(v.discount), cost:cost };
+        groups[v.id] = { label:v.vno || '\u2014', revenue:n(v.sub_total) - n(v.discount), cost:cost };
       });
     } else if (plGroupBy === 'product') {
       pl.lines.forEach(function (l) {
@@ -2954,7 +2991,7 @@
         var p = db.parties.filter(function (x) { return String(x.id) === String(v.party_id); })[0];
         var key = v.party_id || 'none';
         if (!groups[key]) groups[key] = { label:p ? p.name : 'No party', revenue:0, cost:0 };
-        groups[key].revenue += n(v.subtotal) - n(v.discount); groups[key].cost += cost;
+        groups[key].revenue += n(v.sub_total) - n(v.discount); groups[key].cost += cost;
       });
     }
     var list = Object.keys(groups).map(function (k) { return groups[k]; });
