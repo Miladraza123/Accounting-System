@@ -1105,6 +1105,14 @@
            (bits.length ? bits.join(' · ') : '<span style="color:#AEB6BF">no phone</span>');
   }
   function partyAmt(p) {
+    if (led.loaded) {
+      var v = buildAccount(p).balance;
+      if (!v) return '<div class="amt zero">\u2014<span class="tag">settled</span></div>';
+      var isDr = v > 0;
+      return '<div class="amt ' + (isDr ? 'dr' : 'cr') + '">' + fmt(Math.abs(v)) +
+             '<span class="tag">' + (isDr ? 'THEY OWE' : 'WE OWE') + '</span></div>';
+    }
+    // ledger abhi load nahi hui — filhaal sirf opening balance dikhayein (jaldi hi live number aa jayega)
     var v = Number(p.opening) || 0;
     if (!v) return '<div class="amt zero">—<span class="tag">no opening</span></div>';
     var dr = p.opening_side === 'dr';
@@ -1452,6 +1460,12 @@
   }
 
   function n(v) { var x = parseFloat(String(v == null ? '' : v).replace(/[^0-9.\-]/g, '')); return isFinite(x) ? x : 0; }
+  function today() {
+    // Karachi (PKT, UTC+5) time use karte hain — device ki apni timezone se koi
+    // farq nahi padta, chahe staff ka phone kisi bhi zone par set ho
+    var d = new Date(Date.now() + 5 * 60 * 60000);
+    return d.toISOString().slice(0, 10);
+  }
   function r2(v) { return Math.round((Number(v) || 0) * 100) / 100; }
   function money(v) { return (Number(v) || 0).toLocaleString('en-PK', { minimumFractionDigits:2, maximumFractionDigits:2 }); }
   function dayText(iso) {
@@ -1598,12 +1612,12 @@
       if (!qty) { toast('Enter how much to add or remove', true); return; }
       btn.disabled = true; btn.textContent = 'Applying\u2026';
       sb.from('stock_adjustments').insert({
-        item_id:itemId, qty:qty, reason:reason, adj_date:new Date().toISOString().slice(0, 10)
+        item_id:itemId, qty:qty, reason:reason, adj_date:today()
       }).select().then(function (res) {
         btn.disabled = false; btn.textContent = 'Apply';
         if (res.error) throw res.error;
         led.adjustments.push((res.data || [])[0] || { item_id:itemId, qty:qty, reason:reason,
-          adj_date:new Date().toISOString().slice(0, 10) });
+          adj_date:today() });
         toast((qty > 0 ? 'Added ' : 'Removed ') + fmt(Math.abs(qty)) + ' ' + (it2Unit(itemId) || ''));
         redrawLedger();
       }).catch(function (e) {
@@ -1661,7 +1675,7 @@
       '<tbody>' + rows + '</tbody><tfoot><tr><td></td><td>Closing stock</td>' +
       '<td class="r">' + fmt(totIn) + '</td><td class="r">' + fmt(totOut) + '</td>' +
       '<td class="r">' + fmt(run) + ' ' + esc(it.unit || '') + '</td></tr></tfoot></table>' +
-      '<div class="foot">Printed ' + dayText(new Date().toISOString().slice(0, 10)) + '.</div>';
+      '<div class="foot">Printed ' + dayText(today()) + '.</div>';
 
     var fFrom2 = from, fTo2 = to;
     if (!fFrom2 && !fTo2) { var rng2 = actualDateRange(shown); fFrom2 = rng2[0]; fTo2 = rng2[1]; }
@@ -1952,7 +1966,7 @@
         '<td class="r">' + money(Math.abs(run)) + ' ' + (run >= 0 ? 'Dr' : 'Cr') + '</td>' +
         '</tr></tfoot></table>' +
       '<div class="foot">Dr = amount receivable from them \u00B7 Cr = amount payable to them. ' +
-        'Printed ' + dayText(new Date().toISOString().slice(0, 10)) + '.</div>';
+        'Printed ' + dayText(today()) + '.</div>';
 
     var fFrom = from, fTo = to;
     if (!fFrom && !fTo) { var rng = actualDateRange(shown); fFrom = rng[0]; fTo = rng[1]; }
@@ -1977,7 +1991,7 @@
     if (!e.data || e.data.oht !== 'refresh' || e.data.kind !== 'bills') return;
     led.loaded = false;
     if (accParty) { loadLedgerData().then(redrawLedger).catch(function () {}); }
-    else if (tab === 'parties') { loadLedgerData().then(drawTotals).catch(function () {}); }
+    else if (tab === 'parties') { loadLedgerData().then(render).catch(function () {}); }
     else if (tab === 'items') { loadLedgerData().then(render).catch(function () {}); }
   });
 
@@ -2411,7 +2425,7 @@
       dbAll.items   = r[5].error ? db.items   : (r[5].data || []);
       syncNote('');
       render();
-      if (db.parties.length) loadLedgerData().then(drawTotals).catch(function () {});
+      if (db.parties.length) loadLedgerData().then(render).catch(function () {});
     }).catch(function (e) {
       if (isNetErr(e)) { syncNote('Offline', '#B08A3E'); toast('No internet — showing nothing yet', true); }
       else if (isClockErr(e)) {
@@ -2547,9 +2561,12 @@
       var keyCol = REC_KEY[r._tab] || 'id';
       return '<div class="catrow"><div><span class="nm">' + esc(recName(r)) + '</span>' +
              '<span class="cnt">' + TAB_LABEL[r._tab] + ' \u00b7 deleted ' + when + '</span></div>' +
-             '<button class="del" style="color:#1E7A4C" data-tab="' + r._tab + '" data-id="' + esc(r[keyCol]) + '">Restore</button></div>';
+             '<div style="display:flex;gap:6px">' +
+             '<button class="del" data-act="restore" style="color:#1E7A4C" data-tab="' + r._tab + '" data-id="' + esc(r[keyCol]) + '">Restore</button>' +
+             '<button class="del" data-act="wipe" style="color:#9B2C2C" data-tab="' + r._tab + '" data-id="' + esc(r[keyCol]) + '">Delete forever</button>' +
+             '</div></div>';
     }).join('');
-    box.querySelectorAll('button[data-id]').forEach(function (btn) {
+    box.querySelectorAll('button[data-act="restore"]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         var t = btn.getAttribute('data-tab'), id = btn.getAttribute('data-id');
         var keyCol = REC_KEY[t] || 'id';
@@ -2561,6 +2578,23 @@
           toast('Restored');
           openRecycleBin();
           if (tab === t) render();
+        });
+      });
+    });
+    box.querySelectorAll('button[data-act="wipe"]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var t = btn.getAttribute('data-tab'), id = btn.getAttribute('data-id');
+        var keyCol = REC_KEY[t] || 'id';
+        confirmBox('Delete forever?',
+          'Ye hamesha ke liye mit jayega \u2014 dobara wapas nahi aa sakega, "Restore" bhi kaam nahi karega.',
+          'Delete forever').then(function (ok) {
+          if (!ok) return;
+          btn.disabled = true; btn.textContent = 'Deleting\u2026';
+          sb.from(t).delete().eq(keyCol, id).then(function (res) {
+            if (res.error) { sayErr(res.error, 'permanently delete'); btn.disabled = false; btn.textContent = 'Delete forever'; return; }
+            toast('Permanently deleted');
+            openRecycleBin();
+          });
         });
       });
     });
@@ -2625,7 +2659,7 @@
       if (!dateOrNull) {
         toast('Lock hata diya gaya \u2014 ab sab kuch poore data se calculate hoga');
         $('lockModal').classList.remove('on');
-        if (tab === 'parties') loadLedgerData().then(drawTotals).catch(function () {});
+        if (tab === 'parties') loadLedgerData().then(render).catch(function () {});
         if (accParty) loadLedgerData().then(redrawLedger).catch(function () {});
         return;
       }
@@ -2634,7 +2668,7 @@
       computeAndSaveOpeningBalances(dateOrNull).then(function () {
         toast('Snapshot taiyaar \u2014 speed ab behtar hogi');
         $('lockModal').classList.remove('on');
-        if (tab === 'parties') loadLedgerData().then(drawTotals).catch(function () {});
+        if (tab === 'parties') loadLedgerData().then(render).catch(function () {});
         if (accParty) loadLedgerData().then(redrawLedger).catch(function () {});
       }).catch(function (e) {
         console.error(e);
@@ -3150,8 +3184,7 @@
       addPlain('Items', I.map(function(i){ return {Name:i.name,Unit:i.unit,'Sale Rate':Number(i.sale_rate)||0,'Purchase Rate':Number(i.buy_rate)||0,'Tax %':Number(i.tax_pct)||0,'Opening Qty':Number(i.opening_qty)||0,'Opening Rate':Number(i.opening_rate)||0,'Low Stock Alert':Number(i.reorder_level)||0,'HS Code':i.hs_code,Notes:i.notes,Active:i.active===false?'No':'Yes'}; }));
       addPlain('Firms', C.map(function(c){ return {Name:c.name,Address:c.address,City:c.city,Phone:c.phone,NTN:c.ntn,STRN:c.strn,Default:c.is_default?'Yes':'No',Active:c.active===false?'No':'Yes'}; }));
 
-      var today = new Date().toISOString().slice(0, 10);
-      XLSX.writeFile(wb, 'OHT-backup-' + today + '.xlsx');
+      XLSX.writeFile(wb, 'OHT-backup-' + today() + '.xlsx');
       btn.disabled = false; btn.textContent = 'Backup';
       toast('Backup downloaded');
     }).catch(function (e) {

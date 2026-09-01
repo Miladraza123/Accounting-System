@@ -981,8 +981,10 @@
   }
 
   function todayISO() {
-    var d = new Date();
-    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+    // Karachi (PKT, UTC+5) time use karte hain — device ki apni timezone se koi
+    // farq nahi padta, chahe staff ka phone kisi bhi zone par set ho
+    var d = new Date(Date.now() + 5 * 60 * 60000);
+    return d.toISOString().slice(0, 10);
   }
   function num(v) { var n = parseFloat(String(v).replace(/,/g, '').trim()); return isNaN(n) ? 0 : n; }
   function fmt(n) { return Math.round(n).toLocaleString('en-PK', { maximumFractionDigits:0 }); }

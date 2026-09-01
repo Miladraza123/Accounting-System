@@ -345,6 +345,7 @@
   };
 
   var sb = null, vtype = 'purchase', bill = null, dirty = false;
+  var allVnos = [];   // sab vouchers ke numbers (deleted bhi shamil) — takraav se bachne ke liye
   var quotes = [], pos = [];   // Quotations aur Purchase Orders — alag arrays, vouchers/balance se koi taluq nahi
   var parties = [], items = [], bills = [], firms = [], lineSeq = 0;
   var firmName = 'Osman Haji Tayyab';
@@ -385,7 +386,12 @@
 
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
     return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]; }); }
-  function today() { var d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset()*60000).toISOString().slice(0,10); }
+  function today() {
+    // Karachi (PKT, UTC+5) time use karte hain — device ki apni timezone se koi
+    // farq nahi padta, chahe staff ka phone kisi bhi zone par set ho
+    var d = new Date(Date.now() + 5 * 60 * 60000);
+    return d.toISOString().slice(0, 10);
+  }
   function human(iso) {
     if (!iso) return '';
     return new Date(iso + 'T00:00:00').toLocaleDateString('en-PK', { day:'2-digit', month:'short', year:'numeric' });
@@ -425,6 +431,13 @@
     if (!e) return false;
     var m = ((e.message || '') + ' ' + (e.error_description || '')).toLowerCase();
     return /issued at.*future|clock skew|jwt.*future/.test(m);
+  }
+  /* bill number pehle se kisi (chahe delete ho chuki) row mein istemal ho chuka */
+  function isDupVno(e) {
+    if (!e) return false;
+    if (e.code === '23505') return true;
+    var m = ((e.message || '') + ' ' + (e.details || '')).toLowerCase();
+    return /duplicate key|already exists|unique constraint/.test(m);
   }
   function sayErr(e, what) {
     if (isNetErr(e)) { toast('No internet — ' + what + ' not saved', true); syncNote('Offline', '#B08A3E'); return; }
@@ -615,7 +628,9 @@
   /* ---------- bill number ---------- */
   function nextNo(type) {
     var max = 0;
-    bills.filter(function (b) { return b.vtype === type; }).forEach(function (b) {
+    // allVnos mein DELETED (Recycle Bin) bills ka number bhi shamil hai — taake
+    // hum kabhi bhi kisi purane/reserved number se takra na jayein
+    allVnos.filter(function (b) { return b.vtype === type; }).forEach(function (b) {
       var m = String(b.vno || '').match(/(\d+)\s*$/);
       if (m) max = Math.max(max, parseInt(m[1], 10));
     });
@@ -896,7 +911,17 @@
                      : sb.from('vouchers').update(head).eq('id', b.id).eq('version', b.version || 1).select();
 
     step.then(function (res) {
-      if (res.error) throw res.error;
+      if (res.error) {
+        if (isDupVno(res.error)) {
+          $('edSave').disabled = false; syncNote('');
+          allVnos.push({ vno:head.vno, vtype:head.vtype });   // ab nextNo() isko bhi dhyan mein rakhega
+          var fresh = nextNo(b.vtype);
+          b.vno = fresh; if ($('bNo')) $('bNo').value = fresh;
+          toast('Ye number pehle se istemal ho chuka \u2014 "' + fresh + '" bhar diya hai, dobara Save dabayein', true);
+          return;
+        }
+        throw res.error;
+      }
       if (!isNew && (!res.data || !res.data.length)) {
         // id+version dono match nahi hue — kisi aur ne beech mein isi bill ko save kar diya
         $('edSave').disabled = false;
@@ -1196,7 +1221,8 @@
           sb.from('quotations').select('*').is('deleted_at', null).order('qdate', { ascending:false }).limit(300),
           sb.from('quotation_lines').select('*'),
           sb.from('purchase_orders').select('*').is('deleted_at', null).order('podate', { ascending:false }).limit(300),
-          sb.from('po_lines').select('*')
+          sb.from('po_lines').select('*'),
+          sb.from('vouchers').select('vno,vtype')   // halka query — DELETED bills bhi shamil, sirf numbering ke liye
         ]).then(function (r) {
           r.slice(0, 4).forEach(function (x) { if (x.error) throw x.error; });
           parties = r[0].data || [];
@@ -1206,6 +1232,7 @@
           ledgerVouchers = r[5].error ? [] : (r[5].data || []); // party balance ke liye poora/lock-ke-baad set
           sheets  = r[6].error ? [] : (r[6].data || []);        // ledger sheets
           lockDate = ld; snapshotActive = active; openingBalances = ob;
+          allVnos = r[11].error ? bills : (r[11].data || []);   // fail ho to kam se kam active bills se hi kaam chale
 
           // Quotations aur Purchase Orders — bilkul alag, koi balance/stock impact nahi
           quotes = r[7].error ? [] : (r[7].data || []);
