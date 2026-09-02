@@ -378,6 +378,7 @@
       <button class="hbtn" id="sbOpen" aria-label="Open menu"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
       <span class="ttl" id="moTitle">Purchase</span>
       <span class="sync" id="syncNote"></span>
+      <span id="pendingBadge" style="display:none;font-size:10.5px;color:#B08A3E;background:#F5F1E6;padding:3px 8px;border-radius:20px;margin-left:6px"></span>
     </div>
 
     <div class="tools">
@@ -1101,6 +1102,8 @@
     var good = b.lines.filter(function (l) { return l.item_id && num(l.qty) > 0; });
     if (!good.length) { toast('Add at least one item with a quantity', true); return; }
     var t = totals(b);
+    var isNew = !b.id;
+    var recId = isNew ? uuid() : b.id;
     var head = {
       vtype:b.vtype, vno:(b.vno || '').trim(), vdate:b.vdate || today(), party_id:b.party_id,
       narration:b.narration || '', company_id:b.company_id || null,
@@ -1110,70 +1113,85 @@
       cartage_on:!!b.cartage_on, cartage_amt:num(b.cartage_amt),
       cutting_on:!!b.cutting_on, cutting_amt:num(b.cutting_amt)
     };
-    $('edSave').disabled = true; syncNote('Saving…');
+    var linesPayload = good.map(function (l, i) {
+      return { item_id:l.item_id, qty:num(l.qty), rate:num(l.rate), tax_pct:num(l.tax_pct),
+               amount:round2(num(l.qty) * num(l.rate)), pcs_on:!!l.pcs_on, pcs:l.pcs_on ? num(l.pcs) : null };
+    });
+    var priorBill = isNew ? null : bills.filter(function (x) { return x.id === recId; })[0];
+    var diff = !isNew ? lineDiffSummary(originalLineSnapshot, good) : null;
 
-    var isNew = !b.id;
-    var step = isNew ? sb.from('vouchers').insert(head).select()
-                     : sb.from('vouchers').update(head).eq('id', b.id).eq('version', b.version || 1).select();
+    // Local-first: turant screen par, editor band — internet ka wait nahi
+    var optimistic = Object.assign({}, priorBill || {}, head, {
+      id:recId, version:isNew ? 1 : (b.version || 1),
+      lines:linesPayload.map(function (l, i) { return Object.assign({ id:'temp-' + i, voucher_id:recId, line_no:i + 1 }, l); })
+    });
+    if (isNew) bills.push(optimistic);
+    else bills = bills.map(function (x) { return x.id === recId ? optimistic : x; });
+    try { window.parent.postMessage({ oht:'refresh', kind:'bills' }, '*'); } catch (err) {}
+    toast((isNew ? 'Saved ' : 'Updated ') + (head.vno || 'bill'));
+    cacheSave('bills', bills);
+    closeBill(); render();
+
+    if (!navigator.onLine) {
+      offQAdd({ opId:uuid(), kind:'bill', op:isNew ? 'insert' : 'update', recordId:recId,
+                baseVersion:isNew ? null : (b.version || 1), head:head, lines:linesPayload, label:head.vno });
+      syncNote('Offline \u2014 save queued', '#B08A3E');
+      return;
+    }
+
+    syncNote('Saving…');
+    var step = isNew ? sb.from('vouchers').insert(Object.assign({ id:recId }, head)).select()
+                     : sb.from('vouchers').update(head).eq('id', recId).eq('version', b.version || 1).select();
 
     step.then(function (res) {
       if (res.error) {
         if (isDupVno(res.error)) {
-          $('edSave').disabled = false; syncNote('');
-          allVnos.push({ vno:head.vno, vtype:head.vtype });   // ab nextNo() isko bhi dhyan mein rakhega
-          var fresh = nextNo(b.vtype);
-          b.vno = fresh; if ($('bNo')) $('bNo').value = fresh;
-          toast('Ye number pehle se istemal ho chuka \u2014 "' + fresh + '" bhar diya hai, dobara Save dabayein', true);
+          if (isNew) bills = bills.filter(function (x) { return x.id !== recId; });
+          cacheSave('bills', bills); render();
+          allVnos.push({ vno:head.vno, vtype:head.vtype });
+          toast('Ye number pehle se istemal ho chuka \u2014 dobara "+ ' +
+            (b.vtype === 'purchase' ? 'Purchase' : 'Sale') + '" dabakar naya number lein', true);
           return;
         }
         throw res.error;
       }
       if (!isNew && (!res.data || !res.data.length)) {
-        // id+version dono match nahi hue — kisi aur ne beech mein isi bill ko save kar diya
-        $('edSave').disabled = false;
-        syncNote('');
-        confirmBox('Kisi aur ne pehle save kar diya',
-          'Ye bill aap ke edit karte waqt kisi aur device/user ne bhi update kar diya. ' +
-          'Aapki tabdeeliyan save nahi hui — taaza data dekh kar dobara edit karein.',
-          'Taaza data dekhein').then(function () {
-          closeBill();
-          loadAll();
-        });
+        toast('Kisi aur ne "' + head.vno + '" pehle save kar diya \u2014 taaza data la rahe hain', true);
+        loadAll();
         return;
       }
       var row = (res.data || [])[0];
-      var vid = row ? row.id : b.id;
       return (isNew ? Promise.resolve({ error:null })
-                    : sb.from('voucher_lines').delete().eq('voucher_id', vid))
+                    : sb.from('voucher_lines').delete().eq('voucher_id', recId))
         .then(function (d) {
           if (d && d.error) throw d.error;
-          var payload = good.map(function (l, i) {
-            return { voucher_id:vid, line_no:i + 1, item_id:l.item_id, qty:num(l.qty),
-                     rate:num(l.rate), tax_pct:num(l.tax_pct), amount:round2(num(l.qty) * num(l.rate)),
-                     pcs_on:!!l.pcs_on, pcs:l.pcs_on ? num(l.pcs) : null };
-          });
+          var payload = linesPayload.map(function (l, i) { return Object.assign({ voucher_id:recId, line_no:i + 1 }, l); });
           return sb.from('voucher_lines').insert(payload).select();
         })
         .then(function (r2) {
           if (r2.error) throw r2.error;
-          var saved = Object.assign({}, row || head, { id:vid, lines:(r2.data || []) });
-          if (isNew) bills.push(saved);
-          else bills = bills.map(function (x) { return x.id === vid ? saved : x; });
-          $('edSave').disabled = false;
+          var saved = Object.assign({}, row || head, { id:recId, lines:(r2.data || []) });
+          bills = bills.map(function (x) { return x.id === recId ? saved : x; });
+          cacheSave('bills', bills);
           syncNote('Saved', '#7DC9A9');
-          try { window.parent.postMessage({ oht:'refresh', kind:'bills' }, '*'); } catch (err) {}
-          toast((isNew ? 'Saved ' : 'Updated ') + (head.vno || 'bill'));
-          if (!isNew) {
-            var diff = lineDiffSummary(originalLineSnapshot, good);
-            if (diff) sb.rpc('log_manual_audit', {
-              p_table:'vouchers', p_record_id:vid, p_label:head.vno, p_action:'update',
-              p_changes:{ lines:diff }
-            }).catch(function () {});
-          }
-          closeBill(); render();
+          if (diff) sb.rpc('log_manual_audit', {
+            p_table:'vouchers', p_record_id:recId, p_label:head.vno, p_action:'update',
+            p_changes:{ lines:diff }
+          }).catch(function () {});
+          render();
         });
     }).catch(function (e) {
-      $('edSave').disabled = false; syncNote(''); sayErr(e, 'save');
+      if (isNetErr(e)) {
+        offQAdd({ opId:uuid(), kind:'bill', op:isNew ? 'insert' : 'update', recordId:recId,
+                  baseVersion:isNew ? null : (b.version || 1), head:head, lines:linesPayload, label:head.vno });
+        syncNote('Offline \u2014 save queued', '#B08A3E');
+      } else {
+        if (isNew) bills = bills.filter(function (x) { return x.id !== recId; });
+        else bills = bills.map(function (x) { return x.id === recId ? priorBill : x; });
+        cacheSave('bills', bills); render();
+        syncNote('');
+        sayErr(e, 'save');
+      }
     });
   }
 
@@ -1329,14 +1347,31 @@
       'It moves to the Recycle Bin — stock and the party balance change to match, but you can restore it later from Masters \u2192 Recycle Bin.',
       'Delete').then(function (ok) {
       if (!ok) return;
+      var recId = bill.id, no = bill.vno, priorBill = bills.filter(function (x) { return x.id === recId; })[0];
+      bills = bills.filter(function (x) { return x.id !== recId; });
+      cacheSave('bills', bills);
+      closeBill(); render();
+      toast('Deleted ' + (no || 'bill') + ' — recoverable from Recycle Bin');
+      if (!navigator.onLine) {
+        offQAdd({ opId:uuid(), kind:'bill', op:'delete', recordId:recId, label:no });
+        syncNote('Offline \u2014 delete queued', '#B08A3E');
+        return;
+      }
       syncNote('Deleting…');
-      sb.from('vouchers').update({ deleted_at: new Date().toISOString() }).eq('id', bill.id).then(function (res) {
+      sb.from('vouchers').update({ deleted_at:new Date().toISOString() }).eq('id', recId).then(function (res) {
         if (res.error) throw res.error;
-        var no = bill.vno;
-        bills = bills.filter(function (x) { return x.id !== bill.id; });
         try { window.parent.postMessage({ oht:'refresh', kind:'bills' }, '*'); } catch (err) {}
-        syncNote(''); closeBill(); render(); toast('Deleted ' + (no || 'bill') + ' — recoverable from Recycle Bin');
-      }).catch(function (e) { syncNote(''); sayErr(e, 'delete'); });
+        syncNote('');
+      }).catch(function (e) {
+        if (isNetErr(e)) {
+          offQAdd({ opId:uuid(), kind:'bill', op:'delete', recordId:recId, label:no });
+          syncNote('Offline \u2014 delete queued', '#B08A3E');
+        } else {
+          if (priorBill) bills.push(priorBill);
+          cacheSave('bills', bills); render();
+          syncNote(''); sayErr(e, 'delete');
+        }
+      });
     });
   }
 
@@ -1713,6 +1748,93 @@
   var ledgerReturns = [];   // party balance ke liye — sales returns bhi customer ka balance ghataate hain
   var lockDate = null, snapshotActive = false, openingBalances = {};
 
+  /* ═══════════ OFFLINE SUPPORT ═══════════ */
+  var OFFQ_KEY = 'oht-offline-queue-billing';
+  var OFF_CACHE_PREFIX = 'oht-cache-billing-';
+
+  function uuid() {
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+      var r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  }
+  function offQGet() { try { return JSON.parse(localStorage.getItem(OFFQ_KEY) || '[]'); } catch (e) { return []; } }
+  function offQSet(q) { try { localStorage.setItem(OFFQ_KEY, JSON.stringify(q)); } catch (e) {} updatePendingBadge(q.length); }
+  function offQAdd(op) { var q = offQGet(); q.push(op); offQSet(q); }
+  function offQRemove(opId) { offQSet(offQGet().filter(function (o) { return o.opId !== opId; })); }
+  function updatePendingBadge(n) {
+    var el = $('pendingBadge'); if (!el) return;
+    el.style.display = n ? '' : 'none';
+    el.textContent = n + (n === 1 ? ' change pending' : ' changes pending');
+  }
+  function cacheSave(key, rows) { try { localStorage.setItem(OFF_CACHE_PREFIX + key, JSON.stringify(rows)); } catch (e) {} }
+  function cacheLoad(key) { try { return JSON.parse(localStorage.getItem(OFF_CACHE_PREFIX + key) || '[]'); } catch (e) { return []; } }
+
+  var syncingQueue = false;
+  function trySyncQueue() {
+    if (syncingQueue || !navigator.onLine || !sb) return;
+    var q = offQGet();
+    if (!q.length) return;
+    syncingQueue = true;
+    syncNote('Syncing ' + q.length + '\u2026', '#B08A3E');
+    step(0);
+    function step(i) {
+      if (i >= q.length) { syncingQueue = false; syncNote(''); return; }
+      performQueuedOp(q[i]).then(function (result) {
+        if (result === 'conflict') {
+          toast('Kisi aur ne pehle "' + (q[i].label || 'ek record') + '" save kar diya \u2014 aapki wo tabdeeli chhoot gayi, dobara karein', true);
+        } else if (result && result.renumbered) {
+          toast('"' + q[i].label + '" pehle se istemal ho chuka tha \u2014 naya number "' + result.renumbered + '" diya gaya', true);
+        }
+        offQRemove(q[i].opId);
+        step(i + 1);
+      }).catch(function () {
+        syncingQueue = false; syncNote('');
+      });
+    }
+  }
+  function performQueuedOp(op) {
+    if (op.kind === 'bill') return performQueuedBill(op);
+    return Promise.resolve('ok');
+  }
+  function performQueuedBill(op, attempt) {
+    attempt = attempt || 1;
+    if (op.op === 'delete') {
+      return sb.from('vouchers').update({ deleted_at:new Date().toISOString() }).eq('id', op.recordId)
+        .then(function (res) { if (res.error) throw res.error; return 'ok'; });
+    }
+    var headStep = op.op === 'insert'
+      ? sb.from('vouchers').insert(Object.assign({ id:op.recordId }, op.head)).select()
+      : sb.from('vouchers').update(op.head).eq('id', op.recordId).eq('version', op.baseVersion).select();
+    return headStep.then(function (res) {
+      if (res.error) {
+        if (op.op === 'insert' && isDupVno(res.error) && attempt < 5) {
+          var m = String(op.head.vno || '').match(/^(\D*)(\d+)$/);
+          var nextVno = m ? m[1] + String(parseInt(m[2], 10) + 1).padStart(m[2].length, '0') : op.head.vno + '-2';
+          var renumbered = nextVno;
+          op = Object.assign({}, op, { head:Object.assign({}, op.head, { vno:nextVno }) });
+          return performQueuedBill(op, attempt + 1).then(function (r) {
+            return (r === 'ok') ? { renumbered:renumbered } : r;
+          });
+        }
+        if (op.op === 'insert' && /duplicate key/i.test(res.error.message || '') && !isDupVno(res.error)) {
+          // id pehle hi insert ho chuka (retry) — seedha lines step par chalo
+        } else throw res.error;
+      } else if (op.op === 'update' && (!res.data || !res.data.length)) {
+        return 'conflict';
+      }
+      return sb.from('voucher_lines').delete().eq('voucher_id', op.recordId).then(function (d) {
+        if (d.error) throw d.error;
+        var payload = op.lines.map(function (l, i) { return Object.assign({ voucher_id:op.recordId, line_no:i + 1 }, l); });
+        return sb.from('voucher_lines').insert(payload).select();
+      }).then(function (r2) { if (r2.error) throw r2.error; return 'ok'; });
+    });
+  }
+  window.addEventListener('online', trySyncQueue);
+  setInterval(trySyncQueue, 15000);
+  updatePendingBadge(offQGet().length);
+
   function loadAll() {
     if (!sb) return Promise.resolve();
     syncNote('Loading…');
@@ -1786,6 +1908,9 @@
           syncNote(''); render(); tryOpenWanted();
           // agar bill khula hua hai aur sheets ab aa gayi hain to balance dobara theek karo
           refreshOpenBillBalance();
+          cacheSave('parties', parties); cacheSave('items', items); cacheSave('bills', bills);
+          cacheSave('firms', firms); cacheSave('allVnos', allVnos);
+          trySyncQueue();
           if (!parties.length || !items.length) {
             toast(!parties.length && !items.length ? 'Add parties and items in Masters first'
                   : (!parties.length ? 'No parties yet — add them in Masters' : 'No items yet — add them in Masters'), true);
@@ -1793,7 +1918,13 @@
         });
       });
     }).catch(function (e) {
-      if (isNetErr(e)) { syncNote('Offline', '#B08A3E'); toast('No internet — nothing loaded', true); }
+      if (isNetErr(e)) {
+        parties = cacheLoad('parties'); items = cacheLoad('items'); bills = cacheLoad('bills');
+        firms = cacheLoad('firms'); allVnos = cacheLoad('allVnos');
+        var haveCache = parties.length || items.length || bills.length;
+        syncNote(haveCache ? 'Offline \u2014 purana data' : 'Offline', '#B08A3E');
+        if (!haveCache) toast('No internet \u2014 abhi tak kuch bhi save nahi hua tha is device par', true);
+      }
       else if (isClockErr(e)) {
         syncNote('Retrying…', '#B08A3E');
         toast('Your phone\u2019s clock looks slightly off \u2014 retrying automatically', true);
