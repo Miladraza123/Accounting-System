@@ -3137,7 +3137,7 @@
         var saleIds = saleVouchers.map(function (v) { return v.id; });
 
         var linesQ = saleIds.length
-          ? sb.from('voucher_lines').select('voucher_id,item_id,qty,rate,amount,cost_amount').in('voucher_id', saleIds)
+          ? sb.from('voucher_lines').select('id,voucher_id,item_id,qty,rate,amount,cost_amount').in('voucher_id', saleIds)
           : Promise.resolve({ data:[] });
         var sheetsQ = sb.from('sheets').select('sheet_date,rows').is('deleted_at', null).gte('sheet_date', from).lte('sheet_date', to);
         var returnsQ = sb.from('sales_returns').select('id,grand_total,rdate').is('deleted_at', null).gte('rdate', from).lte('rdate', to);
@@ -3154,6 +3154,21 @@
 
           return retLinesQ.then(function (rlr) {
             var retLines = rlr.error ? [] : (rlr.data || []);
+
+            // "By Invoice/Product/Customer" ke liye — us invoice ka HAMESHA ka
+            // sahi profit chahiye, is liye uske returns date-range se bahar
+            // (kabhi bhi hue) bhi shamil karte hain, sirf period-summary
+            // (Gross Sales/COGS upar) date-range tak hi mehdood rehta hai
+            var lineIds = lines.map(function (l) { return l.id; });
+            var allTimeReturnsQ = lineIds.length
+              ? sb.from('sales_return_lines').select('sale_line_id,qty,rate,amount,cost_amount').in('sale_line_id', lineIds)
+              : Promise.resolve({ data:[] });
+
+            return allTimeReturnsQ.then(function (atr) {
+            var returnsBySaleLine = {};
+            (atr.error ? [] : (atr.data || [])).forEach(function (rl) {
+              (returnsBySaleLine[rl.sale_line_id] = returnsBySaleLine[rl.sale_line_id] || []).push(rl);
+            });
 
             var grossSales = 0, discounts = 0, otherIncome = 0, cogs = 0, salesReturns = 0, returnCogsReversal = 0;
             saleVouchers.forEach(function (v) {
@@ -3193,8 +3208,9 @@
             otherIncome:otherIncome, opEx:opEx, operatingProfit:operatingProfit,
             finance:finance, netProfit:netProfit,
             netMarginPct: netSales ? r2(netProfit / netSales * 100) : 0,
-            saleVouchers:saleVouchers, lines:lines
+            saleVouchers:saleVouchers, lines:lines, returnsBySaleLine:returnsBySaleLine
           };
+            });
           });
         });
       });
@@ -3244,28 +3260,38 @@
   function plGroupHtml(pl) {
     var byV = {};
     pl.lines.forEach(function (l) { (byV[l.voucher_id] = byV[l.voucher_id] || []).push(l); });
+    function returnImpact(lineIds) {
+      var rev = 0, cost = 0;
+      lineIds.forEach(function (lid) {
+        (pl.returnsBySaleLine[lid] || []).forEach(function (rl) { rev += n(rl.amount); cost += n(rl.cost_amount); });
+      });
+      return { rev:rev, cost:cost };
+    }
     var groups = {};   // key -> { label, revenue, cost }
     if (plGroupBy === 'invoice') {
       pl.saleVouchers.forEach(function (v) {
         var ls = byV[v.id] || [];
         var cost = ls.reduce(function (s, l) { return s + n(l.cost_amount); }, 0);
-        groups[v.id] = { label:v.vno || '\u2014', revenue:n(v.sub_total) - n(v.discount), cost:cost };
+        var ri = returnImpact(ls.map(function (l) { return l.id; }));
+        groups[v.id] = { label:v.vno || '\u2014', revenue:n(v.sub_total) - n(v.discount) - ri.rev, cost:cost - ri.cost };
       });
     } else if (plGroupBy === 'product') {
       pl.lines.forEach(function (l) {
         var it = db.items.filter(function (x) { return String(x.id) === String(l.item_id); })[0];
         var key = l.item_id;
         if (!groups[key]) groups[key] = { label:it ? it.name : '\u2014', revenue:0, cost:0 };
-        groups[key].revenue += n(l.amount); groups[key].cost += n(l.cost_amount);
+        var ri = returnImpact([l.id]);
+        groups[key].revenue += n(l.amount) - ri.rev; groups[key].cost += n(l.cost_amount) - ri.cost;
       });
     } else {
       pl.saleVouchers.forEach(function (v) {
         var ls = byV[v.id] || [];
         var cost = ls.reduce(function (s, l) { return s + n(l.cost_amount); }, 0);
+        var ri = returnImpact(ls.map(function (l) { return l.id; }));
         var p = db.parties.filter(function (x) { return String(x.id) === String(v.party_id); })[0];
         var key = v.party_id || 'none';
         if (!groups[key]) groups[key] = { label:p ? p.name : 'No party', revenue:0, cost:0 };
-        groups[key].revenue += n(v.sub_total) - n(v.discount); groups[key].cost += cost;
+        groups[key].revenue += n(v.sub_total) - n(v.discount) - ri.rev; groups[key].cost += cost - ri.cost;
       });
     }
     var list = Object.keys(groups).map(function (k) { return groups[k]; });
