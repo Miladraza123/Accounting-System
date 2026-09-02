@@ -3124,7 +3124,9 @@
   function plRangeDates(key) {
     var t = new Date();
     var y = t.getFullYear(), m = t.getMonth(), d = t.getDate();
-    function iso(dt) { return dt.toISOString().slice(0, 10); }
+    function iso(dt) {
+      return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
+    }
     if (key === 'today')     return { from:today(), to:today() };
     if (key === 'month')     return { from:iso(new Date(y, m, 1)), to:today() };
     if (key === 'year')      return { from:iso(new Date(y, 0, 1)), to:today() };
