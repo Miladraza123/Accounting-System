@@ -769,6 +769,7 @@
   function newLine() { return { key:'L' + (++lineSeq), item_id:null, qty:'', rate:'', tax_pct:0, amount:0, pcs_on:false, pcs:null }; }
 
   var originalLineSnapshot = null;   // audit-diff ke liye — sirf existing bill edit karte waqt
+  var originalHeadSnapshot = null;   // smart-merge ke liye — bill/doc/return ke header fields ka pehla version
   function openBill(rec) {
     bill = rec ? JSON.parse(JSON.stringify(rec)) : blank();
     bill.lines = (bill.lines || []).map(function (l) {
@@ -778,6 +779,7 @@
     originalLineSnapshot = rec ? bill.lines.map(function (l) {
       return { item_id:l.item_id, qty:num(l.qty), rate:num(l.rate) };
     }) : null;
+    originalHeadSnapshot = rec ? JSON.parse(JSON.stringify(rec)) : null;
     dirty = false;
     $('edTitle').textContent = (rec ? 'Edit ' : 'New ') + (bill.vtype === 'purchase' ? 'purchase' : 'sale');
     $('edSave').textContent = 'Save bill';
@@ -1134,14 +1136,15 @@
 
     if (!navigator.onLine) {
       offQAdd({ opId:uuid(), kind:'bill', op:isNew ? 'insert' : 'update', recordId:recId,
-                baseVersion:isNew ? null : (b.version || 1), head:head, lines:linesPayload, label:head.vno });
+                baseVersion:isNew ? null : (b.version || 1), original:isNew ? null : originalHeadSnapshot,
+                head:head, lines:linesPayload, label:head.vno });
       syncNote('Offline \u2014 save queued', '#B08A3E');
       return;
     }
 
     syncNote('Saving…');
     var step = isNew ? sb.from('vouchers').insert(Object.assign({ id:recId }, head)).select()
-                     : sb.from('vouchers').update(head).eq('id', recId).eq('version', b.version || 1).select();
+                     : sb.rpc('smart_merge_update', { p_table:'vouchers', p_id:recId, p_original:originalHeadSnapshot, p_new:head });
 
     step.then(function (res) {
       if (res.error) {
@@ -1155,12 +1158,20 @@
         }
         throw res.error;
       }
-      if (!isNew && (!res.data || !res.data.length)) {
-        toast('Kisi aur ne "' + head.vno + '" pehle save kar diya \u2014 taaza data la rahe hain', true);
-        loadAll();
-        return;
+      if (!isNew) {
+        var result = res.data;
+        if (result.status === 'conflict') {
+          toast('"' + head.vno + '" mein "' + result.fields.join(', ') + '" kisi aur ne bhi isi waqt badla \u2014 taaza dekh kar dobara karein', true);
+          loadAll();
+          return;
+        }
+        if (result.status === 'missing') {
+          toast('"' + head.vno + '" kisi aur ne delete kar diya hai', true);
+          loadAll();
+          return;
+        }
       }
-      var row = (res.data || [])[0];
+      var row = isNew ? (res.data || [])[0] : res.data.row;
       return (isNew ? Promise.resolve({ error:null })
                     : sb.from('voucher_lines').delete().eq('voucher_id', recId))
         .then(function (d) {
@@ -1170,20 +1181,27 @@
         })
         .then(function (r2) {
           if (r2.error) throw r2.error;
-          var saved = Object.assign({}, row || head, { id:recId, lines:(r2.data || []) });
-          bills = bills.map(function (x) { return x.id === recId ? saved : x; });
-          cacheSave('bills', bills);
-          syncNote('Saved', '#7DC9A9');
-          if (diff) sb.rpc('log_manual_audit', {
-            p_table:'vouchers', p_record_id:recId, p_label:head.vno, p_action:'update',
-            p_changes:{ lines:diff }
-          }).catch(function () {});
-          render();
+          // sub_total/tax_total/grand_total lines se bante hain — smart-merge inhe chhuta hai,
+          // is liye yahan seedha, bina version-check ke update kar dete hain (hamesha sahi hoga
+          // kyunke ye humne abhi-abhi jo lines likhi hain unhi se nikla hai)
+          return sb.from('vouchers').update({ sub_total:t.sub, tax_total:t.tax, grand_total:t.grand })
+            .eq('id', recId).select().then(function (r3) {
+              var saved = Object.assign({}, row || head, r3.data ? r3.data[0] : {}, { id:recId, lines:(r2.data || []) });
+              bills = bills.map(function (x) { return x.id === recId ? saved : x; });
+              cacheSave('bills', bills);
+              syncNote('Saved', '#7DC9A9');
+              if (diff) sb.rpc('log_manual_audit', {
+                p_table:'vouchers', p_record_id:recId, p_label:head.vno, p_action:'update',
+                p_changes:{ lines:diff }
+              }).catch(function () {});
+              render();
+            });
         });
     }).catch(function (e) {
       if (isNetErr(e)) {
         offQAdd({ opId:uuid(), kind:'bill', op:isNew ? 'insert' : 'update', recordId:recId,
-                  baseVersion:isNew ? null : (b.version || 1), head:head, lines:linesPayload, label:head.vno });
+                  baseVersion:isNew ? null : (b.version || 1), original:isNew ? null : originalHeadSnapshot,
+                  head:head, lines:linesPayload, label:head.vno });
         syncNote('Offline \u2014 save queued', '#B08A3E');
       } else {
         if (isNew) bills = bills.filter(function (x) { return x.id !== recId; });
@@ -1226,6 +1244,7 @@
       if (!l.key) l.key = 'L' + (++lineSeq); return l;
     });
     if (!bill.lines.length) bill.lines.push(newLine());
+    originalHeadSnapshot = rec ? JSON.parse(JSON.stringify(rec)) : null;
     dirty = false;
     $('edTitle').textContent = (rec ? 'Edit ' : 'New ') + (isQ ? 'quotation' : 'purchase order');
     $('edSave').textContent = isQ ? 'Save quotation' : 'Save purchase order';
@@ -1280,22 +1299,31 @@
 
     if (!navigator.onLine) {
       offQAdd({ opId:uuid(), kind:'doc', isQ:isQ, op:isNew ? 'insert' : 'update', recordId:recId,
-                baseVersion:isNew ? null : (b.version || 1), head:head, lines:linesPayload, label:head[noField] });
+                baseVersion:isNew ? null : (b.version || 1), original:isNew ? null : originalHeadSnapshot,
+                head:head, lines:linesPayload, label:head[noField] });
       syncNote('Offline \u2014 save queued', '#B08A3E');
       return;
     }
 
     syncNote('Saving…');
     var step = isNew ? sb.from(table).insert(Object.assign({ id:recId }, head)).select()
-                     : sb.from(table).update(head).eq('id', recId).eq('version', b.version || 1).select();
+                     : sb.rpc('smart_merge_update', { p_table:table, p_id:recId, p_original:originalHeadSnapshot, p_new:head });
     step.then(function (res) {
       if (res.error) throw res.error;
-      if (!isNew && (!res.data || !res.data.length)) {
-        toast('Kisi aur ne "' + head[noField] + '" pehle save kar diya \u2014 taaza data la rahe hain', true);
-        loadAll();
-        return;
+      if (!isNew) {
+        var result = res.data;
+        if (result.status === 'conflict') {
+          toast('"' + head[noField] + '" mein "' + result.fields.join(', ') + '" kisi aur ne bhi isi waqt badla \u2014 taaza dekh kar dobara karein', true);
+          loadAll();
+          return;
+        }
+        if (result.status === 'missing') {
+          toast('"' + head[noField] + '" kisi aur ne delete kar diya hai', true);
+          loadAll();
+          return;
+        }
       }
-      var row = (res.data || [])[0];
+      var row = isNew ? (res.data || [])[0] : res.data.row;
       return sb.from(lineTable).delete().eq(fkCol, recId).then(function (d) {
         if (d.error) throw d.error;
         var payload = linesPayload.map(function (l, i) {
@@ -1304,16 +1332,20 @@
         return sb.from(lineTable).insert(payload).select();
       }).then(function (r2) {
         if (r2.error) throw r2.error;
-        var saved = Object.assign({}, row || head, { id:recId, lines:(r2.data || []) });
-        if (isQ) quotes = quotes.map(function (x) { return x.id === recId ? saved : x; });
-        else pos = pos.map(function (x) { return x.id === recId ? saved : x; });
-        syncNote('Saved', '#7DC9A9');
-        render();
+        return sb.from(table).update({ subtotal:t.sub, tax_total:t.tax, grand_total:t.grand })
+          .eq('id', recId).select().then(function (r3) {
+            var saved = Object.assign({}, row || head, r3.data ? r3.data[0] : {}, { id:recId, lines:(r2.data || []) });
+            if (isQ) quotes = quotes.map(function (x) { return x.id === recId ? saved : x; });
+            else pos = pos.map(function (x) { return x.id === recId ? saved : x; });
+            syncNote('Saved', '#7DC9A9');
+            render();
+          });
       });
     }).catch(function (e) {
       if (isNetErr(e)) {
         offQAdd({ opId:uuid(), kind:'doc', isQ:isQ, op:isNew ? 'insert' : 'update', recordId:recId,
-                  baseVersion:isNew ? null : (b.version || 1), head:head, lines:linesPayload, label:head[noField] });
+                  baseVersion:isNew ? null : (b.version || 1), original:isNew ? null : originalHeadSnapshot,
+                  head:head, lines:linesPayload, label:head[noField] });
         syncNote('Offline \u2014 save queued', '#B08A3E');
       } else {
         if (isQ) {
@@ -1538,6 +1570,7 @@
       lines:retLines
     };
     dirty = false;
+    originalHeadSnapshot = existingReturn ? JSON.parse(JSON.stringify(existingReturn)) : null;
     vtype = 'return';
     document.querySelectorAll('.sb-item[data-t]').forEach(function (x) { x.classList.toggle('on', x.getAttribute('data-t') === 'return'); });
     $('edTitle').textContent = (existingReturn ? 'Edit ' : 'New ') + 'Sales Return (' + esc(sale.vno || '') + ')';
@@ -1634,37 +1667,50 @@
 
     if (!navigator.onLine) {
       offQAdd({ opId:uuid(), kind:'return', op:isNew ? 'insert' : 'update', recordId:recId,
-                baseVersion:isNew ? null : (b.version || 1), head:head, lines:linesPayload, label:head.rno });
+                baseVersion:isNew ? null : (b.version || 1), original:isNew ? null : originalHeadSnapshot,
+                head:head, lines:linesPayload, label:head.rno });
       syncNote('Offline \u2014 save queued', '#B08A3E');
       return;
     }
 
     syncNote('Saving…');
     var step = isNew ? sb.from('sales_returns').insert(Object.assign({ id:recId }, head)).select()
-                     : sb.from('sales_returns').update(head).eq('id', recId).eq('version', b.version || 1).select();
+                     : sb.rpc('smart_merge_update', { p_table:'sales_returns', p_id:recId, p_original:originalHeadSnapshot, p_new:head });
     step.then(function (res) {
       if (res.error) throw res.error;
-      if (!isNew && (!res.data || !res.data.length)) {
-        toast('Kisi aur ne "' + head.rno + '" pehle save kar diya \u2014 taaza data la rahe hain', true);
-        loadAll();
-        return;
+      if (!isNew) {
+        var result = res.data;
+        if (result.status === 'conflict') {
+          toast('"' + head.rno + '" mein "' + result.fields.join(', ') + '" kisi aur ne bhi isi waqt badla \u2014 taaza dekh kar dobara karein', true);
+          loadAll();
+          return;
+        }
+        if (result.status === 'missing') {
+          toast('"' + head.rno + '" kisi aur ne delete kar diya hai', true);
+          loadAll();
+          return;
+        }
       }
-      var row = (res.data || [])[0];
+      var row = isNew ? (res.data || [])[0] : res.data.row;
       return sb.from('sales_return_lines').delete().eq('return_id', recId).then(function (d) {
         if (d.error) throw d.error;
         var payload = linesPayload.map(function (l, i) { return Object.assign({ return_id:recId, line_no:i + 1 }, l); });
         return sb.from('sales_return_lines').insert(payload).select();
       }).then(function (r2) {
         if (r2.error) throw r2.error;
-        var saved = Object.assign({}, row || head, { id:recId, lines:(r2.data || []) });
-        returns = returns.map(function (x) { return x.id === recId ? saved : x; });
-        syncNote('Saved', '#7DC9A9');
-        render();
+        return sb.from('sales_returns').update({ subtotal:t.total, grand_total:t.total })
+          .eq('id', recId).select().then(function (r3) {
+            var saved = Object.assign({}, row || head, r3.data ? r3.data[0] : {}, { id:recId, lines:(r2.data || []) });
+            returns = returns.map(function (x) { return x.id === recId ? saved : x; });
+            syncNote('Saved', '#7DC9A9');
+            render();
+          });
       });
     }).catch(function (e) {
       if (isNetErr(e)) {
         offQAdd({ opId:uuid(), kind:'return', op:isNew ? 'insert' : 'update', recordId:recId,
-                  baseVersion:isNew ? null : (b.version || 1), head:head, lines:linesPayload, label:head.rno });
+                  baseVersion:isNew ? null : (b.version || 1), original:isNew ? null : originalHeadSnapshot,
+                  head:head, lines:linesPayload, label:head.rno });
         syncNote('Offline \u2014 save queued', '#B08A3E');
       } else {
         if (isNew) returns = returns.filter(function (x) { return x.id !== recId; });
@@ -1901,14 +1947,17 @@
     }
     var headStep = op.op === 'insert'
       ? sb.from(table).insert(Object.assign({ id:op.recordId }, op.head)).select()
-      : sb.from(table).update(op.head).eq('id', op.recordId).eq('version', op.baseVersion).select();
+      : op.original
+        ? sb.rpc('smart_merge_update', { p_table:table, p_id:op.recordId, p_original:op.original, p_new:op.head })
+        : sb.from(table).update(op.head).eq('id', op.recordId).eq('version', op.baseVersion).select();
     return headStep.then(function (res) {
       if (res.error) {
         if (op.op === 'insert' && /duplicate key/i.test(res.error.message || '')) {
           // pehle hi insert ho chuka tha (retry) — seedha lines par chalo
         } else throw res.error;
-      } else if (op.op === 'update' && (!res.data || !res.data.length)) {
-        return 'conflict';
+      } else if (op.op === 'update') {
+        if (op.original) { if (res.data && res.data.status === 'conflict') return 'conflict'; }
+        else if (!res.data || !res.data.length) return 'conflict';
       }
       return sb.from(lineTable).delete().eq(fkCol, op.recordId).then(function (d) {
         if (d.error) throw d.error;
@@ -1926,14 +1975,17 @@
     }
     var headStep = op.op === 'insert'
       ? sb.from('sales_returns').insert(Object.assign({ id:op.recordId }, op.head)).select()
-      : sb.from('sales_returns').update(op.head).eq('id', op.recordId).eq('version', op.baseVersion).select();
+      : op.original
+        ? sb.rpc('smart_merge_update', { p_table:'sales_returns', p_id:op.recordId, p_original:op.original, p_new:op.head })
+        : sb.from('sales_returns').update(op.head).eq('id', op.recordId).eq('version', op.baseVersion).select();
     return headStep.then(function (res) {
       if (res.error) {
         if (op.op === 'insert' && /duplicate key/i.test(res.error.message || '')) {
           // pehle hi insert ho chuka tha (retry) — seedha lines par chalo
         } else throw res.error;
-      } else if (op.op === 'update' && (!res.data || !res.data.length)) {
-        return 'conflict';
+      } else if (op.op === 'update') {
+        if (op.original) { if (res.data && res.data.status === 'conflict') return 'conflict'; }
+        else if (!res.data || !res.data.length) return 'conflict';
       }
       return sb.from('sales_return_lines').delete().eq('return_id', op.recordId).then(function (d) {
         if (d.error) throw d.error;
@@ -1959,7 +2011,9 @@
     }
     var headStep = op.op === 'insert'
       ? sb.from('vouchers').insert(Object.assign({ id:op.recordId }, op.head)).select()
-      : sb.from('vouchers').update(op.head).eq('id', op.recordId).eq('version', op.baseVersion).select();
+      : op.original
+        ? sb.rpc('smart_merge_update', { p_table:'vouchers', p_id:op.recordId, p_original:op.original, p_new:op.head })
+        : sb.from('vouchers').update(op.head).eq('id', op.recordId).eq('version', op.baseVersion).select();
     return headStep.then(function (res) {
       if (res.error) {
         if (op.op === 'insert' && isDupVno(res.error) && attempt < 5) {
@@ -1974,8 +2028,12 @@
         if (op.op === 'insert' && /duplicate key/i.test(res.error.message || '') && !isDupVno(res.error)) {
           // id pehle hi insert ho chuka (retry) — seedha lines step par chalo
         } else throw res.error;
-      } else if (op.op === 'update' && (!res.data || !res.data.length)) {
-        return 'conflict';
+      } else if (op.op === 'update') {
+        if (op.original) {
+          if (res.data && res.data.status === 'conflict') return 'conflict';
+        } else if (!res.data || !res.data.length) {
+          return 'conflict';
+        }
       }
       return sb.from('voucher_lines').delete().eq('voucher_id', op.recordId).then(function (d) {
         if (d.error) throw d.error;
