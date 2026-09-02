@@ -3198,11 +3198,19 @@
             // "By Invoice/Product/Customer" ke liye — us invoice ka HAMESHA ka
             // sahi profit chahiye, is liye uske returns date-range se bahar
             // (kabhi bhi hue) bhi shamil karte hain, sirf period-summary
-            // (Gross Sales/COGS upar) date-range tak hi mehdood rehta hai
+            // (Gross Sales/COGS upar) date-range tak hi mehdood rehta hai.
+            // ZAROORI: sirf un returns ki lines lein jinka "parent" return
+            // delete nahi hua — warna delete ho chuki return ka "bhoot" data
+            // profit mein shamil ho jata hai (jaisa test mein pakda gaya)
             var lineIds = lines.map(function (l) { return l.id; });
-            var allTimeReturnsQ = lineIds.length
-              ? sb.from('sales_return_lines').select('sale_line_id,qty,rate,amount,cost_amount').in('sale_line_id', lineIds)
-              : Promise.resolve({ data:[] });
+            var activeReturnIdsQ = sb.from('sales_returns').select('id').is('deleted_at', null);
+
+            return activeReturnIdsQ.then(function (arr) {
+              var activeReturnIds = (arr.error ? [] : (arr.data || [])).map(function (r) { return r.id; });
+              var allTimeReturnsQ = (lineIds.length && activeReturnIds.length)
+                ? sb.from('sales_return_lines').select('sale_line_id,qty,rate,amount,cost_amount,return_id')
+                    .in('sale_line_id', lineIds).in('return_id', activeReturnIds)
+                : Promise.resolve({ data:[] });
 
             return allTimeReturnsQ.then(function (atr) {
             var returnsBySaleLine = {};
@@ -3250,6 +3258,7 @@
             netMarginPct: netSales ? r2(netProfit / netSales * 100) : 0,
             saleVouchers:saleVouchers, lines:lines, returnsBySaleLine:returnsBySaleLine
           };
+            });
             });
           });
         });
