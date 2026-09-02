@@ -21,6 +21,48 @@
   button, input, select, textarea { font:inherit; color:inherit; }
   button { cursor:pointer; }
 
+  /* ---------- shell / sidebar ---------- */
+  .shell { flex:1; min-height:0; display:flex; overflow:hidden; }
+  .main-col { flex:1; min-width:0; display:flex; flex-direction:column; min-height:0; }
+
+  .mobar { display:none; flex:none; background:var(--ink); color:#fff; align-items:center; gap:10px;
+           padding:0 12px; height:calc(48px + env(safe-area-inset-top)); padding-top:env(safe-area-inset-top); }
+  .mobar .hbtn { background:none; border:none; color:#fff; padding:6px; margin:-6px; border-radius:6px; }
+  .mobar .hbtn:active { background:#3A342A; }
+  .mobar .ttl { font-size:14px; font-weight:600; flex:1; }
+
+  .backdrop { display:none; position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:39; }
+  .backdrop.on { display:block; }
+
+  .sidebar { flex:none; width:216px; background:var(--ink); display:flex; flex-direction:column;
+             overflow-y:auto; -webkit-overflow-scrolling:touch; }
+  .sb-hd { flex:none; padding:14px 16px; display:flex; align-items:center; gap:9px;
+           border-bottom:1px solid #4A4436; }
+  .sb-hd .mark { flex:none; width:26px; height:26px; border:1.5px solid var(--accent); border-radius:6px;
+                 display:grid; place-items:center; font-size:9.5px; color:var(--accent); font-weight:700; }
+  .sb-hd .ttl { font-size:13.5px; font-weight:600; color:#F5F1E6; }
+  .sb-close { display:none; margin-left:auto; background:none; border:none; color:#B0A891; padding:4px; }
+
+  .sb-sec { padding:12px 10px 4px; }
+  .sb-lbl { padding:0 8px 6px; font-size:9.5px; letter-spacing:.6px; text-transform:uppercase; color:#8C8577; }
+  .sb-item { display:flex; align-items:center; gap:10px; width:100%; text-align:left;
+             background:none; border:none; color:#D9CFBE; padding:8px 10px; border-radius:7px;
+             font-size:13px; margin-bottom:1px; }
+  .sb-item svg { flex:none; width:16px; height:16px; opacity:.9; }
+  .sb-item .n { margin-left:auto; font-size:11px; color:#8C8577; }
+  .sb-item:hover { background:#3A342A; }
+  .sb-item.on { background:#3A342A; color:#F5F1E6; }
+  .sb-div { height:1px; background:#4A4436; margin:8px 12px; }
+  .sb-spacer { flex:1; }
+
+  @media (max-width:880px) {
+    .mobar { display:flex; }
+    .sidebar { position:fixed; left:0; top:0; bottom:0; width:78%; max-width:280px; z-index:40;
+               transform:translateX(-100%); transition:transform .22s ease; box-shadow:4px 0 20px rgba(0,0,0,.25); }
+    .sidebar.on { transform:translateX(0); }
+    .sb-close { display:block; }
+  }
+
   /* ---------- appbar ---------- */
   .appbar { flex:none; background:var(--ink); color:#fff; display:flex; align-items:center; gap:10px;
             padding:0 10px; height:calc(54px + env(safe-area-inset-top));
@@ -478,56 +520,87 @@
 </div>
 
 <!-- ══════════ app ══════════ -->
-<div class="appbar">
-  <div class="brand"><span class="mark">OHT</span><span>Masters</span></div>
-  <div class="spacer"></div>
-  <span class="sync" id="syncNote"></span>
-  <button class="abtn" id="bkBtn"><svg class="abi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 18a4 4 0 01-1-7.9A5 5 0 0116 8a4.5 4.5 0 011 8.9"/><path d="M12 12v7M9.5 16.5L12 19l2.5-2.5"/></svg>Backup</button>
-  <button class="abtn" id="recycleBtn"><svg class="abi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0l1 12a1 1 0 001 1h6a1 1 0 001-1l1-12"/></svg>Recycle Bin</button>
-  <button class="abtn" id="tbBtn"><svg class="abi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3M5 8l3-2 3 2-3 5a3 3 0 01-6 0zM16 8l3-2 3 2-3 5a3 3 0 01-6 0zM12 21h-4M12 21h4M12 6v15"/></svg>Trial Balance</button>
-  <button class="abtn" id="lockBtn"><svg class="abi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="1.5"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>Period Lock</button>
-  <button class="abtn" id="agingBtn"><svg class="abi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>Aging Report</button>
-  <button class="abtn" id="plBtn"><svg class="abi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5M4 19h16M8 15l3-4 3 2.5L18 8"/></svg>Profit &amp; Loss</button>
-  <button class="abtn" id="usersBtn" style="display:none"><svg class="abi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3 2.5-5 6-5s6 2 6 5M16 4.5a3 3 0 010 5.9M19 20c0-2.3-1.3-4-3.5-4.7"/></svg>Manage Users</button>
-  <button class="abtn" id="pwBtn"><svg class="abi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3"/><path d="M12 11v5M9.5 14h5"/></svg>Change Password</button>
-  <button class="abtn" id="outBtn"><svg class="abi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4H6a1 1 0 00-1 1v14a1 1 0 001 1h3M15 16l4-4-4-4M19 12H8"/></svg>Sign out</button>
-</div>
+<div class="backdrop" id="sbBackdrop"></div>
+<div class="shell">
+  <div class="sidebar" id="sidebar">
+    <div class="sb-hd">
+      <span class="mark">OHT</span><span class="ttl">Masters</span>
+      <button class="sb-close" id="sbClose" aria-label="Close menu">✕</button>
+    </div>
 
-<div class="tabs">
-  <button class="tab on" id="tabParties" data-t="parties">Parties <span class="n" id="nParties"></span></button>
-  <button class="tab" id="tabItems" data-t="items">Items <span class="n" id="nItems"></span></button>
-  <button class="tab" id="tabCompanies" data-t="companies">Firms <span class="n" id="nCompanies"></span></button>
-</div>
+    <div class="sb-sec">
+      <button class="sb-item on" id="tabParties" data-t="parties">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3 2.5-5 6-5s6 2 6 5"/><circle cx="17" cy="8" r="2.4"/><path d="M15.5 12a4 4 0 014.5 4v1"/></svg>
+        Parties<span class="n" id="nParties"></span>
+      </button>
+      <button class="sb-item" id="tabItems" data-t="items">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 8l9-5 9 5-9 5-9-5z"/><path d="M3 8v9l9 5 9-5V8"/><path d="M12 13v9"/></svg>
+        Items<span class="n" id="nItems"></span>
+      </button>
+      <button class="sb-item" id="tabCompanies" data-t="companies">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="3" width="16" height="18" rx="1"/><path d="M8 7h2M14 7h2M8 11h2M14 11h2M8 15h2M14 15h2"/></svg>
+        Firms<span class="n" id="nCompanies"></span>
+      </button>
+    </div>
 
-<div class="tools">
-  <div class="search" id="searchWrap">
-    <span class="ico">⌕</span>
-    <input id="q" type="search" placeholder="Search by name…" autocomplete="off">
-    <button class="clr" id="qClr" aria-label="Clear search">×</button>
+    <div class="sb-div"></div>
+    <div class="sb-lbl">Tools &amp; reports</div>
+    <div class="sb-sec" style="padding-top:0">
+      <button class="sb-item" id="bkBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 18a4 4 0 01-1-7.9A5 5 0 0116 8a4.5 4.5 0 011 8.9"/><path d="M12 12v7M9.5 16.5L12 19l2.5-2.5"/></svg>Backup</button>
+      <button class="sb-item" id="recycleBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0l1 12a1 1 0 001 1h6a1 1 0 001-1l1-12"/></svg>Recycle Bin</button>
+      <button class="sb-item" id="tbBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3M5 8l3-2 3 2-3 5a3 3 0 01-6 0zM16 8l3-2 3 2-3 5a3 3 0 01-6 0zM12 21h-4M12 21h4M12 6v15"/></svg>Trial Balance</button>
+      <button class="sb-item" id="lockBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="1.5"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>Period Lock</button>
+      <button class="sb-item" id="agingBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>Aging Report</button>
+      <button class="sb-item" id="plBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5M4 19h16M8 15l3-4 3 2.5L18 8"/></svg>Profit &amp; Loss</button>
+    </div>
+
+    <div class="sb-spacer"></div>
+    <div class="sb-div"></div>
+    <div class="sb-sec">
+      <button class="sb-item" id="usersBtn" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3 2.5-5 6-5s6 2 6 5M16 4.5a3 3 0 010 5.9M19 20c0-2.3-1.3-4-3.5-4.7"/></svg>Manage Users</button>
+      <button class="sb-item" id="pwBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3"/><path d="M12 11v5M9.5 14h5"/></svg>Change Password</button>
+      <button class="sb-item" id="outBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4H6a1 1 0 00-1 1v14a1 1 0 001 1h3M15 16l4-4-4-4M19 12H8"/></svg>Sign out</button>
+    </div>
   </div>
-  <button class="newbtn" id="newBtn">+ New</button>
-  <button class="newbtn" id="importBtn" style="background:#fff;color:var(--ink);border:1px solid var(--hair)">Import</button>
-</div>
 
-<div class="totbar" id="totbar" style="display:none">
-  <div class="seg dr"><div class="k">To collect</div><div class="v" id="totDr">—</div></div>
-  <div class="seg cr"><div class="k">To pay</div><div class="v" id="totCr">—</div></div>
-</div>
-<div class="agingbar" id="agingbar" style="display:none">
-  <span class="ag-lbl">Receivables age</span>
-  <span class="ag-seg" id="ag0"></span>
-  <span class="ag-seg" id="ag30"></span>
-  <span class="ag-seg" id="ag60"></span>
-  <span class="ag-seg warn" id="ag90"></span>
-</div>
-<div class="catbar" id="catbar"></div>
-<button class="lowbar" id="lowbar" style="display:none">
-  <span class="dot"></span> <span id="lowText"></span>
-  <span class="lowtoggle" id="lowToggle">Show all</span>
-</button>
+  <div class="main-col">
+    <div class="mobar">
+      <button class="hbtn" id="sbOpen" aria-label="Open menu"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+      <span class="ttl" id="moTitle">Parties</span>
+      <span class="sync" id="syncNote"></span>
+    </div>
 
-<div class="wrap"><div class="rows" id="rows"></div>
-  <button class="loadmore" id="loadMoreBtn">Load 50 more <span class="rem" id="loadMoreRem"></span></button>
+    <div class="tools">
+      <div class="search" id="searchWrap">
+        <span class="ico">⌕</span>
+        <input id="q" type="search" placeholder="Search by name…" autocomplete="off">
+        <button class="clr" id="qClr" aria-label="Clear search">×</button>
+      </div>
+      <button class="newbtn" id="newBtn">+ New</button>
+      <button class="newbtn" id="importBtn" style="background:#fff;color:var(--ink);border:1px solid var(--hair)">Import</button>
+    </div>
+
+    <div class="totbar" id="totbar" style="display:none">
+      <div class="seg dr"><div class="k">To collect</div><div class="v" id="totDr">—</div></div>
+      <div class="seg cr"><div class="k">To pay</div><div class="v" id="totCr">—</div></div>
+    </div>
+    <div class="agingbar" id="agingbar" style="display:none">
+      <span class="ag-lbl">Receivables age</span>
+      <span class="ag-seg" id="ag0"></span>
+      <span class="ag-seg" id="ag30"></span>
+      <span class="ag-seg" id="ag60"></span>
+      <span class="ag-seg warn" id="ag90"></span>
+    </div>
+    <div class="catbar" id="catbar"></div>
+    <button class="lowbar" id="lowbar" style="display:none">
+      <span class="dot"></span> <span id="lowText"></span>
+      <span class="lowtoggle" id="lowToggle">Show all</span>
+    </button>
+
+    <div class="wrap"><div class="rows" id="rows"></div>
+      <button class="loadmore" id="loadMoreBtn">Load 50 more <span class="rem" id="loadMoreRem"></span></button>
+    </div>
+  </div>
 </div>
 
 <!-- ══════════ editor ══════════ -->
@@ -3196,11 +3269,13 @@
   $('importBtn').addEventListener('click', openImportModal);
 
   /* ---------- wiring ---------- */
-  document.querySelectorAll('.tab').forEach(function (b) {
+  document.querySelectorAll('.sb-item[data-t]').forEach(function (b) {
     b.addEventListener('click', function () {
-      document.querySelectorAll('.tab').forEach(function (x) { x.classList.remove('on'); });
+      document.querySelectorAll('.sb-item[data-t]').forEach(function (x) { x.classList.remove('on'); });
       b.classList.add('on');
       tab = b.getAttribute('data-t');
+      $('moTitle').textContent = tab === 'parties' ? 'Parties' : tab === 'companies' ? 'Firms' : 'Items';
+      closeSidebar();
       if (tab !== 'items') lowOnly = false;
       if (tab !== 'parties') catFilter = 'all';
       $('q').value = '';
@@ -3214,6 +3289,14 @@
         loadLedgerData().then(render).catch(function () {});
       }
     });
+  });
+  function openSidebar() { $('sidebar').classList.add('on'); $('sbBackdrop').classList.add('on'); }
+  function closeSidebar() { $('sidebar').classList.remove('on'); $('sbBackdrop').classList.remove('on'); }
+  $('sbOpen').addEventListener('click', openSidebar);
+  $('sbClose').addEventListener('click', closeSidebar);
+  $('sbBackdrop').addEventListener('click', closeSidebar);
+  document.querySelectorAll('.sidebar .sb-item:not([data-t])').forEach(function (b) {
+    b.addEventListener('click', closeSidebar);
   });
   $('q').addEventListener('input', function () { partyPageLimit = PAGE_SIZE; render(); });
   $('qClr').addEventListener('click', function () { $('q').value = ''; partyPageLimit = PAGE_SIZE; render(); $('q').focus(); });
