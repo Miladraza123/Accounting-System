@@ -559,6 +559,7 @@
     <div class="sb-sec">
       <button class="sb-item" id="usersBtn" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3 2.5-5 6-5s6 2 6 5M16 4.5a3 3 0 010 5.9M19 20c0-2.3-1.3-4-3.5-4.7"/></svg>Manage Users</button>
       <button class="sb-item" id="activityBtn" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/><path d="M4 4l1.5 1.5M20 4l-1.5 1.5"/></svg>Activity Log</button>
+      <button class="sb-item" id="wipeBtn" style="display:none;color:#B0603A"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01M10.3 3.9L2.7 17a1.5 1.5 0 001.3 2.3h16a1.5 1.5 0 001.3-2.3L13.7 3.9a1.5 1.5 0 00-2.6 0z"/></svg>Wipe Test Data</button>
       <button class="sb-item" id="pwBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3"/><path d="M12 11v5M9.5 14h5"/></svg>Change Password</button>
       <button class="sb-item" id="outBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4H6a1 1 0 00-1 1v14a1 1 0 001 1h3M15 16l4-4-4-4M19 12H8"/></svg>Sign out</button>
     </div>
@@ -791,6 +792,23 @@
         <button class="btn" id="lockClose">Close</button>
         <button class="btn pri" id="lockSave">Save</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<div class="ask" id="wipeModal">
+  <div class="box" style="max-width:440px">
+    <h4 style="color:#B0603A">⚠️ Wipe Test Data</h4>
+    <p style="font-size:13px;color:var(--slate)">Ye <b>hamesha ke liye</b> mita dega (Recycle Bin mein bhi nahi jayega):</p>
+    <div id="wipeCounts" style="font-size:13px;color:var(--mute);margin-bottom:10px">Loading\u2026</div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13.5px;margin-bottom:10px">
+      <input type="checkbox" id="wipeIncludeMasters"> Parties, Items, aur Firms bhi mita dein (opening balances samet)
+    </label>
+    <p style="font-size:12.5px;color:var(--mute)">Confirm karne ke liye neeche <b>DELETE</b> likhein:</p>
+    <input id="wipeConfirmText" type="text" placeholder="DELETE" style="width:100%;box-sizing:border-box;padding:9px 10px;border:1px solid var(--hair);border-radius:8px;font-size:14px;margin-bottom:4px">
+    <div class="acts">
+      <button class="btn" id="wipeCancel">Cancel</button>
+      <button class="btn dgr" id="wipeConfirm" disabled>Wipe Everything</button>
     </div>
   </div>
 </div>
@@ -3399,6 +3417,52 @@
   $('activityClose').addEventListener('click', function () { $('activityModal').classList.remove('on'); });
   $('activityBtn').addEventListener('click', openActivityLog);
 
+  /* ---------- Wipe Test Data (danger zone, admin only) ---------- */
+  function openWipeModal() {
+    $('wipeModal').classList.add('on');
+    $('wipeConfirmText').value = '';
+    $('wipeConfirm').disabled = true;
+    $('wipeIncludeMasters').checked = false;
+    $('wipeCounts').textContent = 'Ginte hain\u2026';
+    Promise.all([
+      sb.from('vouchers').select('id', { count:'exact', head:true }),
+      sb.from('sheets').select('sheet_date', { count:'exact', head:true }),
+      sb.from('quotations').select('id', { count:'exact', head:true }),
+      sb.from('purchase_orders').select('id', { count:'exact', head:true }),
+      sb.from('sales_returns').select('id', { count:'exact', head:true }),
+      sb.from('parties').select('id', { count:'exact', head:true }),
+      sb.from('items').select('id', { count:'exact', head:true })
+    ]).then(function (r) {
+      var c = r.map(function (x) { return x.count || 0; });
+      $('wipeCounts').innerHTML =
+        c[0] + ' bills, ' + c[1] + ' ledger din, ' + c[2] + ' quotations, ' + c[3] + ' POs, ' + c[4] + ' returns' +
+        '<br><span id="wipeMastersNote" style="display:none">+ ' + c[5] + ' parties, ' + c[6] + ' items</span>';
+    }).catch(function () { $('wipeCounts').textContent = ''; });
+  }
+  $('wipeIncludeMasters').addEventListener('change', function () {
+    var el = $('wipeMastersNote'); if (el) el.style.display = this.checked ? '' : 'none';
+  });
+  $('wipeConfirmText').addEventListener('input', function () {
+    $('wipeConfirm').disabled = this.value.trim() !== 'DELETE';
+  });
+  $('wipeCancel').addEventListener('click', function () { $('wipeModal').classList.remove('on'); });
+  $('wipeConfirm').addEventListener('click', function () {
+    if ($('wipeConfirmText').value.trim() !== 'DELETE') return;
+    $('wipeConfirm').disabled = true;
+    $('wipeConfirm').textContent = 'Wiping\u2026';
+    sb.rpc('wipe_test_data', { p_include_masters:$('wipeIncludeMasters').checked }).then(function (res) {
+      $('wipeConfirm').textContent = 'Wipe Everything';
+      if (res.error) { sayErr(res.error, 'wipe'); return; }
+      $('wipeModal').classList.remove('on');
+      toast('Sab test data mit gaya');
+      localStorage.removeItem(OFFQ_KEY);
+      Object.keys(localStorage).filter(function (k) { return k.indexOf(OFF_CACHE_PREFIX) === 0; })
+        .forEach(function (k) { localStorage.removeItem(k); });
+      loadAll();
+    }).catch(function (e) { $('wipeConfirm').disabled = false; $('wipeConfirm').textContent = 'Wipe Everything'; sayErr(e, 'wipe'); });
+  });
+  $('wipeBtn').addEventListener('click', openWipeModal);
+
   $('plBtn').addEventListener('click', openProfitLoss);
 
   /* ---------- Bulk Import (Excel/CSV) — parties aur items ke liye ---------- */
@@ -4075,6 +4139,7 @@
     $('tbBtn').style.display      = can('reports_view')    ? '' : 'none';
     $('usersBtn').style.display   = (me && me.isAdmin) ? '' : 'none';
     $('activityBtn').style.display = (me && me.isAdmin) ? '' : 'none';
+    $('wipeBtn').style.display = (me && me.isAdmin) ? '' : 'none';
     $('importBtn').style.display  = can('masters_import') && (tab === 'parties' || tab === 'items') ? '' : 'none';
   }
   /* ---------- Realtime: 20-second polling ki jagah, sirf jab actual change ho tab refresh ---------- */
