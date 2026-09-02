@@ -1165,6 +1165,12 @@
       if (String(a.item_id) !== String(itemId)) return;
       qty += Number(a.qty) || 0;
     });
+    led.returns.forEach(function (rr) {
+      (rr.lines || []).forEach(function (l) {
+        if (String(l.item_id) !== String(itemId)) return;
+        qty += Number(l.qty) || 0;   // return hone par maal wapas godam mein
+      });
+    });
     return r2(qty);
   }
   function isLowStock(i) {
@@ -1553,6 +1559,16 @@
         ev.push({ kind:'adj', date:a.adj_date, label:'Stock adjustment',
                   sub:a.reason || '', delta:n(a.qty) });
       });
+
+    led.returns.forEach(function (rr) {
+      (rr.lines || []).filter(function (l) { return String(l.item_id) === String(it.id); })
+        .forEach(function (l) {
+          var origSale = led.vouchers.filter(function (v) { return v.id === rr.sale_id; })[0];
+          ev.push({ kind:'return', date:rr.rdate, id:rr.id,
+                    label:'Sales Return ' + (rr.rno || ''),
+                    sub:'Against ' + (origSale ? origSale.vno : ''), delta:n(l.qty) });
+        });
+    });
 
     ev.sort(function (a, b) {
       if (a.kind === 'open') return -1;
@@ -2590,7 +2606,8 @@
       sb.from('vouchers').select('*').not('deleted_at', 'is', null),
       sb.from('sheets').select('sheet_date,page,deleted_at').not('deleted_at', 'is', null),
       sb.from('quotations').select('*').not('deleted_at', 'is', null),
-      sb.from('purchase_orders').select('*').not('deleted_at', 'is', null)
+      sb.from('purchase_orders').select('*').not('deleted_at', 'is', null),
+      sb.from('sales_returns').select('*').not('deleted_at', 'is', null)
     ]).then(function (r) {
       if (r[0].error) throw r[0].error;
       var rows = []
@@ -2600,7 +2617,8 @@
         .concat((r[3].error ? [] : r[3].data || []).map(function (x) { return Object.assign({ _tab:'vouchers' }, x); }))
         .concat((r[4].error ? [] : r[4].data || []).map(function (x) { return Object.assign({ _tab:'sheets' }, x); }))
         .concat((r[5].error ? [] : r[5].data || []).map(function (x) { return Object.assign({ _tab:'quotations' }, x); }))
-        .concat((r[6].error ? [] : r[6].data || []).map(function (x) { return Object.assign({ _tab:'purchase_orders' }, x); }));
+        .concat((r[6].error ? [] : r[6].data || []).map(function (x) { return Object.assign({ _tab:'purchase_orders' }, x); }))
+        .concat((r[7].error ? [] : r[7].data || []).map(function (x) { return Object.assign({ _tab:'sales_returns' }, x); }));
       rows.sort(function (a, b) { return new Date(b.deleted_at) - new Date(a.deleted_at); });
       renderRecycleList(rows);
     }).catch(function (e) {
@@ -2608,12 +2626,13 @@
     });
   }
   var TAB_LABEL = { parties:'Party', items:'Item', companies:'Firm', vouchers:'Bill', sheets:'Ledger day',
-                    quotations:'Quotation', purchase_orders:'Purchase Order' };
+                    quotations:'Quotation', purchase_orders:'Purchase Order', sales_returns:'Sales Return' };
   var REC_KEY = { sheets:'sheet_date' };   // baaki sab tables 'id' use karti hain
   function recName(r) {
     if (r._tab === 'vouchers') return (r.vtype === 'purchase' ? 'Purchase' : 'Sale') + (r.vno ? ' #' + r.vno : '');
     if (r._tab === 'quotations') return 'Quotation' + (r.qno ? ' #' + r.qno : '');
     if (r._tab === 'purchase_orders') return 'PO' + (r.pono ? ' #' + r.pono : '');
+    if (r._tab === 'sales_returns') return 'Sales Return' + (r.rno ? ' #' + r.rno : '');
     if (r._tab === 'sheets') {
       var d = new Date(r.sheet_date);
       return d.toLocaleDateString(undefined, { day:'numeric', month:'short', year:'numeric' }) + (r.page ? ' (page ' + esc(r.page) + ')' : '');
@@ -2641,8 +2660,8 @@
         btn.disabled = true; btn.textContent = 'Restoring\u2026';
         sb.from(t).update({ deleted_at: null }).eq(keyCol, id).select().then(function (res) {
           if (res.error) { sayErr(res.error, 'restore'); btn.disabled = false; btn.textContent = 'Restore'; return; }
-          if (t !== 'vouchers' && t !== 'sheets' && t !== 'quotations' && t !== 'purchase_orders' && res.data && res.data[0]) db[t].push(res.data[0]);
-          if (t === 'vouchers') led.loaded = false;
+          if (t !== 'vouchers' && t !== 'sheets' && t !== 'quotations' && t !== 'purchase_orders' && t !== 'sales_returns' && res.data && res.data[0]) db[t].push(res.data[0]);
+          if (t === 'vouchers' || t === 'sales_returns') led.loaded = false;
           toast('Restored');
           openRecycleBin();
           if (tab === t) render();
@@ -2880,24 +2899,36 @@
           ? sb.from('voucher_lines').select('voucher_id,item_id,qty,rate,amount,cost_amount').in('voucher_id', saleIds)
           : Promise.resolve({ data:[] });
         var sheetsQ = sb.from('sheets').select('sheet_date,rows').is('deleted_at', null).gte('sheet_date', from).lte('sheet_date', to);
+        var returnsQ = sb.from('sales_returns').select('id,grand_total,rdate').is('deleted_at', null).gte('rdate', from).lte('rdate', to);
 
-        return Promise.all([linesQ, sheetsQ]).then(function (r) {
+        return Promise.all([linesQ, sheetsQ, returnsQ]).then(function (r) {
           var lines = r[0].error ? [] : (r[0].data || []);
           var sheets = r[1].error ? [] : (r[1].data || []);
+          var srets  = r[2].error ? [] : (r[2].data || []);
+          var retIds = srets.map(function (rr) { return rr.id; });
 
-          var grossSales = 0, discounts = 0, otherIncome = 0, cogs = 0;
-          saleVouchers.forEach(function (v) {
-            grossSales += n(v.sub_total);
-            discounts += n(v.discount);
-            if (v.loading_on) otherIncome += n(v.loading_amt);
-            if (v.cartage_on) otherIncome += n(v.cartage_amt);
-            if (v.cutting_on) otherIncome += n(v.cutting_amt);
-          });
-          lines.forEach(function (l) { cogs += n(l.cost_amount); });
+          var retLinesQ = retIds.length
+            ? sb.from('sales_return_lines').select('return_id,cost_amount').in('return_id', retIds)
+            : Promise.resolve({ data:[] });
 
-          var netSales = r2(grossSales - discounts);
-          cogs = r2(cogs); otherIncome = r2(otherIncome);
-          var grossProfit = r2(netSales - cogs);
+          return retLinesQ.then(function (rlr) {
+            var retLines = rlr.error ? [] : (rlr.data || []);
+
+            var grossSales = 0, discounts = 0, otherIncome = 0, cogs = 0, salesReturns = 0, returnCogsReversal = 0;
+            saleVouchers.forEach(function (v) {
+              grossSales += n(v.sub_total);
+              discounts += n(v.discount);
+              if (v.loading_on) otherIncome += n(v.loading_amt);
+              if (v.cartage_on) otherIncome += n(v.cartage_amt);
+              if (v.cutting_on) otherIncome += n(v.cutting_amt);
+            });
+            lines.forEach(function (l) { cogs += n(l.cost_amount); });
+            srets.forEach(function (rr) { salesReturns += n(rr.grand_total); });
+            retLines.forEach(function (l) { returnCogsReversal += n(l.cost_amount); });
+
+            var netSales = r2(grossSales - salesReturns - discounts);
+            cogs = r2(cogs - returnCogsReversal); otherIncome = r2(otherIncome); salesReturns = r2(salesReturns);
+            var grossProfit = r2(netSales - cogs);
 
           var expenseType = {};
           db.parties.forEach(function (p) { if (p.kind === 'expense') expenseType[p.id] = p.expense_type || 'other'; });
@@ -2916,13 +2947,14 @@
           var netProfit = r2(operatingProfit - finance);
 
           return {
-            grossSales:r2(grossSales), discounts:r2(discounts), netSales:netSales, cogs:cogs,
+            grossSales:r2(grossSales), salesReturns:salesReturns, discounts:r2(discounts), netSales:netSales, cogs:cogs,
             grossProfit:grossProfit, grossMarginPct: netSales ? r2(grossProfit / netSales * 100) : 0,
             otherIncome:otherIncome, opEx:opEx, operatingProfit:operatingProfit,
             finance:finance, netProfit:netProfit,
             netMarginPct: netSales ? r2(netProfit / netSales * 100) : 0,
             saleVouchers:saleVouchers, lines:lines
           };
+          });
         });
       });
   }
@@ -2937,6 +2969,7 @@
     }
     var h = '<div style="font-size:11.5px;color:var(--mute);margin-bottom:8px">' + dayText(range.from) + ' \u2014 ' + dayText(range.to) + '</div>';
     h += row('Gross Sales', fmt(pl.grossSales));
+    h += row('Less: Sales Returns', pl.salesReturns ? '\u2212 ' + fmt(pl.salesReturns) : '\u2014', { indent:true });
     h += row('Less: Sales Discounts', pl.discounts ? '\u2212 ' + fmt(pl.discounts) : '\u2014', { indent:true });
     h += row('Net Sales', fmt(pl.netSales), { bold:true, top:true });
     h += row('Cost of Goods Sold', '\u2212 ' + fmt(pl.cogs));
