@@ -777,7 +777,8 @@
     });
     if (!bill.lines.length) bill.lines.push(newLine());
     originalLineSnapshot = rec ? bill.lines.map(function (l) {
-      return { item_id:l.item_id, qty:num(l.qty), rate:num(l.rate) };
+      return { id:l.id, item_id:l.item_id, qty:num(l.qty), rate:num(l.rate),
+               tax_pct:num(l.tax_pct), amount:num(l.amount), pcs_on:!!l.pcs_on, pcs:l.pcs };
     }) : null;
     originalHeadSnapshot = rec ? JSON.parse(JSON.stringify(rec)) : null;
     dirty = false;
@@ -1098,6 +1099,40 @@
     });
     return msgs.length ? msgs : null;
   }
+  function fetch_lines(table, fkCol, fkId) {
+    return sb.from(table).select('*').eq(fkCol, fkId).then(function (r) {
+      if (r.error) throw r.error;
+      return r.data || [];
+    });
+  }
+  function totalsFromLines(finalLines, b) {
+    var sub = 0, tax = 0;
+    finalLines.forEach(function (l) {
+      var amt = round2(num(l.qty) * num(l.rate));
+      sub += amt;
+      if (b.tax_on) tax += round2(amt * num(l.tax_pct) / 100);
+    });
+    sub = round2(sub); tax = round2(tax);
+    var disc = round2(num(b.discount));
+    var extras = round2((b.loading_on ? num(b.loading_amt) : 0) + (b.cartage_on ? num(b.cartage_amt) : 0) + (b.cutting_on ? num(b.cutting_amt) : 0));
+    var grand = round2(sub - disc + tax + extras);
+    var paid = round2(num(b.paid));
+    return { sub:sub, tax:tax, disc:disc, extras:extras, grand:grand, paid:paid, due:round2(grand - paid) };
+  }
+  function finishBillSave(row, finalLines, recId, head, t, diff, priorBill) {
+    return sb.from('vouchers').update({ sub_total:t.sub, tax_total:t.tax, grand_total:t.grand })
+      .eq('id', recId).select().then(function (r3) {
+        var saved = Object.assign({}, row || head, r3.data ? r3.data[0] : {}, { id:recId, lines:finalLines || [] });
+        bills = bills.map(function (x) { return x.id === recId ? saved : x; });
+        cacheSave('bills', bills);
+        syncNote('Saved', '#7DC9A9');
+        if (diff) sb.rpc('log_manual_audit', {
+          p_table:'vouchers', p_record_id:recId, p_label:head.vno, p_action:'update',
+          p_changes:{ lines:diff }
+        }).catch(function () {});
+        render();
+      });
+  }
   function saveBill() {
     var b = bill;
     if (!b.party_id) { toast('Pick a party first', true); return; }
@@ -1115,9 +1150,13 @@
       cartage_on:!!b.cartage_on, cartage_amt:num(b.cartage_amt),
       cutting_on:!!b.cutting_on, cutting_amt:num(b.cutting_amt)
     };
-    var linesPayload = good.map(function (l, i) {
-      return { item_id:l.item_id, qty:num(l.qty), rate:num(l.rate), tax_pct:num(l.tax_pct),
-               amount:round2(num(l.qty) * num(l.rate)), pcs_on:!!l.pcs_on, pcs:l.pcs_on ? num(l.pcs) : null };
+    var linesForMerge = good.map(function (l) {
+      return { id:l.id || null, item_id:l.item_id, qty:num(l.qty), rate:num(l.rate),
+               tax_pct:num(l.tax_pct), amount:round2(num(l.qty) * num(l.rate)),
+               pcs_on:!!l.pcs_on, pcs:l.pcs_on ? num(l.pcs) : null };
+    });
+    var linesPayload = linesForMerge.map(function (l) {
+      var o = Object.assign({}, l); delete o.id; return o;
     });
     var priorBill = isNew ? null : bills.filter(function (x) { return x.id === recId; })[0];
     var diff = !isNew ? lineDiffSummary(originalLineSnapshot, good) : null;
@@ -1137,7 +1176,8 @@
     if (!navigator.onLine) {
       offQAdd({ opId:uuid(), kind:'bill', op:isNew ? 'insert' : 'update', recordId:recId,
                 baseVersion:isNew ? null : (b.version || 1), original:isNew ? null : originalHeadSnapshot,
-                head:head, lines:linesPayload, label:head.vno });
+                head:head, lines:linesPayload, linesForMerge:isNew ? null : linesForMerge,
+                originalLines:isNew ? null : originalLineSnapshot, label:head.vno });
       syncNote('Offline \u2014 save queued', '#B08A3E');
       return;
     }
@@ -1172,36 +1212,43 @@
         }
       }
       var row = isNew ? (res.data || [])[0] : res.data.row;
-      return (isNew ? Promise.resolve({ error:null })
-                    : sb.from('voucher_lines').delete().eq('voucher_id', recId))
-        .then(function (d) {
-          if (d && d.error) throw d.error;
-          var payload = linesPayload.map(function (l, i) { return Object.assign({ voucher_id:recId, line_no:i + 1 }, l); });
-          return sb.from('voucher_lines').insert(payload).select();
-        })
-        .then(function (r2) {
+      if (isNew) {
+        var payload = linesPayload.map(function (l, i) { return Object.assign({ voucher_id:recId, line_no:i + 1 }, l); });
+        return sb.from('voucher_lines').insert(payload).select().then(function (r2) {
           if (r2.error) throw r2.error;
-          // sub_total/tax_total/grand_total lines se bante hain — smart-merge inhe chhuta hai,
-          // is liye yahan seedha, bina version-check ke update kar dete hain (hamesha sahi hoga
-          // kyunke ye humne abhi-abhi jo lines likhi hain unhi se nikla hai)
-          return sb.from('vouchers').update({ sub_total:t.sub, tax_total:t.tax, grand_total:t.grand })
-            .eq('id', recId).select().then(function (r3) {
-              var saved = Object.assign({}, row || head, r3.data ? r3.data[0] : {}, { id:recId, lines:(r2.data || []) });
-              bills = bills.map(function (x) { return x.id === recId ? saved : x; });
-              cacheSave('bills', bills);
-              syncNote('Saved', '#7DC9A9');
-              if (diff) sb.rpc('log_manual_audit', {
-                p_table:'vouchers', p_record_id:recId, p_label:head.vno, p_action:'update',
-                p_changes:{ lines:diff }
-              }).catch(function () {});
-              render();
-            });
+          return finishBillSave(row, r2.data, recId, head, t, diff, priorBill);
         });
+      }
+      // existing bill: lines ko blindly delete-insert nahi, smart-merge karte hain
+      // (warna kisi aur ki tabdeeli ya kisi purane Sales Return ka link toot sakta hai)
+      return sb.rpc('smart_merge_lines', {
+        p_line_table:'voucher_lines', p_fk_col:'voucher_id', p_fk_id:recId,
+        p_original_lines:originalLineSnapshot, p_new_lines:linesForMerge,
+        p_ignore_fields:['voucher_id', 'line_no', 'cost_amount']
+      }).then(function (mr) {
+        if (mr.error) throw mr.error;
+        if (mr.data.status === 'conflict') {
+          var names = mr.data.items.map(function (id) { var it = itemById(id); return it ? it.name : id; });
+          toast('"' + head.vno + '" mein "' + names.join(', ') + '" kisi aur ne bhi isi waqt badla \u2014 taaza dekh kar dobara karein', true);
+          loadAll();
+          return null;
+        }
+        return sb.rpc('apply_merged_lines', {
+          p_line_table:'voucher_lines', p_fk_col:'voucher_id', p_fk_id:recId, p_final_lines:mr.data.lines
+        }).then(function (ar) {
+          if (ar.error) throw ar.error;
+          return fetch_lines('voucher_lines', 'voucher_id', recId).then(function (finalLines) {
+            var recomputedT = totalsFromLines(finalLines, b);
+            return finishBillSave(row, finalLines, recId, head, recomputedT, diff, priorBill);
+          });
+        });
+      });
     }).catch(function (e) {
       if (isNetErr(e)) {
         offQAdd({ opId:uuid(), kind:'bill', op:isNew ? 'insert' : 'update', recordId:recId,
                   baseVersion:isNew ? null : (b.version || 1), original:isNew ? null : originalHeadSnapshot,
-                  head:head, lines:linesPayload, label:head.vno });
+                  head:head, lines:linesPayload, linesForMerge:isNew ? null : linesForMerge,
+                  originalLines:isNew ? null : originalLineSnapshot, label:head.vno });
         syncNote('Offline \u2014 save queued', '#B08A3E');
       } else {
         if (isNew) bills = bills.filter(function (x) { return x.id !== recId; });
@@ -2035,11 +2082,30 @@
           return 'conflict';
         }
       }
-      return sb.from('voucher_lines').delete().eq('voucher_id', op.recordId).then(function (d) {
-        if (d.error) throw d.error;
+      if (op.op === 'insert') {
         var payload = op.lines.map(function (l, i) { return Object.assign({ voucher_id:op.recordId, line_no:i + 1 }, l); });
-        return sb.from('voucher_lines').insert(payload).select();
-      }).then(function (r2) { if (r2.error) throw r2.error; return 'ok'; });
+        return sb.from('voucher_lines').insert(payload).select().then(function (r2) { if (r2.error) throw r2.error; return 'ok'; });
+      }
+      if (!op.linesForMerge) {
+        // purani-tarah wale queued items (upgrade se pehle ke) — fallback: blind delete-insert
+        return sb.from('voucher_lines').delete().eq('voucher_id', op.recordId).then(function (d) {
+          if (d.error) throw d.error;
+          var payload = op.lines.map(function (l, i) { return Object.assign({ voucher_id:op.recordId, line_no:i + 1 }, l); });
+          return sb.from('voucher_lines').insert(payload).select();
+        }).then(function (r2) { if (r2.error) throw r2.error; return 'ok'; });
+      }
+      // existing bill: line-level smart-merge, na ke blind delete-insert
+      return sb.rpc('smart_merge_lines', {
+        p_line_table:'voucher_lines', p_fk_col:'voucher_id', p_fk_id:op.recordId,
+        p_original_lines:op.originalLines, p_new_lines:op.linesForMerge,
+        p_ignore_fields:['voucher_id', 'line_no', 'cost_amount']
+      }).then(function (mr) {
+        if (mr.error) throw mr.error;
+        if (mr.data.status === 'conflict') return 'conflict';
+        return sb.rpc('apply_merged_lines', {
+          p_line_table:'voucher_lines', p_fk_col:'voucher_id', p_fk_id:op.recordId, p_final_lines:mr.data.lines
+        }).then(function (ar) { if (ar.error) throw ar.error; return 'ok'; });
+      });
     });
   }
   window.addEventListener('online', trySyncQueue);
