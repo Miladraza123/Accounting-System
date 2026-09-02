@@ -2675,6 +2675,14 @@
       });
     }
     if (op.op === 'update') {
+      if (op.original) {
+        return sb.rpc('smart_merge_update', { p_table:op.table, p_id:op.recordId, p_original:op.original, p_new:op.payload })
+          .then(function (res) {
+            if (res.error) throw res.error;
+            if (res.data && res.data.status === 'conflict') return 'conflict';
+            return 'ok';
+          });
+      }
       return sb.from(op.table).update(op.payload).eq('id', op.recordId).eq('version', op.baseVersion).select()
         .then(function (res) {
           if (res.error) throw res.error;
@@ -2755,24 +2763,37 @@
     if (!navigator.onLine) {
       offQAdd({ opId:uuid(), table:tab, op:isNew ? 'insert' : 'update', recordId:recId,
                 baseVersion:isNew ? null : (editing.version || 1),
+                original:isNew ? null : editing,
                 payload:isNew ? Object.assign({ id:recId }, body) : body, label:label });
       syncNote('Offline \u2014 save queued', '#B08A3E');
       return;
     }
 
     syncNote('Saving…');
-    var q = isNew ? sb.from(tab).insert(Object.assign({ id:recId }, body)).select()
-                  : sb.from(tab).update(body).eq('id', recId).eq('version', editing.version || 1).select();
+    var q = isNew
+      ? sb.from(tab).insert(Object.assign({ id:recId }, body)).select()
+      : sb.rpc('smart_merge_update', { p_table:tab, p_id:recId, p_original:editing, p_new:body });
     q.then(function (res) {
       if (res.error) throw res.error;
-      if (!isNew && (!res.data || !res.data.length)) {
-        // kisi aur ne beech mein isi record ko save kar diya — hamara optimistic
-        // update ab purana ho chuka; taaza data la kar dikhao
-        toast('Kisi aur ne "' + label + '" pehle save kar diya \u2014 taaza data la rahe hain', true);
+      if (isNew) {
+        var row0 = (res.data || [])[0];
+        if (row0) db[tab] = db[tab].map(function (r) { return r.id === recId ? row0 : r; });
+        cacheSave(tab, db[tab]);
+        syncNote('Saved', '#7DC9A9'); render();
+        return;
+      }
+      var result = res.data;   // smart_merge_update ka jawab: {status, row} ya {status:'conflict', fields, current}
+      if (result.status === 'conflict') {
+        toast('"' + label + '" mein "' + result.fields.join(', ') + '" kisi aur ne bhi isi waqt badla \u2014 taaza dekh kar dobara karein', true);
         loadAll();
         return;
       }
-      var row = (res.data || [])[0];
+      if (result.status === 'missing') {
+        toast('"' + label + '" kisi aur ne delete kar diya hai', true);
+        loadAll();
+        return;
+      }
+      var row = result.row;
       if (row) db[tab] = db[tab].map(function (r) { return r.id === recId ? row : r; });
       cacheSave(tab, db[tab]);
       if (tab === 'companies' && body.is_default) {
@@ -2790,6 +2811,7 @@
       if (isNetErr(e)) {
         offQAdd({ opId:uuid(), table:tab, op:isNew ? 'insert' : 'update', recordId:recId,
                   baseVersion:isNew ? null : (editing.version || 1),
+                  original:isNew ? null : editing,
                   payload:isNew ? Object.assign({ id:recId }, body) : body, label:label });
         syncNote('Offline \u2014 save queued', '#B08A3E');
       } else {
