@@ -1,0 +1,2398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Billing — Purchase &amp; Sale</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Serif:wght@600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink:#2A2620; --slate:#5A5346; --mute:#9C9384; --line:#D8D0BF; --hair:#E7E1D3;
+    --paper:#FCFAF7; --desk:#EDE7D9; --panel:#F5F1E6;
+    --debit:#A0532E; --credit:#5F7A4E; --accent:#B0824A; --cash:#4A6D93;
+  }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { margin:0; height:100%; }
+  body { font-family:'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
+         background:var(--desk); color:var(--ink); display:flex; flex-direction:column;
+         overflow:hidden; font-size:14px; }
+  button, input, select, textarea { font:inherit; color:inherit; }
+  button { cursor:pointer; }
+
+  /* ---------- shell / sidebar ---------- */
+  .shell { flex:1; min-height:0; display:flex; overflow:hidden; }
+  .main-col { flex:1; min-width:0; display:flex; flex-direction:column; min-height:0; }
+
+  .mobar { display:none; flex:none; background:var(--ink); color:#fff; align-items:center; gap:10px;
+           padding:0 12px; height:calc(48px + env(safe-area-inset-top)); padding-top:env(safe-area-inset-top); }
+  .mobar .hbtn { background:none; border:none; color:#fff; padding:6px; margin:-6px; border-radius:6px; }
+  .mobar .hbtn:active { background:#3A342A; }
+  .mobar .ttl { font-size:14px; font-weight:600; flex:1; }
+
+  .backdrop { display:none; position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:39; }
+  .backdrop.on { display:block; }
+
+  .sidebar { flex:none; width:216px; background:var(--ink); display:flex; flex-direction:column;
+             overflow-y:auto; -webkit-overflow-scrolling:touch; }
+  .sb-hd { flex:none; padding:14px 16px; display:flex; align-items:center; gap:9px;
+           border-bottom:1px solid #4A4436; }
+  .sb-hd .mark { flex:none; width:26px; height:26px; border:1.5px solid var(--accent); border-radius:6px;
+                 display:grid; place-items:center; font-size:9.5px; color:var(--accent); font-weight:700; }
+  .sb-hd .ttl { font-size:13.5px; font-weight:600; color:#F5F1E6; }
+  .sb-close { display:none; margin-left:auto; background:none; border:none; color:#B0A891; padding:4px; }
+
+  .sb-sec { padding:12px 10px 4px; }
+  .sb-lbl { padding:0 8px 6px; font-size:9.5px; letter-spacing:.6px; text-transform:uppercase; color:#8C8577; }
+  .sb-item { display:flex; align-items:center; gap:10px; width:100%; text-align:left;
+             background:none; border:none; color:#D9CFBE; padding:8px 10px; border-radius:7px;
+             font-size:13px; margin-bottom:1px; }
+  .sb-item svg { flex:none; width:16px; height:16px; opacity:.9; }
+  .sb-item .n { margin-left:auto; font-size:11px; color:#8C8577; }
+  .sb-item:hover { background:#3A342A; }
+  .sb-item.on { background:#3A342A; color:#F5F1E6; }
+  .sb-div { height:1px; background:#4A4436; margin:8px 12px; }
+  .sb-spacer { flex:1; }
+
+  @media (max-width:880px) {
+    .mobar { display:flex; }
+    .sidebar { position:fixed; left:0; top:0; bottom:0; width:78%; max-width:280px; z-index:40;
+               transform:translateX(-100%); transition:transform .22s ease; box-shadow:4px 0 20px rgba(0,0,0,.25); }
+    .sidebar.on { transform:translateX(0); }
+    .sb-close { display:block; }
+  }
+
+  .spacer { flex:1; }
+
+  .appbar { flex:none; background:var(--ink); color:#fff; display:flex; align-items:center; gap:10px;
+            padding:0 10px; height:calc(54px + env(safe-area-inset-top));
+            padding-top:env(safe-area-inset-top); }
+  .brand { display:flex; align-items:center; gap:8px; font-weight:600; font-size:14px; letter-spacing:.4px; }
+  .brand .mark { width:25px; height:25px; border:1.5px solid var(--accent); border-radius:5px;
+                 display:grid; place-items:center; font-size:11px; color:var(--accent); font-weight:700; }
+  .abtn { background:#3A342A; border:1px solid #4A4436; color:#E8E2D5; border-radius:7px;
+          padding:7px 11px; font-size:12.5px; font-weight:500; display:inline-flex; align-items:center; gap:6px; }
+  .abtn:hover { background:#3A342A; }
+  .abi { width:14px; height:14px; flex:none; opacity:.85; }
+  .sync { font-family:'IBM Plex Mono',monospace; font-size:11px; color:#B0A891; white-space:nowrap; }
+
+  .tabs { flex:none; display:flex; background:var(--paper); border-bottom:1px solid var(--line); }
+  .tab { flex:1; padding:12px 8px 10px; background:none; border:none; font-size:13px; font-weight:600;
+         letter-spacing:.4px; color:var(--mute); border-bottom:3px solid transparent; }
+  .tab.on { color:var(--ink); border-bottom-color:var(--accent); }
+  .tab.on[data-t="purchase"] { border-bottom-color:var(--debit); }
+  .tab.on[data-t="sale"]     { border-bottom-color:var(--credit); }
+  .tab .n { font-family:'IBM Plex Mono',monospace; font-size:11.5px; font-weight:500; color:var(--mute); }
+
+  .tools { flex:none; display:flex; gap:8px; align-items:center; padding:10px;
+           background:var(--paper); border-bottom:1px solid var(--hair); }
+  .search { flex:1; position:relative; }
+  .search input { width:100%; padding:9px 32px 9px 32px; border:1px solid var(--line);
+                  border-radius:8px; background:var(--panel); font-size:14px; }
+  .search input:focus { outline:none; border-color:var(--cash); background:#fff;
+                        box-shadow:0 0 0 3px rgba(11,110,153,.12); }
+  .search .ico { position:absolute; left:10px; top:50%; transform:translateY(-50%);
+                 color:var(--mute); pointer-events:none; }
+  .search .clr { position:absolute; right:6px; top:50%; transform:translateY(-50%);
+                 background:none; border:none; color:var(--mute); font-size:17px; padding:2px 6px; display:none; }
+  .search.has .clr { display:block; }
+  .newbtn { flex:none; background:var(--ink); color:#fff; border:none; border-radius:8px;
+            padding:9px 14px; font-size:13px; font-weight:600; white-space:nowrap; }
+  .newbtn:hover { background:#3A342A; }
+
+  .wrap { flex:1; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch;
+          padding-bottom:calc(20px + env(safe-area-inset-bottom)); }
+  .rows { background:var(--paper); }
+  .brow { display:flex; align-items:center; gap:11px; padding:11px 12px;
+          border-bottom:1px solid var(--hair); cursor:pointer; }
+  .brow:hover { background:#F7F4EE; }
+  .brow:focus-visible { outline:none; background:#EFE7D8; box-shadow:inset 3px 0 0 var(--cash); }
+  .brow .no { flex:none; width:62px; font-family:'IBM Plex Mono',monospace; font-size:12px;
+              font-weight:600; color:var(--slate); }
+  .docav { flex:none; width:30px; height:30px; border-radius:8px; display:grid; place-items:center;
+           background:var(--panel); color:var(--slate); }
+  .docav.doc-purchase   { background:#F2E9D6; color:#96702E; }
+  .docav.doc-sale       { background:#E4EBF2; color:#4A6D93; }
+  .docav.doc-quotation  { background:#E9E1F0; color:#6E4A96; }
+  .docav.doc-po         { background:#F0E6D2; color:#96702E; }
+  .docav.doc-return     { background:#EFE9E1; color:#8C8577; }
+  .brow .mid { flex:1; min-width:0; }
+  .brow .nm { font-weight:600; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .brow .sub { font-size:11.5px; color:var(--mute); margin-top:2px; }
+  .brow .amt { flex:none; text-align:right; font-family:'IBM Plex Mono',monospace;
+               font-size:13.5px; font-weight:600; }
+  .brow .amt .tag { display:block; font-family:'IBM Plex Sans',sans-serif; font-size:9.5px;
+                    font-weight:600; letter-spacing:.7px; margin-top:1px; }
+  .amt.due .tag { color:var(--debit); } .amt.clr .tag { color:var(--credit); }
+  .datehead { position:sticky; top:0; z-index:2; background:var(--panel); color:var(--mute);
+              font-size:10.5px; font-weight:700; letter-spacing:1.1px; padding:5px 12px;
+              border-top:1px solid var(--hair); border-bottom:1px solid var(--hair); }
+
+  .empty { padding:56px 26px; text-align:center; color:var(--mute); }
+  .empty .big { font-family:'IBM Plex Serif',Georgia,serif; font-size:17px; color:var(--slate); margin-bottom:7px; }
+  .empty .sm { font-size:13px; line-height:1.55; }
+
+  /* ---------- bill editor ---------- */
+  .ed { position:fixed; inset:0; z-index:60; background:var(--desk); display:none; flex-direction:column; }
+  .ed.on { display:flex; }
+  .edbar { flex:none; background:var(--ink); color:#fff; display:flex; align-items:center; gap:10px;
+           padding:0 10px; height:calc(54px + env(safe-area-inset-top)); padding-top:env(safe-area-inset-top); }
+  .edbar h3 { margin:0; font-family:'IBM Plex Serif',Georgia,serif; font-size:16px; font-weight:600; }
+  .edbody { flex:1; min-height:0; overflow-y:auto; padding:12px;
+            padding-bottom:calc(12px + env(safe-area-inset-bottom)); }
+  .edfoot { flex:none; display:flex; gap:8px; align-items:center; padding:10px 12px;
+            padding-bottom:calc(10px + env(safe-area-inset-bottom));
+            background:var(--paper); border-top:1px solid var(--line); }
+
+  .card { background:var(--paper); border:1px solid var(--line); border-radius:10px;
+          padding:13px; margin-bottom:11px; }
+  .card > .ttl { font-size:10.5px; font-weight:700; letter-spacing:1.1px; text-transform:uppercase;
+                 color:var(--mute); margin-bottom:11px; }
+
+  .f { margin-bottom:11px; }
+  .f:last-child { margin-bottom:0; }
+  .f label { display:block; font-size:10.5px; font-weight:700; letter-spacing:.9px;
+             text-transform:uppercase; color:var(--mute); margin-bottom:5px; }
+  .f input, .f select, .f textarea { width:100%; padding:9px 10px; border:1px solid var(--line);
+                                     border-radius:7px; background:var(--paper); font-size:14px; }
+  .f textarea { resize:vertical; min-height:46px; }
+  .f input:focus, .f select:focus, .f textarea:focus { outline:none; border-color:var(--cash);
+                                     box-shadow:0 0 0 3px rgba(11,110,153,.12); }
+  .f .hint { font-size:11.5px; color:var(--mute); margin-top:4px; line-height:1.45; }
+  .f2 { display:flex; gap:9px; } .f2 > * { flex:1; min-width:0; }
+  .num input { font-family:'IBM Plex Mono',monospace; text-align:right; font-weight:600; }
+
+  /* combobox */
+  .pick { position:relative; }
+  .pick .menu { position:absolute; left:0; right:0; top:calc(100% + 3px); z-index:20;
+                background:var(--paper); border:1px solid var(--line); border-radius:8px;
+                box-shadow:0 7px 22px rgba(31,41,51,.15); max-height:210px; overflow-y:auto; display:none; }
+  .pick.open .menu { display:block; }
+  .pick .opt { padding:9px 11px; font-size:13.5px; cursor:pointer; border-bottom:1px solid var(--hair); }
+  .pick .opt:last-child { border-bottom:none; }
+  .pick .opt.cur, .pick .opt:hover { background:#EFE7D8; }
+  .pick .opt .s { font-size:11px; color:var(--mute); margin-top:2px; }
+  .pick .none { padding:11px; font-size:12.5px; color:var(--mute); text-align:center; line-height:1.5; }
+
+  /* lines */
+  .lines { border:1px solid var(--line); border-radius:9px; overflow:hidden; }
+  .ln { border-bottom:1px solid var(--hair); padding:10px 11px; background:var(--paper); }
+  .ln:last-child { border-bottom:none; }
+  .ln .top { display:flex; align-items:flex-start; gap:8px; }
+  .ln .top .pick { flex:1; min-width:0; }
+  .ln .rm { flex:none; background:none; border:none; color:var(--mute); font-size:19px;
+            padding:2px 5px; line-height:1; }
+  .ln .rm:hover { color:var(--debit); }
+  .ln .qr { display:flex; gap:8px; margin-top:8px; align-items:flex-end; }
+  .ln .qr .f { flex:1; margin-bottom:0; }
+  .ln .qr .tot { flex:none; min-width:88px; text-align:right; font-family:'IBM Plex Mono',monospace;
+                 font-weight:600; font-size:14px; padding-bottom:9px; }
+  .addln { width:100%; padding:11px; background:var(--panel); border:none; border-top:1px solid var(--hair);
+           font-size:13px; font-weight:600; color:var(--slate); }
+  .addln:hover { background:#EDF0F2; }
+
+  .sum { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px 13px; }
+  .sline { display:flex; justify-content:space-between; align-items:center; padding:5px 0; font-size:13.5px; }
+  .sline .v { font-family:'IBM Plex Mono',monospace; font-weight:600; }
+  .sline.big { border-top:1.5px solid var(--slate); margin-top:7px; padding-top:10px; font-size:16px; font-weight:700; }
+  .sline.big .v { font-size:18px; }
+  .sline.due .v { color:var(--debit); }
+  .sline.done .v { color:var(--credit); }
+  .sline .k { color:var(--slate); }
+
+  .swrow { display:flex; align-items:center; gap:9px; }
+  .swrow .lbl { flex:1; font-size:13.5px; }
+  .swrow .sub { font-size:11.5px; color:var(--mute); margin-top:2px; }
+  .sw { flex:none; width:44px; height:25px; border-radius:13px; background:var(--line); border:none;
+        position:relative; transition:background .16s; }
+  .sw::after { content:''; position:absolute; top:3px; left:3px; width:19px; height:19px; border-radius:50%;
+               background:#fff; transition:left .16s; box-shadow:0 1px 3px rgba(0,0,0,.25); }
+  .sw.on { background:var(--credit); } .sw.on::after { left:22px; }
+
+  .bal { font-size:12px; color:var(--mute); margin-top:6px; line-height:1.5; }
+  .bal b { font-family:'IBM Plex Mono',monospace; }
+  .bal .dr { color:var(--debit); } .bal .cr { color:var(--credit); }
+
+  .btn { border:1px solid var(--line); background:var(--paper); border-radius:8px;
+         padding:10px 14px; font-size:13.5px; font-weight:600; }
+  .btn:hover { background:var(--panel); }
+  .btn.pri { background:var(--ink); color:#fff; border-color:var(--ink); flex:1; }
+  .btn.pri:hover { background:#3A342A; }
+  .btn.pri:disabled { background:var(--line); border-color:var(--line); color:#A39C8C; cursor:not-allowed; }
+  .btn.dgr { color:var(--debit); border-color:#E5D0C4; }
+  .btn.dgr:hover { background:#F7EEE7; }
+  .icb { background:none; border:none; color:#E8E2D5; font-size:21px; padding:4px 8px; line-height:1; }
+
+  /* ---------- gates / toast / ask ---------- */
+  .gate { position:fixed; inset:0; z-index:90; background:var(--desk); display:none;
+          align-items:center; justify-content:center; padding:20px; overflow-y:auto; }
+  .gate.on { display:flex; }
+  .gcard { background:var(--paper); border:1px solid var(--line); border-radius:12px; padding:26px 22px;
+           width:100%; max-width:400px; box-shadow:0 8px 30px rgba(31,41,51,.11); }
+  .gcard h1 { margin:0 0 4px; font-family:'IBM Plex Serif',Georgia,serif; font-size:20px; font-weight:600; }
+  .gcard .lede { font-size:13px; color:var(--mute); line-height:1.55; margin-bottom:18px; }
+  .gcard .note { font-size:12px; color:var(--mute); line-height:1.55; margin-top:14px;
+                 padding-top:13px; border-top:1px solid var(--hair); }
+  .err { background:#F7EEE7; border:1px solid #E5D0C4; color:var(--debit); border-radius:7px;
+         padding:9px 11px; font-size:12.5px; line-height:1.5; margin-bottom:13px; display:none; }
+  .err.on { display:block; }
+
+  .toast { position:fixed; left:50%; bottom:26px; transform:translate(-50%,14px); z-index:99;
+           background:var(--ink); color:#fff; padding:10px 17px; border-radius:9px; font-size:13px;
+           font-weight:500; opacity:0; pointer-events:none; transition:opacity .2s, transform .2s;
+           box-shadow:0 5px 18px rgba(0,0,0,.24); max-width:88vw; text-align:center; }
+  .toast.on { opacity:1; transform:translate(-50%,0); }
+  .toast.bad { background:var(--debit); }
+
+  .ask { position:fixed; inset:0; z-index:98; background:rgba(31,41,51,.45); display:none;
+         align-items:center; justify-content:center; padding:22px; }
+  .ask.on { display:flex; }
+  .ask .box { background:var(--paper); border-radius:12px; padding:20px; width:100%; max-width:370px;
+              box-shadow:0 10px 34px rgba(0,0,0,.26); }
+  .ask h4 { margin:0 0 7px; font-size:15.5px; font-weight:600; }
+  .ask p { margin:0 0 17px; font-size:13.5px; color:var(--slate); line-height:1.55; }
+  .ask .acts { display:flex; gap:8px; justify-content:flex-end; }
+
+  /* ---------- print ---------- */
+  .sheet { display:none; }
+  @media print {
+    body > *:not(.sheet) { display:none !important; }
+    body { background:#fff; overflow:visible; display:block; height:auto; }
+    @page { size:A4 portrait; margin:12mm 10mm; }
+    .sheet { display:block !important; font-size:10.5pt; color:#000;
+             -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    .sheet .hd { display:flex; align-items:flex-start; border-bottom:1.2mm solid #2A2620;
+                 padding-bottom:3mm; margin-bottom:4mm; }
+    .sheet .hd .firm { font-family:'IBM Plex Serif',Georgia,serif; font-size:18pt; font-weight:600; }
+    .sheet .hd .kind { font-size:8.5pt; letter-spacing:2.4px; color:#4A4436; margin-top:1.5mm;
+                       text-transform:uppercase; }
+    .sheet .hd .logo { max-height:18mm; max-width:29mm; object-fit:contain; align-self:center;
+                       margin-right:4mm; }
+    .sheet .hd .adr { font-size:9pt; color:#4A4436; margin-top:1mm; line-height:1.45; }
+    .sheet .hd .rt { margin-left:auto; text-align:right; font-size:10pt; }
+    .sheet .hd .rt .no { font-family:'IBM Plex Mono',monospace; font-weight:600; font-size:13pt; }
+    .sheet .who { display:flex; gap:8mm; margin-bottom:4mm; font-size:10pt; }
+    .sheet .who .lb { font-size:7.5pt; letter-spacing:1.4px; color:#9C9384; text-transform:uppercase;
+                      margin-bottom:1mm; }
+    .sheet .who .nm { font-weight:600; font-size:12pt; }
+    .sheet table { width:100%; border-collapse:collapse; }
+    .sheet th { font-size:8pt; letter-spacing:1px; text-transform:uppercase; color:#4A4436;
+                border-bottom:0.5mm solid #4A4436; padding:2mm 1.5mm; text-align:left; }
+    .sheet td { padding:2mm 1.5mm; border-bottom:0.2mm solid #CBD2D9; font-size:10.5pt;
+                vertical-align:top; }
+    .sheet .r { text-align:right; font-family:'IBM Plex Mono',monospace; }
+    .sheet .c { text-align:center; }
+    .sheet tfoot td { border-bottom:none; padding-top:2mm; }
+    .sheet tfoot .k { text-align:right; color:#4A4436; font-size:10pt; }
+    .sheet tfoot .v { text-align:right; font-family:'IBM Plex Mono',monospace; font-weight:600; }
+    .sheet tfoot .grand td { border-top:0.6mm solid #2A2620; font-size:13pt; font-weight:700;
+                             padding-top:2.5mm; }
+    .sheet .foot { margin-top:14mm; display:flex; justify-content:space-between; font-size:9pt;
+                   color:#4A4436; }
+    .sheet .sign { border-top:0.3mm solid #9C9384; padding-top:1.5mm; width:52mm; text-align:center; }
+    .sheet .note { margin-top:4mm; font-size:9.5pt; color:#4A4436; white-space:pre-line; }
+  }
+
+  @media (max-width:560px) {
+    .ln .qr { flex-wrap:wrap; }
+    .ln .qr .tot { min-width:100%; text-align:right; padding-bottom:0; padding-top:4px; }
+  }
+  @media (prefers-reduced-motion:reduce) { * { transition:none !important; } }
+</style>
+<script>if(window.self!==window.top)document.documentElement.classList.add('emb');</script>
+<style>
+  html.emb .brand { display:none; }
+  html.emb #outBtn { display:none; }
+  html.emb .appbar { padding-left:4px; }
+</style>
+</head>
+<body>
+
+<div class="gate on" id="gateConnect">
+  <div class="gcard">
+    <h1>Connect to your data</h1>
+    <div class="lede">Same Supabase project as your Daily Ledger and Masters.</div>
+    <div class="err" id="cErr"></div>
+    <div class="f"><label>Project URL</label><input id="cUrl" type="url" placeholder="https://xxxx.supabase.co" autocomplete="off"></div>
+    <div class="f"><label>Publishable / anon key</label><input id="cKey" type="text" placeholder="eyJhbGciOi…" autocomplete="off">
+      <div class="hint">Use the publishable (anon) key only.</div></div>
+    <button class="btn pri" id="cGo" style="width:100%">Connect</button>
+    <div class="note">Stored only in this browser. Keep this file next to the ledger and it connects on its own.</div>
+  </div>
+</div>
+
+<div class="gate" id="gateLogin">
+  <div class="gcard">
+    <h1>Sign in</h1>
+    <div class="lede">Apna username aur password daalein.</div>
+    <div class="err" id="lErr"></div>
+    <div class="f"><label>Username</label><input id="lMail" type="text" autocomplete="username"></div>
+    <div class="f"><label>Password</label><input id="lPass" type="password" autocomplete="current-password"></div>
+    <button class="btn pri" id="lGo" style="width:100%">Sign in</button>
+    <div class="note"><button class="btn" id="cfgReset" style="font-size:12px;padding:0;border:none;background:none;color:var(--mute);text-decoration:underline">Use a different project</button></div>
+  </div>
+</div>
+
+<div class="backdrop" id="sbBackdrop"></div>
+<div class="shell">
+  <div class="sidebar" id="sidebar">
+    <div class="sb-hd">
+      <span class="mark">OHT</span><span class="ttl">Billing</span>
+      <button class="sb-close" id="sbClose" aria-label="Close menu">✕</button>
+    </div>
+
+    <div class="sb-lbl">Documents</div>
+    <div class="sb-sec" style="padding-top:0">
+      <button class="sb-item on" data-t="purchase">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4h16v16H4z"/><path d="M9 9h6M9 13h6"/></svg>
+        Purchase<span class="n" id="nPur"></span>
+      </button>
+      <button class="sb-item" data-t="sale">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4h16v16H4z"/><path d="M9 9h6M9 13h6"/></svg>
+        Sale<span class="n" id="nSal"></span>
+      </button>
+      <button class="sb-item" data-t="quotation">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 12l2 2 4-4"/><rect x="4" y="4" width="16" height="16" rx="1"/></svg>
+        Quotation<span class="n" id="nQuo"></span>
+      </button>
+      <button class="sb-item" data-t="po">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1h11"/></svg>
+        Purchase order<span class="n" id="nPo"></span>
+      </button>
+      <button class="sb-item" data-t="return">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 15l-4-4 4-4"/><path d="M5 11h9a5 5 0 015 5v1"/></svg>
+        Sales return<span class="n" id="nRet"></span>
+      </button>
+    </div>
+
+    <div class="sb-spacer"></div>
+    <div class="sb-div"></div>
+    <div class="sb-sec">
+      <button class="sb-item" id="outBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4H6a1 1 0 00-1 1v14a1 1 0 001 1h3M15 16l4-4-4-4M19 12H8"/></svg>Sign out</button>
+    </div>
+  </div>
+
+  <div class="main-col">
+    <div class="mobar">
+      <button class="hbtn" id="sbOpen" aria-label="Open menu"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+      <span class="ttl" id="moTitle">Purchase</span>
+      <span class="sync" id="syncNote"></span>
+      <span id="pendingBadge" style="display:none;font-size:10.5px;color:#B08A3E;background:#F5F1E6;padding:3px 8px;border-radius:20px;margin-left:6px"></span>
+    </div>
+
+    <div class="tools">
+      <div class="search" id="searchWrap">
+        <span class="ico">⌕</span>
+        <input id="q" type="search" placeholder="Search by party or bill no…" autocomplete="off">
+        <button class="clr" id="qClr" aria-label="Clear search">×</button>
+      </div>
+      <button class="newbtn" id="newBtn">+ Bill</button>
+    </div>
+
+    <div class="wrap"><div class="rows" id="rows"></div></div>
+  </div>
+</div>
+
+<!-- ══════════ editor ══════════ -->
+<div class="ed" id="ed">
+  <div class="edbar">
+    <button class="icb" id="edBack" aria-label="Back">‹</button>
+    <h3 id="edTitle">New purchase</h3>
+    <div class="spacer"></div>
+    <button class="abtn" id="edPrint"><svg class="abi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V3h12v6M6 18H4a1 1 0 01-1-1v-6a1 1 0 011-1h16a1 1 0 011 1v6a1 1 0 01-1 1h-2M6 14h12v7H6z"/></svg>Print</button>
+  </div>
+  <div class="edbody" id="edBody"></div>
+  <div class="edfoot">
+    <button class="btn dgr" id="edDel" style="display:none">Delete</button>
+    <button class="btn pri" id="edSave">Save bill</button>
+  </div>
+</div>
+
+<div class="sheet" id="sheet"></div>
+<div class="toast" id="toast"></div>
+<div class="ask" id="ask">
+  <div class="box">
+    <h4 id="askTitle"></h4><p id="askBody"></p>
+    <div class="acts"><button class="btn" id="askNo">Cancel</button><button class="btn dgr" id="askYes">Delete</button></div>
+  </div>
+</div>
+
+<div class="ask" id="pickSaleModal">
+  <div class="box" style="max-width:420px">
+    <h4>Konsa Sale return ho raha hai?</h4>
+    <input id="pickSaleSearch" type="text" placeholder="Bill number ya party ka naam"
+      style="width:100%;box-sizing:border-box;margin:8px 0 10px;padding:9px 10px;border:1px solid var(--hair);border-radius:8px;font-size:14px">
+    <div id="pickSaleList" style="max-height:50vh;overflow:auto"></div>
+    <div class="acts"><button class="btn" id="pickSaleClose">Cancel</button></div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var CFG = 'ledger-cfg';
+  var store = {
+    get: function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+    set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} },
+    del: function (k) { try { localStorage.removeItem(k); } catch (e) {} }
+  };
+
+  var sb = null, vtype = 'purchase', bill = null, dirty = false;
+  var allVnos = [];   // sab vouchers ke numbers (deleted bhi shamil) — takraav se bachne ke liye
+  var quotes = [], pos = [];   // Quotations aur Purchase Orders — alag arrays, vouchers/balance se koi taluq nahi
+  var returns = [];   // Sales Returns — asal financial impact hai, is liye alag nahi (ledger/stock mein shamil)
+  var parties = [], items = [], bills = [], firms = [], lineSeq = 0;
+  var firmName = 'Osman Haji Tayyab';
+
+  /* ---------- helpers ---------- */
+  function fmt(n) { return (Number(n) || 0).toLocaleString('en-PK', { maximumFractionDigits:2 }); }
+  function money(n) { return (Number(n) || 0).toLocaleString('en-PK', { minimumFractionDigits:2, maximumFractionDigits:2 }); }
+  function norm(s) { return String(s == null ? '' : s).trim().toLowerCase().replace(/\s+/g, ' '); }
+  /* print se pehle logo ki tasveer poori tarah load hone do — warna print preview me khali reh jati hai */
+  /* shell ke andar (iframe) chal rahe hon to print/save ka naam BAHAR wali tab se aata hai —
+     is liye dono jagah title badalna zaroori hai */
+  function setPrintTitle(title) {
+    document.title = title;
+    try { if (window.top && window.top !== window) window.top.document.title = title; } catch (e) {}
+  }
+  function restorePrintTitle(mine, topOld) {
+    document.title = mine;
+    try { if (window.top && window.top !== window) window.top.document.title = topOld; } catch (e) {}
+  }
+  function printWhenReady(container) {
+    var img = container.querySelector('img');
+    if (!img || img.complete) { window.print(); return; }
+    var done = false;
+    function go() { if (done) return; done = true; window.print(); }
+    img.addEventListener('load', go);
+    img.addEventListener('error', go);
+    setTimeout(go, 1500);   // agar tasveer atak jaye to bhi print ruke nahi
+  }
+  /* file ke naam ke liye khaas nishaan (/ \ : * ? " < > |) hata do */
+  /* file ke naam ke liye — hamesha DD-Mon-YYYY, dash ke saath (locale par munhasir nahi) */
+  var MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  function fileDate(iso) {
+    if (!iso) return '';
+    var d = new Date(iso + 'T00:00:00');
+    return String(d.getDate()).padStart(2, '0') + '-' + MONTHS_SHORT[d.getMonth()] + '-' + d.getFullYear();
+  }
+  function fileSafe(s) { return String(s == null ? '' : s).replace(/[\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim(); }
+
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]; }); }
+  function today() {
+    // Karachi (PKT, UTC+5) time use karte hain — device ki apni timezone se koi
+    // farq nahi padta, chahe staff ka phone kisi bhi zone par set ho
+    var d = new Date(Date.now() + 5 * 60 * 60000);
+    return d.toISOString().slice(0, 10);
+  }
+  function human(iso) {
+    if (!iso) return '';
+    return new Date(iso + 'T00:00:00').toLocaleDateString('en-PK', { day:'2-digit', month:'short', year:'numeric' });
+  }
+  function num(v) { var n = parseFloat(String(v == null ? '' : v).replace(/[^0-9.\-]/g, '')); return isFinite(n) ? n : 0; }
+  function round2(n) { return Math.round((Number(n) || 0) * 100) / 100; }
+
+  var toastT = null;
+  function toast(msg, bad) {
+    var t = $('toast'); t.textContent = msg; t.classList.toggle('bad', !!bad); t.classList.add('on');
+    clearTimeout(toastT); toastT = setTimeout(function () { t.classList.remove('on'); }, 2600);
+  }
+  var syncT = null;
+  function syncNote(msg, col) {
+    var el = $('syncNote'); el.textContent = msg || ''; el.style.color = col || '#B0A891';
+    clearTimeout(syncT);
+    if (msg && col === '#7DC9A9') syncT = setTimeout(function () { el.textContent = ''; }, 2200);
+  }
+  function confirmBox(title, body, yes) {
+    return new Promise(function (res) {
+      $('askTitle').textContent = title; $('askBody').textContent = body;
+      $('askYes').textContent = yes || 'Delete'; $('ask').classList.add('on');
+      function done(v) { $('ask').classList.remove('on'); $('askYes').onclick = null; $('askNo').onclick = null; res(v); }
+      $('askYes').onclick = function () { done(true); };
+      $('askNo').onclick  = function () { done(false); };
+    });
+  }
+  function isNetErr(e) {
+    if (!e) return false;
+    if (!navigator.onLine) return true;
+    if (e.name === 'TypeError') return true;
+    var m = ((e.message || '') + ' ' + (e.details || '') + ' ' + (e.code || '')).toLowerCase();
+    return /failed to fetch|networkerror|network error|load failed|fetch failed|timeout|aborted|err_/.test(m);
+  }
+  /* phone ka waqt server se mel nahi khata — khud theek ho jata hai jab ghari sahi ho jaye */
+  function isClockErr(e) {
+    if (!e) return false;
+    var m = ((e.message || '') + ' ' + (e.error_description || '')).toLowerCase();
+    return /issued at.*future|clock skew|jwt.*future/.test(m);
+  }
+  /* bill number pehle se kisi (chahe delete ho chuki) row mein istemal ho chuka */
+  function isDupVno(e) {
+    if (!e) return false;
+    if (e.code === '23505') return true;
+    var m = ((e.message || '') + ' ' + (e.details || '')).toLowerCase();
+    return /duplicate key|already exists|unique constraint/.test(m);
+  }
+  function sayErr(e, what) {
+    if (isNetErr(e)) { toast('No internet — ' + what + ' not saved', true); syncNote('Offline', '#B08A3E'); return; }
+    if (isClockErr(e)) { toast('Your phone\u2019s clock looks slightly off \u2014 check Date & Time settings', true); return; }
+    if (e && String(e.code) === '23505') { toast('That bill number is already used', true); return; }
+    if (e && (String(e.code) === '23514' || String(e.code) === '23502')) {
+      var m = (e.message || '').toLowerCase();
+      if (m.indexOf('qty_nonneg') !== -1)  { toast('Quantity can\u2019t be negative', true); return; }
+      if (m.indexOf('rate_nonneg') !== -1) { toast('Rate can\u2019t be negative', true); return; }
+      if (m.indexOf('vdate') !== -1)       { toast('Bill date is required', true); return; }
+      toast('Please check the values you entered', true); return;
+    }
+    console.error(e); toast((e && e.message) || ('Could not ' + what), true);
+  }
+  function partyById(id) { return parties.filter(function (p) { return p.id === id; })[0] || null; }
+  function firmById(id) { return firms.filter(function (c) { return c.id === id; })[0] || null; }
+  function defFirm() {
+    var live = firms.filter(function (c) { return c.active !== false && !c.deleted_at; });
+    return live.filter(function (c) { return c.is_default; })[0] || live[0] || null;
+  }
+  function itemById(id)  { return items.filter(function (i) { return i.id === id; })[0] || null; }
+
+  /* ---------- totals ---------- */
+  function totals(b) {
+    var sub = 0, tax = 0;
+    (b.lines || []).forEach(function (l) {
+      var amt = round2(num(l.qty) * num(l.rate));
+      l.amount = amt; sub += amt;
+      if (b.tax_on) tax += round2(amt * num(l.tax_pct) / 100);
+    });
+    sub = round2(sub); tax = round2(tax);
+    var disc = round2(num(b.discount));
+    var extras = round2((b.loading_on ? num(b.loading_amt) : 0) +
+                         (b.cartage_on ? num(b.cartage_amt) : 0) +
+                         (b.cutting_on ? num(b.cutting_amt) : 0));
+    var grand = round2(sub - disc + tax + extras);
+    var paid = round2(num(b.paid));
+    return { sub:sub, tax:tax, disc:disc, extras:extras, grand:grand, paid:paid, due:round2(grand - paid) };
+  }
+
+  /* party ka abhi tak ka baqaya — opening + sab bills */
+  function partyBalance(pid) {
+    var p = partyById(pid);
+    if (!p) return 0;
+    var bal;
+    if (snapshotActive && openingBalances.hasOwnProperty(pid)) {
+      // is party ka balance locked-date tak snapshot se — poori purani
+      // history dobara load nahi hui, number wahi hai jo trusted formula se aaya
+      bal = openingBalances[pid];
+    } else {
+      // naya party (lock ke baad bana) ya snapshot abhi active nahi
+      bal = (p.opening_side === 'dr' ? 1 : -1) * num(p.opening);
+    }
+
+    // ledgerVouchers = poore ya lock-ke-baad ke vouchers (snapshot ke mutabiq) — 'bills' list
+    // sirf screen par recent 600 dikhane ke liye hai, balance ke liye alag/mukammal set chahiye
+    ledgerVouchers.forEach(function (b) {
+      if (b.party_id !== pid) return;
+      var g = num(b.grand_total), pd = num(b.paid);
+      if (b.vtype === 'sale')     bal += (g - pd);
+      else                        bal -= (g - pd);
+    });
+
+    // Sales Returns — customer ka receivable ghata dete hain (payment jaisa hi asar)
+    ledgerReturns.forEach(function (rr) {
+      if (rr.party_id !== pid) return;
+      bal -= num(rr.grand_total);
+    });
+
+    // ledger entries — row[6]=credit party_id, row[7]=debit party_id
+    sheets.forEach(function (sh) {
+      (sh.rows || []).forEach(function (row) {
+        if (!row) return;
+        var creditPid = row[6], debitPid = row[7];
+        if (creditPid === pid) {
+          var ca = Number(String(row[2] || '').replace(/,/g, '')) || 0;
+          if (ca) bal -= ca;
+        }
+        if (debitPid === pid) {
+          var da = Number(String(row[0] || '').replace(/,/g, '')) || 0;
+          if (da) bal += da;
+        }
+      });
+    });
+
+    return round2(bal);
+  }
+  function balText(pid) {
+    var v = partyBalance(pid);
+    if (!v) return '<span class="bal">Account balance: <b class="cr">Settled — nothing outstanding.</b></span>';
+    var dr = v > 0;
+    return '<span class="bal">Account balance: <b class="' + (dr ? 'dr' : 'cr') + '">' +
+           money(Math.abs(v)) + '</b> ' + (dr ? 'to collect from them' : 'payable to them') + '.</span>';
+  }
+
+  /* ---------- list ---------- */
+  function render() {
+    if (vtype === 'quotation' || vtype === 'po') { renderDocs(); return; }
+    if (vtype === 'return') { renderReturns(); return; }
+    var q = norm($('q').value);
+    var list = bills.filter(function (b) { return b.vtype === vtype; });
+    if (q) list = list.filter(function (b) {
+      var p = partyById(b.party_id);
+      return (norm(b.vno) + ' ' + norm(p && p.name) + ' ' + norm(b.narration)).indexOf(q) !== -1;
+    });
+    list.sort(function (a, b) {
+      if (a.vdate !== b.vdate) return a.vdate < b.vdate ? 1 : -1;
+      return (a.created_at || '') < (b.created_at || '') ? 1 : -1;
+    });
+
+    $('nPur').textContent = countOf('purchase');
+    $('nSal').textContent = countOf('sale');
+    $('nQuo').textContent = quotes.length ? '(' + quotes.length + ')' : '';
+    $('nPo').textContent = pos.length ? '(' + pos.length + ')' : '';
+    $('searchWrap').classList.toggle('has', !!$('q').value);
+
+    var box = $('rows');
+    if (!list.length) {
+      box.innerHTML = '<div class="empty">' + (q
+        ? '<div class="big">Nothing matched “' + esc($('q').value) + '”</div><div class="sm">Try the party name or a bill number.</div>'
+        : '<div class="big">No ' + vtype + ' bills yet</div><div class="sm">' +
+          (vtype === 'purchase'
+            ? 'Record what you buy. Stock goes up and the supplier’s balance builds here.'
+            : 'Record what you sell. Stock goes down and the customer’s balance builds here.') +
+          '</div>') + '</div>';
+      return;
+    }
+    var html = '', day = '';
+    list.forEach(function (b) {
+      if (b.vdate !== day) { day = b.vdate; html += '<div class="datehead">' + esc(human(day)) + '</div>'; }
+      var p = partyById(b.party_id);
+      var t = totals(normalise(b));
+      var cnt = (b.lines || []).length;
+      html += '<div class="brow" data-id="' + b.id + '" tabindex="0" role="button">' +
+        docIcon(b.vtype) +
+        '<div class="no">' + esc(b.vno || '—') + '</div><div class="mid">' +
+        '<div class="nm">' + esc(p ? p.name : 'No party') + '</div>' +
+        '<div class="sub">' + cnt + (cnt === 1 ? ' item' : ' items') +
+          (b.tax_on ? ' · with tax' : '') +
+          (b.narration ? ' · ' + esc(b.narration.slice(0, 34)) : '') + '</div></div>' +
+        '<div class="amt ' + (t.due > 0 ? 'due' : 'clr') + '">' + money(t.grand) +
+        '<span class="tag">' + (t.due > 0 ? money(t.due) + ' DUE' : 'PAID') + '</span></div></div>';
+    });
+    box.innerHTML = html;
+  }
+
+  /* ---------- Quotations / Purchase Orders list — bilkul alag, koi due/paid concept nahi ---------- */
+  function renderDocs() {
+    var isQ = vtype === 'quotation';
+    var src = isQ ? quotes : pos;
+    var dateKey = isQ ? 'qdate' : 'podate';
+    var q = norm($('q').value);
+    var list = src.slice();
+    if (q) list = list.filter(function (d) {
+      var p = partyById(d.party_id);
+      var no = isQ ? d.qno : d.pono;
+      return (norm(no) + ' ' + norm(p && p.name) + ' ' + norm(d.narration)).indexOf(q) !== -1;
+    });
+    list.sort(function (a, b) {
+      if (a[dateKey] !== b[dateKey]) return a[dateKey] < b[dateKey] ? 1 : -1;
+      return 0;
+    });
+
+    $('nPur').textContent = countOf('purchase');
+    $('nSal').textContent = countOf('sale');
+    $('nQuo').textContent = quotes.length ? '(' + quotes.length + ')' : '';
+    $('nPo').textContent = pos.length ? '(' + pos.length + ')' : '';
+    $('searchWrap').classList.toggle('has', !!$('q').value);
+
+    var box = $('rows');
+    if (!list.length) {
+      box.innerHTML = '<div class="empty">' + (q
+        ? '<div class="big">Nothing matched “' + esc($('q').value) + '”</div><div class="sm">Try the party name or number.</div>'
+        : '<div class="big">No ' + (isQ ? 'quotations' : 'purchase orders') + ' yet</div>' +
+          '<div class="sm">' + (isQ ? 'A quotation is just a document — it never touches stock or the ledger.'
+                                     : 'A purchase order is just a document — it never touches stock or the ledger.') + '</div>') + '</div>';
+      return;
+    }
+    var html = '', day = '';
+    list.forEach(function (d) {
+      if (d[dateKey] !== day) { day = d[dateKey]; html += '<div class="datehead">' + esc(human(day)) + '</div>'; }
+      var p = partyById(d.party_id);
+      var cnt = (d.lines || []).length;
+      html += '<div class="brow" data-doc="' + (isQ ? 'quotation' : 'po') + '" data-id="' + d.id + '" tabindex="0" role="button">' +
+        docIcon(isQ ? 'quotation' : 'po') +
+        '<div class="no">' + esc((isQ ? d.qno : d.pono) || '—') + '</div><div class="mid">' +
+        '<div class="nm">' + esc(p ? p.name : 'No party') + '</div>' +
+        '<div class="sub">' + cnt + (cnt === 1 ? ' item' : ' items') +
+          (d.narration ? ' · ' + esc(d.narration.slice(0, 34)) : '') + '</div></div>' +
+        '<div class="amt clr">' + money(num(d.grand_total)) + '</div></div>';
+    });
+    box.innerHTML = html;
+  }
+  function docIcon(type) {
+    var icons = {
+      purchase:'<path d="M4 4h16v16H4z"/><path d="M9 9h6M9 13h6"/>',
+      sale:'<path d="M4 4h16v16H4z"/><path d="M9 9h6M9 13h6"/>',
+      quotation:'<path d="M9 12l2 2 4-4"/><rect x="4" y="4" width="16" height="16" rx="1"/>',
+      po:'<path d="M9 11l3 3L22 4"/><path d="M21 12v7a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1h11"/>',
+      return:'<path d="M9 15l-4-4 4-4"/><path d="M5 11h9a5 5 0 015 5v1"/>'
+    };
+    var path = icons[type] || icons.sale;
+    return '<div class="docav doc-' + esc(type) + '"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" ' +
+      'stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + path + '</svg></div>';
+  }
+  function countOf(t) {
+    var n = bills.filter(function (b) { return b.vtype === t; }).length;
+    return n ? '(' + n + ')' : '';
+  }
+  function normalise(b) { b.lines = b.lines || []; return b; }
+
+  /* ---------- bill number ---------- */
+  function nextNo(type) {
+    var max = 0;
+    // allVnos mein DELETED (Recycle Bin) bills ka number bhi shamil hai — taake
+    // hum kabhi bhi kisi purane/reserved number se takra na jayein
+    allVnos.filter(function (b) { return b.vtype === type; }).forEach(function (b) {
+      var m = String(b.vno || '').match(/(\d+)\s*$/);
+      if (m) max = Math.max(max, parseInt(m[1], 10));
+    });
+    var pre = type === 'purchase' ? 'P-' : 'S-';
+    return pre + String(max + 1).padStart(4, '0');
+  }
+
+  /* ---------- editor ---------- */
+  function blank() {
+    var d = defFirm();
+    return { vtype:vtype, vno:nextNo(vtype), vdate:today(), party_id:null, narration:'',
+             company_id:d ? d.id : null, tax_on:false, discount:0, paid:0, lines:[newLine()],
+             loading_on:false, loading_amt:0, cartage_on:false, cartage_amt:0, cutting_on:false, cutting_amt:0 };
+  }
+  function newLine() { return { key:'L' + (++lineSeq), item_id:null, qty:'', rate:'', tax_pct:0, amount:0, pcs_on:false, pcs:null }; }
+
+  var originalLineSnapshot = null;   // audit-diff ke liye — sirf existing bill edit karte waqt
+  function openBill(rec) {
+    bill = rec ? JSON.parse(JSON.stringify(rec)) : blank();
+    bill.lines = (bill.lines || []).map(function (l) {
+      if (!l.key) l.key = 'L' + (++lineSeq); return l;
+    });
+    if (!bill.lines.length) bill.lines.push(newLine());
+    originalLineSnapshot = rec ? bill.lines.map(function (l) {
+      return { item_id:l.item_id, qty:num(l.qty), rate:num(l.rate) };
+    }) : null;
+    dirty = false;
+    $('edTitle').textContent = (rec ? 'Edit ' : 'New ') + (bill.vtype === 'purchase' ? 'purchase' : 'sale');
+    $('edSave').textContent = 'Save bill';
+    $('edDel').style.display = (rec && can('bill_delete')) ? '' : 'none';
+    $('edSave').style.display = (rec ? can('bill_edit') : can('bill_create')) ? '' : 'none';
+    drawEditor();
+    $('edBody').scrollTop = 0;
+    $('ed').classList.add('on');
+  }
+  function closeBill() { $('ed').classList.remove('on'); bill = null; dirty = false; }
+
+  function drawEditor() {
+    var b = bill, t = totals(b);
+    var isDoc = !!b.doc;
+    var other = b.vtype === 'purchase' ? 'supplier' : 'customer';
+    var p = partyById(b.party_id);
+    var h = '';
+    var cardLabel = isDoc ? (b.doc === 'quotation' ? 'Quotation' : 'Purchase Order') : 'Bill';
+    var noLabel = isDoc ? (b.doc === 'quotation' ? 'Quotation no' : 'PO no') : 'Bill no';
+
+    h += '<div class="card"><div class="ttl">' + cardLabel + '</div>' +
+      (firms.length > 1
+        ? '<div class="f"><label>Billed by</label><select id="bFirm">' +
+            firms.filter(function (c) { return (c.active !== false && !c.deleted_at) || c.id === b.company_id; })
+                 .map(function (c) {
+                   return '<option value="' + esc(c.id) + '"' +
+                          (String(b.company_id) === String(c.id) ? ' selected' : '') + '>' +
+                          esc(c.name) + '</option>';
+                 }).join('') + '</select></div>'
+        : '') +
+      '<div class="f2">' +
+        '<div class="f"><label>' + noLabel + '</label><input id="bNo" type="text" value="' + esc(b.vno) + '" autocomplete="off"></div>' +
+        '<div class="f"><label>Date</label><input id="bDate" type="date" value="' + esc(b.vdate) + '"></div>' +
+      '</div>' +
+      '<div class="f"><label>' + (other === 'supplier' ? 'Bought from' : 'Sold to') + '</label>' +
+        pickBox('bParty', p ? p.name : '', 'Type a name…') +
+        (b.party_id && !isDoc ? balText(b.party_id) : '<div class="hint">' +
+          (isDoc ? 'This is only a document — it never affects their account balance.' : 'Pick from your parties list. Add new ones in Masters.') + '</div>') +
+      '</div></div>';
+
+    h += '<div class="card"><div class="ttl">Items</div><div class="lines" id="lineBox">';
+    b.lines.forEach(function (l, i) { h += lineHtml(l, i); });
+    h += '</div><button class="addln" id="addLn">+ Add another item</button></div>';
+
+    h += '<div class="card"><div class="ttl">Tax</div>' +
+      '<div class="swrow"><div class="lbl">Charge sales tax' +
+      '<div class="sub">Uses each item’s own rate.' + (isDoc ? '' : ' Off means a plain bill.') + '</div></div>' +
+      '<button class="sw' + (b.tax_on ? ' on' : '') + '" id="bTax" role="switch" aria-checked="' +
+      (b.tax_on ? 'true' : 'false') + '"></button></div></div>';
+
+    var showExtras = !isDoc || b.doc === 'quotation';   // PO mein ye card nahi
+    if (showExtras) {
+      h += '<div class="card"><div class="ttl">Additional Charges</div>' +
+        chargeRow(b, 'loading', 'Loading') +
+        chargeRow(b, 'cartage', 'Cartage') +
+        chargeRow(b, 'cutting', 'Cutting') +
+        '<div class="hint">' + (b.vtype === 'purchase'
+          ? 'Ye amount item ki cost mein shamil ho jayega (average cost badhega).'
+          : 'Ye amount P&L ke "Other Income" mein alag se record hoga.') + '</div></div>';
+    }
+
+    if (!isDoc) {
+      h += '<div class="card"><div class="ttl">Money</div>' +
+        '<div class="f2">' +
+          '<div class="f num"><label>Discount</label><input id="bDisc" type="text" inputmode="decimal" value="' +
+            (num(b.discount) ? fmt(b.discount) : '') + '" placeholder="0"></div>' +
+          '<div class="f num"><label>Paid now</label><input id="bPaid" type="text" inputmode="decimal" value="' +
+            (num(b.paid) ? fmt(b.paid) : '') + '" placeholder="0"></div>' +
+        '</div>' +
+        '<div class="f"><div class="hint">Leave “Paid now” empty for a credit bill — the whole amount stays on their account.</div></div>' +
+        '<div class="f"><label>Note</label><textarea id="bNote" placeholder="Vehicle no, order ref, anything worth remembering">' + esc(b.narration) + '</textarea></div>' +
+        '</div>';
+    } else {
+      h += '<div class="card"><div class="ttl">Note</div>' +
+        '<div class="f"><textarea id="bNote" placeholder="Terms, validity, anything worth remembering">' + esc(b.narration) + '</textarea></div>' +
+        (b.id && can('bill_create') ? '<button class="btn pri" id="convertBtn" style="width:100%;margin-top:4px">' +
+          (b.doc === 'quotation' ? 'Convert to Sale' : 'Convert to Purchase') + '</button>' : '') +
+        '</div>';
+    }
+
+    h += '<div class="sum">' +
+      '<div class="sline"><span class="k">Items total</span><span class="v" id="sSub">' + money(t.sub) + '</span></div>' +
+      (!isDoc && t.disc ? '<div class="sline"><span class="k">Discount</span><span class="v">− ' + money(t.disc) + '</span></div>' : '') +
+      (b.tax_on ? '<div class="sline"><span class="k">Sales tax</span><span class="v">+ ' + money(t.tax) + '</span></div>' : '') +
+      extraLines(b) +
+      '<div class="sline big"><span class="k">' + (isDoc ? 'Total' : 'Bill total') + '</span><span class="v">' + money(t.grand) + '</span></div>' +
+      (!isDoc && t.paid ? '<div class="sline"><span class="k">Paid now</span><span class="v">− ' + money(t.paid) + '</span></div>' : '') +
+      (!isDoc ? '<div class="sline ' + (t.due > 0 ? 'due' : 'done') + '"><span class="k">' +
+        (t.due > 0 ? (other === 'supplier' ? 'We still owe' : 'They still owe') : 'Settled') +
+        '</span><span class="v">' + money(t.due) + '</span></div>' : '') +
+      '</div>';
+
+    $('edBody').innerHTML = h;
+    wireEditor();
+    if (isDoc && $('convertBtn')) $('convertBtn').addEventListener('click', convertDocToBill);
+  }
+  function extraLines(b) {
+    var h = '';
+    if (b.loading_on && num(b.loading_amt)) h += '<div class="sline"><span class="k">Loading</span><span class="v">+ ' + money(b.loading_amt) + '</span></div>';
+    if (b.cartage_on && num(b.cartage_amt)) h += '<div class="sline"><span class="k">Cartage</span><span class="v">+ ' + money(b.cartage_amt) + '</span></div>';
+    if (b.cutting_on && num(b.cutting_amt)) h += '<div class="sline"><span class="k">Cutting</span><span class="v">+ ' + money(b.cutting_amt) + '</span></div>';
+    return h;
+  }
+  function chargeRow(b, key, label) {
+    var on = !!b[key + '_on'];
+    return '<div class="swrow"><div class="lbl">' + label + '</div>' +
+      '<button class="sw' + (on ? ' on' : '') + '" data-charge="' + key + '" role="switch" aria-checked="' + (on ? 'true' : 'false') + '"></button></div>' +
+      (on ? '<div class="f num"><input id="b' + key + 'Amt" type="text" inputmode="decimal" value="' +
+        (num(b[key + '_amt']) ? fmt(b[key + '_amt']) : '') + '" placeholder="0"></div>' : '');
+  }
+  function lineHtml(l, i) {
+    var it = itemById(l.item_id);
+    var amt = round2(num(l.qty) * num(l.rate));
+    return '<div class="ln" data-k="' + l.key + '">' +
+      '<div class="top">' + pickBox('it_' + l.key, it ? it.name : '', 'Which item?') +
+        '<button class="rm" data-rm="' + l.key + '" aria-label="Remove line">×</button></div>' +
+      '<div class="qr">' +
+        '<div class="f num"><label>Qty' + (it ? ' (' + esc(it.unit) + ')' : '') + '</label>' +
+          '<input class="lq" data-k="' + l.key + '" type="text" inputmode="decimal" value="' +
+          (num(l.qty) ? fmt(l.qty) : '') + '" placeholder="0"></div>' +
+        '<div class="f num"><label>Rate</label>' +
+          '<input class="lr" data-k="' + l.key + '" type="text" inputmode="decimal" value="' +
+          (num(l.rate) ? fmt(l.rate) : '') + '" placeholder="0"></div>' +
+        '<div class="tot" data-t="' + l.key + '">' + (amt ? money(amt) : '—') + '</div>' +
+      '</div>' +
+      '<div style="display:flex;align-items:center;gap:8px;margin-top:6px">' +
+        '<button data-pcs-toggle="' + l.key + '" style="font-size:11.5px;padding:4px 9px;border-radius:20px;' +
+          (l.pcs_on ? 'background:var(--ink);color:#fff;border:1px solid var(--ink)'
+                    : 'background:none;color:var(--mute);border:1px solid var(--hair)') + '">PCS</button>' +
+        (l.pcs_on ? '<input class="lpcs" data-k="' + l.key + '" type="text" inputmode="decimal" style="flex:1;max-width:110px" ' +
+          'value="' + (num(l.pcs) ? fmt(l.pcs) : '') + '" placeholder="Pieces (reference only)">' : '') +
+      '</div></div>';
+  }
+  function pickBox(id, val, ph) {
+    return '<div class="pick" id="pk_' + id + '">' +
+      '<input id="' + id + '" type="text" value="' + esc(val) + '" placeholder="' + esc(ph) +
+      '" autocomplete="off" spellcheck="false">' +
+      '<div class="menu"></div></div>';
+  }
+
+  /* ---------- combobox ---------- */
+  function attachPick(inputId, source, onPick, emptyMsg) {
+    var input = $(inputId); if (!input) return;
+    var wrap = $('pk_' + inputId), menu = wrap.querySelector('.menu'), cur = -1, shown = [];
+    function close() { wrap.classList.remove('open'); cur = -1; }
+    function draw() {
+      var q = norm(input.value);
+      shown = source().filter(function (r) { return r.active !== false; })
+                     .filter(function (r) { return !q || norm(r.name).indexOf(q) !== -1; })
+                     .sort(function (a, b) { return norm(a.name) < norm(b.name) ? -1 : 1; })
+                     .slice(0, 40);
+      if (!shown.length) { menu.innerHTML = '<div class="none">' + esc(emptyMsg) + '</div>'; }
+      else {
+        menu.innerHTML = shown.map(function (r, i) {
+          return '<div class="opt' + (i === cur ? ' cur' : '') + '" data-i="' + i + '">' +
+                 esc(r.name) + (r.sub ? '<div class="s">' + esc(r.sub) + '</div>' : '') + '</div>';
+        }).join('');
+      }
+      wrap.classList.add('open');
+    }
+    function choose(i) {
+      var r = shown[i]; if (!r) return;
+      input.value = r.name; close(); dirty = true; onPick(r);
+    }
+    input.addEventListener('focus', function () { cur = -1; draw(); });
+    input.addEventListener('input', function () { cur = -1; draw(); onPick(null, true); });
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); cur = Math.min(cur + 1, shown.length - 1); draw(); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); cur = Math.max(cur - 1, 0); draw(); }
+      else if (e.key === 'Enter') {
+        if (wrap.classList.contains('open') && shown.length) { e.preventDefault(); choose(cur < 0 ? 0 : cur); }
+      } else if (e.key === 'Escape') { close(); }
+    });
+    menu.addEventListener('mousedown', function (e) {
+      var o = e.target.closest('.opt'); if (!o) return;
+      e.preventDefault(); choose(+o.getAttribute('data-i'));
+    });
+    input.addEventListener('blur', function () { setTimeout(close, 120); });
+  }
+
+  function wireEditor() {
+    var b = bill;
+    if ($('bFirm')) $('bFirm').addEventListener('change', function () { b.company_id = this.value; dirty = true; });
+    $('bNo').addEventListener('input', function () { b.vno = this.value.trim(); dirty = true; });
+    $('bDate').addEventListener('change', function () { b.vdate = this.value || today(); dirty = true; });
+    $('bNote').addEventListener('input', function () { b.narration = this.value; dirty = true; });
+    if ($('bDisc')) $('bDisc').addEventListener('input', function () { b.discount = num(this.value); dirty = true; refreshSum(); });
+    if ($('bPaid')) $('bPaid').addEventListener('input', function () { b.paid = num(this.value); dirty = true; refreshSum(); });
+    if ($('bTax'))  $('bTax').addEventListener('click', function () {
+      b.tax_on = !b.tax_on; dirty = true; drawEditor();
+    });
+    document.querySelectorAll('[data-charge]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var key = btn.getAttribute('data-charge');
+        b[key + '_on'] = !b[key + '_on'];
+        dirty = true; drawEditor();
+      });
+    });
+    ['loading', 'cartage', 'cutting'].forEach(function (key) {
+      var el = $('b' + key + 'Amt');
+      if (el) el.addEventListener('input', function () { b[key + '_amt'] = num(this.value); dirty = true; refreshSum(); });
+    });
+
+    attachPick('bParty', function () {
+      return parties.filter(function (p) { return !p.deleted_at; }).map(function (p) {
+        return { id:p.id, name:p.name, active:p.active,
+                 sub:[p.city, p.phone].filter(Boolean).join(' · ') };
+      });
+    }, function (r, typing) {
+      if (typing) { b.party_id = null; return; }
+      b.party_id = r.id; drawEditor();
+    }, 'No party by that name. Add it in Masters first.');
+
+    b.lines.forEach(function (l) {
+      attachPick('it_' + l.key, function () {
+        return items.filter(function (i) { return !i.deleted_at; }).map(function (i) {
+          return { id:i.id, name:i.name, active:i.active,
+                   sub:'per ' + i.unit + (Number(i.sale_rate) ? ' · ' + fmt(i.sale_rate) : '') };
+        });
+      }, function (r, typing) {
+        if (typing) { l.item_id = null; return; }
+        var it = itemById(r.id);
+        l.item_id = r.id;
+        if (it) {
+          l.tax_pct = num(it.tax_pct);
+          if (!num(l.rate)) l.rate = b.vtype === 'purchase' ? num(it.buy_rate) : num(it.sale_rate);
+        }
+        drawEditor();
+      }, 'No item by that name. Add it in Masters first.');
+    });
+
+    $('edBody').querySelectorAll('.lq, .lr').forEach(function (el) {
+      el.addEventListener('input', function () {
+        var l = lineByKey(this.getAttribute('data-k')); if (!l) return;
+        if (this.classList.contains('lq')) l.qty = num(this.value); else l.rate = num(this.value);
+        dirty = true;
+        var cell = $('edBody').querySelector('[data-t="' + l.key + '"]');
+        var amt = round2(num(l.qty) * num(l.rate));
+        if (cell) cell.textContent = amt ? money(amt) : '—';
+        refreshSum();
+      });
+    });
+    $('edBody').querySelectorAll('[data-rm]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var k = this.getAttribute('data-rm');
+        if (b.lines.length <= 1) { b.lines = [newLine()]; }
+        else b.lines = b.lines.filter(function (l) { return l.key !== k; });
+        dirty = true; drawEditor();
+      });
+    });
+    $('edBody').querySelectorAll('[data-pcs-toggle]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var l = lineByKey(this.getAttribute('data-pcs-toggle')); if (!l) return;
+        l.pcs_on = !l.pcs_on;
+        dirty = true; drawEditor();
+      });
+    });
+    $('edBody').querySelectorAll('.lpcs').forEach(function (el) {
+      el.addEventListener('input', function () {
+        var l = lineByKey(this.getAttribute('data-k')); if (!l) return;
+        l.pcs = num(this.value); dirty = true;
+      });
+    });
+    $('addLn').addEventListener('click', function () {
+      b.lines.push(newLine()); dirty = true; drawEditor();
+      var all = $('edBody').querySelectorAll('.ln input[type="text"]');
+      var last = b.lines[b.lines.length - 1];
+      var el = $('it_' + last.key); if (el) el.focus();
+    });
+  }
+  function lineByKey(k) { return (bill.lines || []).filter(function (l) { return l.key === k; })[0]; }
+  function refreshSum() {
+    var t = totals(bill);
+    var s = $('sSub'); if (s) s.textContent = money(t.sub);
+    var sums = $('edBody').querySelector('.sum');
+    if (sums) {
+      var b = bill, other = b.vtype === 'purchase' ? 'supplier' : 'customer', isDoc = !!b.doc;
+      if (isDoc) {
+        sums.innerHTML =
+          '<div class="sline"><span class="k">Items total</span><span class="v" id="sSub">' + money(t.sub) + '</span></div>' +
+          (b.tax_on ? '<div class="sline"><span class="k">Sales tax</span><span class="v">+ ' + money(t.tax) + '</span></div>' : '') +
+          extraLines(b) +
+          '<div class="sline big"><span class="k">Total</span><span class="v">' + money(t.grand) + '</span></div>';
+      } else {
+        sums.innerHTML =
+          '<div class="sline"><span class="k">Items total</span><span class="v" id="sSub">' + money(t.sub) + '</span></div>' +
+          (t.disc ? '<div class="sline"><span class="k">Discount</span><span class="v">− ' + money(t.disc) + '</span></div>' : '') +
+          (b.tax_on ? '<div class="sline"><span class="k">Sales tax</span><span class="v">+ ' + money(t.tax) + '</span></div>' : '') +
+          extraLines(b) +
+          '<div class="sline big"><span class="k">Bill total</span><span class="v">' + money(t.grand) + '</span></div>' +
+          (t.paid ? '<div class="sline"><span class="k">Paid now</span><span class="v">− ' + money(t.paid) + '</span></div>' : '') +
+          '<div class="sline ' + (t.due > 0 ? 'due' : 'done') + '"><span class="k">' +
+            (t.due > 0 ? (other === 'supplier' ? 'We still owe' : 'They still owe') : 'Settled') +
+            '</span><span class="v">' + money(t.due) + '</span></div>';
+      }
+    }
+  }
+
+  /* ---------- save ---------- */
+  function lineDiffSummary(oldLines, newLines) {
+    if (!oldLines) return null;
+    var byOld = {}; oldLines.forEach(function (l) { if (l.item_id) byOld[l.item_id] = l; });
+    var byNew = {}; newLines.forEach(function (l) { if (l.item_id) byNew[l.item_id] = l; });
+    var msgs = [];
+    Object.keys(byOld).forEach(function (id) {
+      var it = itemById(id), nm = it ? it.name : 'item';
+      if (!byNew[id]) { msgs.push('Removed ' + nm); return; }
+      var o = byOld[id], nw = byNew[id];
+      if (num(o.qty) !== num(nw.qty)) msgs.push(nm + ' qty ' + fmt(o.qty) + ' \u2192 ' + fmt(nw.qty));
+      if (num(o.rate) !== num(nw.rate)) msgs.push(nm + ' rate ' + fmt(o.rate) + ' \u2192 ' + fmt(nw.rate));
+    });
+    Object.keys(byNew).forEach(function (id) {
+      if (byOld[id]) return;
+      var it = itemById(id), nm = it ? it.name : 'item';
+      msgs.push('Added ' + nm + ' (' + fmt(byNew[id].qty) + ')');
+    });
+    return msgs.length ? msgs : null;
+  }
+  function saveBill() {
+    var b = bill;
+    if (!b.party_id) { toast('Pick a party first', true); return; }
+    var good = b.lines.filter(function (l) { return l.item_id && num(l.qty) > 0; });
+    if (!good.length) { toast('Add at least one item with a quantity', true); return; }
+    var t = totals(b);
+    var isNew = !b.id;
+    var recId = isNew ? uuid() : b.id;
+    var head = {
+      vtype:b.vtype, vno:(b.vno || '').trim(), vdate:b.vdate || today(), party_id:b.party_id,
+      narration:b.narration || '', company_id:b.company_id || null,
+      tax_on:!!b.tax_on, sub_total:t.sub, discount:t.disc,
+      tax_total:t.tax, grand_total:t.grand, paid:t.paid, updated_at:new Date().toISOString(),
+      loading_on:!!b.loading_on, loading_amt:num(b.loading_amt),
+      cartage_on:!!b.cartage_on, cartage_amt:num(b.cartage_amt),
+      cutting_on:!!b.cutting_on, cutting_amt:num(b.cutting_amt)
+    };
+    var linesPayload = good.map(function (l, i) {
+      return { item_id:l.item_id, qty:num(l.qty), rate:num(l.rate), tax_pct:num(l.tax_pct),
+               amount:round2(num(l.qty) * num(l.rate)), pcs_on:!!l.pcs_on, pcs:l.pcs_on ? num(l.pcs) : null };
+    });
+    var priorBill = isNew ? null : bills.filter(function (x) { return x.id === recId; })[0];
+    var diff = !isNew ? lineDiffSummary(originalLineSnapshot, good) : null;
+
+    // Local-first: turant screen par, editor band — internet ka wait nahi
+    var optimistic = Object.assign({}, priorBill || {}, head, {
+      id:recId, version:isNew ? 1 : (b.version || 1),
+      lines:linesPayload.map(function (l, i) { return Object.assign({ id:'temp-' + i, voucher_id:recId, line_no:i + 1 }, l); })
+    });
+    if (isNew) bills.push(optimistic);
+    else bills = bills.map(function (x) { return x.id === recId ? optimistic : x; });
+    try { window.parent.postMessage({ oht:'refresh', kind:'bills' }, '*'); } catch (err) {}
+    toast((isNew ? 'Saved ' : 'Updated ') + (head.vno || 'bill'));
+    cacheSave('bills', bills);
+    closeBill(); render();
+
+    if (!navigator.onLine) {
+      offQAdd({ opId:uuid(), kind:'bill', op:isNew ? 'insert' : 'update', recordId:recId,
+                baseVersion:isNew ? null : (b.version || 1), head:head, lines:linesPayload, label:head.vno });
+      syncNote('Offline \u2014 save queued', '#B08A3E');
+      return;
+    }
+
+    syncNote('Saving…');
+    var step = isNew ? sb.from('vouchers').insert(Object.assign({ id:recId }, head)).select()
+                     : sb.from('vouchers').update(head).eq('id', recId).eq('version', b.version || 1).select();
+
+    step.then(function (res) {
+      if (res.error) {
+        if (isDupVno(res.error)) {
+          if (isNew) bills = bills.filter(function (x) { return x.id !== recId; });
+          cacheSave('bills', bills); render();
+          allVnos.push({ vno:head.vno, vtype:head.vtype });
+          toast('Ye number pehle se istemal ho chuka \u2014 dobara "+ ' +
+            (b.vtype === 'purchase' ? 'Purchase' : 'Sale') + '" dabakar naya number lein', true);
+          return;
+        }
+        throw res.error;
+      }
+      if (!isNew && (!res.data || !res.data.length)) {
+        toast('Kisi aur ne "' + head.vno + '" pehle save kar diya \u2014 taaza data la rahe hain', true);
+        loadAll();
+        return;
+      }
+      var row = (res.data || [])[0];
+      return (isNew ? Promise.resolve({ error:null })
+                    : sb.from('voucher_lines').delete().eq('voucher_id', recId))
+        .then(function (d) {
+          if (d && d.error) throw d.error;
+          var payload = linesPayload.map(function (l, i) { return Object.assign({ voucher_id:recId, line_no:i + 1 }, l); });
+          return sb.from('voucher_lines').insert(payload).select();
+        })
+        .then(function (r2) {
+          if (r2.error) throw r2.error;
+          var saved = Object.assign({}, row || head, { id:recId, lines:(r2.data || []) });
+          bills = bills.map(function (x) { return x.id === recId ? saved : x; });
+          cacheSave('bills', bills);
+          syncNote('Saved', '#7DC9A9');
+          if (diff) sb.rpc('log_manual_audit', {
+            p_table:'vouchers', p_record_id:recId, p_label:head.vno, p_action:'update',
+            p_changes:{ lines:diff }
+          }).catch(function () {});
+          render();
+        });
+    }).catch(function (e) {
+      if (isNetErr(e)) {
+        offQAdd({ opId:uuid(), kind:'bill', op:isNew ? 'insert' : 'update', recordId:recId,
+                  baseVersion:isNew ? null : (b.version || 1), head:head, lines:linesPayload, label:head.vno });
+        syncNote('Offline \u2014 save queued', '#B08A3E');
+      } else {
+        if (isNew) bills = bills.filter(function (x) { return x.id !== recId; });
+        else bills = bills.map(function (x) { return x.id === recId ? priorBill : x; });
+        cacheSave('bills', bills); render();
+        syncNote('');
+        sayErr(e, 'save');
+      }
+    });
+  }
+
+  /* ---------- Quotations / Purchase Orders: open/save/delete/convert ---------- */
+  function blankDoc(docType) {
+    var d = defFirm();
+    return { vtype:(docType === 'po' ? 'purchase' : 'sale'), doc:docType, vno:nextDocNo(docType),
+             vdate:today(), party_id:null, narration:'', company_id:d ? d.id : null,
+             tax_on:false, discount:0, paid:0, lines:[newLine()],
+             loading_on:false, loading_amt:0, cartage_on:false, cartage_amt:0, cutting_on:false, cutting_amt:0 };
+  }
+  function nextDocNo(docType) {
+    var isQ = docType === 'quotation';
+    var src = isQ ? quotes : pos, field = isQ ? 'qno' : 'pono', pre = isQ ? 'QT-' : 'PO-';
+    var max = 0;
+    src.forEach(function (d) {
+      var m = String(d[field] || '').match(/(\d+)\s*$/);
+      if (m) max = Math.max(max, parseInt(m[1], 10));
+    });
+    return pre + String(max + 1).padStart(4, '0');
+  }
+  function openDoc(docType, rec) {
+    var isQ = docType === 'quotation';
+    bill = rec ? JSON.parse(JSON.stringify(rec)) : blankDoc(docType);
+    if (rec) {
+      bill.doc = docType;
+      bill.vtype = isQ ? 'sale' : 'purchase';
+      bill.vno = isQ ? rec.qno : rec.pono;
+      bill.vdate = isQ ? rec.qdate : rec.podate;
+    }
+    bill.lines = (bill.lines || []).map(function (l) {
+      if (!l.key) l.key = 'L' + (++lineSeq); return l;
+    });
+    if (!bill.lines.length) bill.lines.push(newLine());
+    dirty = false;
+    $('edTitle').textContent = (rec ? 'Edit ' : 'New ') + (isQ ? 'quotation' : 'purchase order');
+    $('edSave').textContent = isQ ? 'Save quotation' : 'Save purchase order';
+    var createPerm = isQ ? 'quotation_create' : 'po_create';
+    var editPerm   = isQ ? 'quotation_edit'   : 'po_edit';
+    var deletePerm = isQ ? 'quotation_delete' : 'po_delete';
+    $('edDel').style.display = (rec && can(deletePerm)) ? '' : 'none';
+    $('edSave').style.display = (rec ? can(editPerm) : can(createPerm)) ? '' : 'none';
+    drawEditor();
+    $('edBody').scrollTop = 0;
+    $('ed').classList.add('on');
+  }
+  function saveDoc() {
+    var b = bill, isQ = b.doc === 'quotation';
+    if (!b.party_id) { toast('Pick a party first', true); return; }
+    var good = b.lines.filter(function (l) { return l.item_id && num(l.qty) > 0; });
+    if (!good.length) { toast('Add at least one item with a quantity', true); return; }
+    var t = totals(b);
+    var table = isQ ? 'quotations' : 'purchase_orders';
+    var lineTable = isQ ? 'quotation_lines' : 'po_lines';
+    var fkCol = isQ ? 'quotation_id' : 'po_id';
+    var noField = isQ ? 'qno' : 'pono';
+    var dateField = isQ ? 'qdate' : 'podate';
+    var isNew = !b.id;
+    var recId = isNew ? uuid() : b.id;
+    var head = {};
+    head[noField] = (b.vno || '').trim();
+    head[dateField] = b.vdate || today();
+    head.party_id = b.party_id; head.company_id = b.company_id || null;
+    head.narration = b.narration || ''; head.subtotal = t.sub;
+    head.tax_on = !!b.tax_on; head.discount = 0; head.tax_total = t.tax; head.grand_total = t.grand;
+    head.updated_at = new Date().toISOString();
+    if (isQ) {
+      head.loading_on = !!b.loading_on; head.loading_amt = num(b.loading_amt);
+      head.cartage_on = !!b.cartage_on; head.cartage_amt = num(b.cartage_amt);
+      head.cutting_on = !!b.cutting_on; head.cutting_amt = num(b.cutting_amt);
+    }
+    var linesPayload = good.map(function (l, i) {
+      return { item_id:l.item_id, qty:num(l.qty), rate:num(l.rate), tax_pct:num(l.tax_pct),
+               amount:round2(num(l.qty) * num(l.rate)), pcs_on:!!l.pcs_on, pcs:l.pcs_on ? num(l.pcs) : null };
+    });
+
+    var priorRow = isNew ? null : (isQ ? quotes : pos).filter(function (x) { return x.id === recId; })[0];
+    var optimistic = Object.assign({}, priorRow || {}, head, {
+      id:recId, version:isNew ? 1 : (b.version || 1),
+      lines:linesPayload.map(function (l, i) { return Object.assign({ id:'temp-' + i, line_no:i + 1 }, l); })
+    });
+    if (isQ) { if (isNew) quotes.push(optimistic); else quotes = quotes.map(function (x) { return x.id === recId ? optimistic : x; }); }
+    else { if (isNew) pos.push(optimistic); else pos = pos.map(function (x) { return x.id === recId ? optimistic : x; }); }
+    toast((isNew ? 'Saved ' : 'Updated ') + (head[noField] || (isQ ? 'quotation' : 'purchase order')));
+    closeBill(); render();
+
+    if (!navigator.onLine) {
+      offQAdd({ opId:uuid(), kind:'doc', isQ:isQ, op:isNew ? 'insert' : 'update', recordId:recId,
+                baseVersion:isNew ? null : (b.version || 1), head:head, lines:linesPayload, label:head[noField] });
+      syncNote('Offline \u2014 save queued', '#B08A3E');
+      return;
+    }
+
+    syncNote('Saving…');
+    var step = isNew ? sb.from(table).insert(Object.assign({ id:recId }, head)).select()
+                     : sb.from(table).update(head).eq('id', recId).eq('version', b.version || 1).select();
+    step.then(function (res) {
+      if (res.error) throw res.error;
+      if (!isNew && (!res.data || !res.data.length)) {
+        toast('Kisi aur ne "' + head[noField] + '" pehle save kar diya \u2014 taaza data la rahe hain', true);
+        loadAll();
+        return;
+      }
+      var row = (res.data || [])[0];
+      return sb.from(lineTable).delete().eq(fkCol, recId).then(function (d) {
+        if (d.error) throw d.error;
+        var payload = linesPayload.map(function (l, i) {
+          var o = Object.assign({ line_no:i + 1 }, l); o[fkCol] = recId; return o;
+        });
+        return sb.from(lineTable).insert(payload).select();
+      }).then(function (r2) {
+        if (r2.error) throw r2.error;
+        var saved = Object.assign({}, row || head, { id:recId, lines:(r2.data || []) });
+        if (isQ) quotes = quotes.map(function (x) { return x.id === recId ? saved : x; });
+        else pos = pos.map(function (x) { return x.id === recId ? saved : x; });
+        syncNote('Saved', '#7DC9A9');
+        render();
+      });
+    }).catch(function (e) {
+      if (isNetErr(e)) {
+        offQAdd({ opId:uuid(), kind:'doc', isQ:isQ, op:isNew ? 'insert' : 'update', recordId:recId,
+                  baseVersion:isNew ? null : (b.version || 1), head:head, lines:linesPayload, label:head[noField] });
+        syncNote('Offline \u2014 save queued', '#B08A3E');
+      } else {
+        if (isQ) {
+          if (isNew) quotes = quotes.filter(function (x) { return x.id !== recId; });
+          else quotes = quotes.map(function (x) { return x.id === recId ? priorRow : x; });
+        } else {
+          if (isNew) pos = pos.filter(function (x) { return x.id !== recId; });
+          else pos = pos.map(function (x) { return x.id === recId ? priorRow : x; });
+        }
+        render(); syncNote(''); sayErr(e, 'save');
+      }
+    });
+  }
+  function deleteDoc() {
+    var b = bill, isQ = b.doc === 'quotation';
+    if (!b || !b.id) return;
+    var table = isQ ? 'quotations' : 'purchase_orders';
+    confirmBox('Delete ' + (isQ ? 'quotation' : 'purchase order') + ' ' + (b.vno || '') + '?',
+      'It moves to the Recycle Bin in Masters \u2014 you can restore it from there. This never affected stock or the ledger.',
+      'Delete').then(function (ok) {
+      if (!ok) return;
+      var recId = b.id, label = b.vno;
+      var priorRow = (isQ ? quotes : pos).filter(function (x) { return x.id === recId; })[0];
+      if (isQ) quotes = quotes.filter(function (x) { return x.id !== recId; });
+      else pos = pos.filter(function (x) { return x.id !== recId; });
+      closeBill(); render();
+      toast('Deleted ' + (label || ''));
+      if (!navigator.onLine) {
+        offQAdd({ opId:uuid(), kind:'doc', isQ:isQ, op:'delete', recordId:recId, label:label });
+        syncNote('Offline \u2014 delete queued', '#B08A3E');
+        return;
+      }
+      sb.from(table).update({ deleted_at:new Date().toISOString() }).eq('id', recId).then(function (res) {
+        if (res.error) throw res.error;
+        syncNote('');
+      }).catch(function (e) {
+        if (isNetErr(e)) {
+          offQAdd({ opId:uuid(), kind:'doc', isQ:isQ, op:'delete', recordId:recId, label:label });
+          syncNote('Offline \u2014 delete queued', '#B08A3E');
+        } else {
+          if (priorRow) { if (isQ) quotes.push(priorRow); else pos.push(priorRow); }
+          render(); syncNote(''); sayErr(e, 'delete');
+        }
+      });
+    });
+  }
+  function convertDocToBill() {
+    var b = bill, isQ = b.doc === 'quotation';
+    var target = isQ ? 'sale' : 'purchase';
+    var newBill = {
+      vtype:target, vno:nextNo(target), vdate:today(), party_id:b.party_id,
+      narration:b.narration || '', company_id:b.company_id || null,
+      tax_on:!!b.tax_on, discount:0, paid:0,
+      loading_on:!!b.loading_on, loading_amt:num(b.loading_amt),
+      cartage_on:!!b.cartage_on, cartage_amt:num(b.cartage_amt),
+      cutting_on:!!b.cutting_on, cutting_amt:num(b.cutting_amt),
+      lines:(b.lines || []).filter(function (l) { return l.item_id && num(l.qty) > 0; }).map(function (l) {
+        return { key:'L' + (++lineSeq), item_id:l.item_id, qty:l.qty, rate:l.rate, tax_pct:num(l.tax_pct), amount:l.amount,
+                 pcs_on:!!l.pcs_on, pcs:l.pcs };
+      })
+    };
+    if (!newBill.lines.length) newBill.lines.push(newLine());
+    var sourceNo = b.vno;
+    bill = newBill;
+    vtype = target;
+    document.querySelectorAll('.sb-item[data-t]').forEach(function (x) { x.classList.toggle('on', x.getAttribute('data-t') === target); });
+    dirty = true;
+    $('edTitle').textContent = 'New ' + target + ' (from ' + esc(sourceNo || '') + ')';
+    $('edSave').textContent = 'Save bill';
+    $('edDel').style.display = 'none';
+    $('edSave').style.display = can('bill_create') ? '' : 'none';
+    drawEditor();
+    toast('Ab review kar ke Save karein \u2014 ' + (isQ ? 'quotation' : 'PO') + ' apni jagah mehfooz rahega');
+  }
+
+  function delBill() {
+    if (!bill || !bill.id) return;
+    confirmBox('Delete bill ' + (bill.vno || '') + '?',
+      'It moves to the Recycle Bin — stock and the party balance change to match, but you can restore it later from Masters \u2192 Recycle Bin.',
+      'Delete').then(function (ok) {
+      if (!ok) return;
+      var recId = bill.id, no = bill.vno, priorBill = bills.filter(function (x) { return x.id === recId; })[0];
+      bills = bills.filter(function (x) { return x.id !== recId; });
+      cacheSave('bills', bills);
+      closeBill(); render();
+      toast('Deleted ' + (no || 'bill') + ' — recoverable from Recycle Bin');
+      if (!navigator.onLine) {
+        offQAdd({ opId:uuid(), kind:'bill', op:'delete', recordId:recId, label:no });
+        syncNote('Offline \u2014 delete queued', '#B08A3E');
+        return;
+      }
+      syncNote('Deleting…');
+      sb.from('vouchers').update({ deleted_at:new Date().toISOString() }).eq('id', recId).then(function (res) {
+        if (res.error) throw res.error;
+        try { window.parent.postMessage({ oht:'refresh', kind:'bills' }, '*'); } catch (err) {}
+        syncNote('');
+      }).catch(function (e) {
+        if (isNetErr(e)) {
+          offQAdd({ opId:uuid(), kind:'bill', op:'delete', recordId:recId, label:no });
+          syncNote('Offline \u2014 delete queued', '#B08A3E');
+        } else {
+          if (priorBill) bills.push(priorBill);
+          cacheSave('bills', bills); render();
+          syncNote(''); sayErr(e, 'delete');
+        }
+      });
+    });
+  }
+
+  /* ---------- print ---------- */
+  /* ---------- Sales Returns ---------- */
+  function nextReturnNo() {
+    var max = 0;
+    returns.forEach(function (rr) {
+      var m = String(rr.rno || '').match(/(\d+)\s*$/);
+      if (m) max = Math.max(max, parseInt(m[1], 10));
+    });
+    return 'R-' + String(max + 1).padStart(4, '0');
+  }
+
+  function renderReturns() {
+    var q = norm($('q').value);
+    var list = returns.slice();
+    if (q) list = list.filter(function (rr) {
+      var p = partyById(rr.party_id);
+      var orig = bills.filter(function (b) { return b.id === rr.sale_id; })[0];
+      return (norm(rr.rno) + ' ' + norm(p && p.name) + ' ' + norm(orig && orig.vno)).indexOf(q) !== -1;
+    });
+    list.sort(function (a, b) { return a.rdate < b.rdate ? 1 : (a.rdate > b.rdate ? -1 : 0); });
+
+    $('nPur').textContent = countOf('purchase');
+    $('nSal').textContent = countOf('sale');
+    $('nQuo').textContent = quotes.length ? '(' + quotes.length + ')' : '';
+    $('nPo').textContent = pos.length ? '(' + pos.length + ')' : '';
+    $('nRet').textContent = returns.length ? '(' + returns.length + ')' : '';
+    $('searchWrap').classList.toggle('has', !!$('q').value);
+
+    var box = $('rows');
+    if (!list.length) {
+      box.innerHTML = '<div class="empty">' + (q
+        ? '<div class="big">Nothing matched “' + esc($('q').value) + '”</div>'
+        : '<div class="big">Koi Sales Return nahi</div><div class="sm">Kisi Sale invoice ke against return banayein.</div>') + '</div>';
+      return;
+    }
+    var html = '', day = '';
+    list.forEach(function (rr) {
+      if (rr.rdate !== day) { day = rr.rdate; html += '<div class="datehead">' + esc(human(day)) + '</div>'; }
+      var p = partyById(rr.party_id);
+      var orig = bills.filter(function (b) { return b.id === rr.sale_id; })[0];
+      var cnt = (rr.lines || []).length;
+      html += '<div class="brow" data-doc="return" data-id="' + rr.id + '" tabindex="0" role="button">' +
+        docIcon('return') +
+        '<div class="no">' + esc(rr.rno || '\u2014') + '</div><div class="mid">' +
+        '<div class="nm">' + esc(p ? p.name : 'No party') + '</div>' +
+        '<div class="sub">Against ' + esc(orig ? (orig.vno || '') : '\u2014') + ' \u00b7 ' + cnt + (cnt === 1 ? ' item' : ' items') + '</div></div>' +
+        '<div class="amt clr">\u2212 ' + money(num(rr.grand_total)) + '</div></div>';
+    });
+    box.innerHTML = html;
+  }
+
+  function openPickSaleModal() {
+    $('pickSaleModal').classList.add('on');
+    $('pickSaleSearch').value = '';
+    renderPickSaleList('');
+    $('pickSaleSearch').oninput = function () { renderPickSaleList(this.value); };
+  }
+  function renderPickSaleList(q) {
+    q = norm(q);
+    var list = bills.filter(function (b) { return b.vtype === 'sale'; });
+    if (q) list = list.filter(function (b) {
+      var p = partyById(b.party_id);
+      return (norm(b.vno) + ' ' + norm(p && p.name)).indexOf(q) !== -1;
+    });
+    list.sort(function (a, b) { return a.vdate < b.vdate ? 1 : -1; });
+    $('pickSaleList').innerHTML = list.slice(0, 60).map(function (b) {
+      var p = partyById(b.party_id);
+      return '<div class="userrow" data-pick-sale="' + b.id + '" style="cursor:pointer">' +
+        '<div><span class="nm">' + esc(b.vno || '') + '</span>' +
+        '<div style="font-size:11.5px;color:var(--mute)">' + esc(p ? p.name : '') + ' \u00b7 ' + esc(human(b.vdate)) + '</div></div>' +
+        '<span style="font-weight:600">' + money(num(b.grand_total)) + '</span></div>';
+    }).join('') || '<p style="color:var(--mute);font-size:13px">Koi sale nahi mili.</p>';
+    $('pickSaleList').querySelectorAll('[data-pick-sale]').forEach(function (row) {
+      row.addEventListener('click', function () {
+        $('pickSaleModal').classList.remove('on');
+        startReturn(row.getAttribute('data-pick-sale'), null);
+      });
+    });
+  }
+  $('pickSaleClose').addEventListener('click', function () { $('pickSaleModal').classList.remove('on'); });
+
+  function returnableQtyFor(saleLineId, saleLineQty) {
+    var used = 0;
+    returns.forEach(function (rr) {
+      (rr.lines || []).forEach(function (l) { if (l.sale_line_id === saleLineId) used += num(l.qty); });
+    });
+    return round2(saleLineQty - used);
+  }
+
+  function startReturn(saleId, existingReturn) {
+    var sale = bills.filter(function (b) { return b.id === saleId; })[0];
+    if (!sale) { toast('Original sale nahi mili', true); return; }
+    var existingQtyByLine = {};
+    if (existingReturn) (existingReturn.lines || []).forEach(function (l) { existingQtyByLine[l.sale_line_id] = num(l.qty); });
+
+    var retLines = (sale.lines || []).map(function (sl) {
+      var it = itemById(sl.item_id);
+      var avail = returnableQtyFor(sl.id, num(sl.qty));
+      if (existingReturn) avail = round2(avail + (existingQtyByLine[sl.id] || 0));   // apni hi purani qty wapas jodo (edit ke liye)
+      return {
+        sale_line_id:sl.id, item_id:sl.item_id, item_name:it ? it.name : '', unit:it ? it.unit : '',
+        rate:num(sl.rate), max:avail, qty:existingReturn ? (existingQtyByLine[sl.id] || 0) : 0
+      };
+    });
+
+    bill = {
+      isReturn:true, id:existingReturn ? existingReturn.id : null,
+      rno:existingReturn ? existingReturn.rno : nextReturnNo(),
+      rdate:existingReturn ? existingReturn.rdate : today(),
+      party_id:sale.party_id, sale_id:sale.id, sale_vno:sale.vno,
+      narration:existingReturn ? (existingReturn.narration || '') : '',
+      version:existingReturn ? (existingReturn.version || 1) : 1,
+      lines:retLines
+    };
+    dirty = false;
+    vtype = 'return';
+    document.querySelectorAll('.sb-item[data-t]').forEach(function (x) { x.classList.toggle('on', x.getAttribute('data-t') === 'return'); });
+    $('edTitle').textContent = (existingReturn ? 'Edit ' : 'New ') + 'Sales Return (' + esc(sale.vno || '') + ')';
+    $('edDel').style.display = (existingReturn && can('bill_delete')) ? '' : 'none';
+    $('edSave').style.display = can(existingReturn ? 'bill_edit' : 'bill_create') ? '' : 'none';
+    $('edSave').textContent = 'Save Sales Return';
+    drawReturnEditor();
+    $('edBody').scrollTop = 0;
+    $('ed').classList.add('on');
+  }
+
+  function returnTotals(b) {
+    var total = 0;
+    b.lines.forEach(function (l) { total += round2(num(l.qty) * l.rate); });
+    return { total:round2(total) };
+  }
+  function refreshReturnSum() {
+    var t = returnTotals(bill);
+    var el = $('edBody').querySelector('.sum .v');
+    if (el) el.textContent = money(t.total);
+  }
+
+  function drawReturnEditor() {
+    var b = bill, p = partyById(b.party_id);
+    var h = '<div class="card"><div class="ttl">Sales Return</div>' +
+      '<div class="f2">' +
+        '<div class="f"><label>Return no</label><input value="' + esc(b.rno) + '" readonly style="background:var(--panel)"></div>' +
+        '<div class="f"><label>Date</label><input id="rDate" type="date" value="' + esc(b.rdate) + '"></div>' +
+      '</div>' +
+      '<div class="f"><label>Customer</label><input value="' + esc(p ? p.name : '') + '" readonly style="background:var(--panel)"></div>' +
+      '<div class="f"><label>Against Sale</label><input value="' + esc(b.sale_vno || '') + '" readonly style="background:var(--panel)"></div>' +
+    '</div>';
+
+    h += '<div class="card"><div class="ttl">Items</div>';
+    b.lines.forEach(function (l, i) {
+      h += '<div class="ln"><div class="top"><div style="font-weight:600;font-size:14px">' + esc(l.item_name) + '</div></div>' +
+        '<div class="qr">' +
+          '<div class="f num"><label>Return qty (' + esc(l.unit) + ') \u2014 max ' + fmt(l.max) + '</label>' +
+            '<input class="retq" data-i="' + i + '" type="text" inputmode="decimal" value="' +
+            (num(l.qty) ? fmt(l.qty) : '') + '" placeholder="0"></div>' +
+          '<div class="f num"><label>Rate</label><input value="' + fmt(l.rate) + '" readonly style="background:var(--panel)"></div>' +
+          '<div class="tot" data-t="' + i + '">' + (num(l.qty) ? money(round2(num(l.qty) * l.rate)) : '\u2014') + '</div>' +
+        '</div></div>';
+    });
+    h += '</div>';
+
+    h += '<div class="card"><div class="ttl">Reason / Remarks</div>' +
+      '<div class="f"><textarea id="rNote" placeholder="Kyun return ho raha hai">' + esc(b.narration) + '</textarea></div></div>';
+
+    var t = returnTotals(b);
+    h += '<div class="sum"><div class="sline big"><span class="k">Return total</span><span class="v">' + money(t.total) + '</span></div></div>';
+
+    $('edBody').innerHTML = h;
+    $('rDate').addEventListener('change', function () { b.rdate = this.value || today(); dirty = true; });
+    $('rNote').addEventListener('input', function () { b.narration = this.value; dirty = true; });
+    $('edBody').querySelectorAll('.retq').forEach(function (el) {
+      el.addEventListener('input', function () {
+        var i = parseInt(this.getAttribute('data-i'), 10);
+        var v = num(this.value), l = b.lines[i];
+        if (v > l.max) { v = l.max; this.value = fmt(v); toast('Zyada se zyada ' + fmt(l.max) + ' hi return ho sakta hai', true); }
+        if (v < 0) v = 0;
+        l.qty = v; dirty = true;
+        var totEl = $('edBody').querySelector('[data-t="' + i + '"]');
+        if (totEl) totEl.textContent = v ? money(round2(v * l.rate)) : '\u2014';
+        refreshReturnSum();
+      });
+    });
+  }
+
+  function saveReturn() {
+    var b = bill;
+    var good = b.lines.filter(function (l) { return num(l.qty) > 0; });
+    if (!good.length) { toast('Kam se kam ek item ki quantity daalein', true); return; }
+    var t = returnTotals(b);
+    var isNew = !b.id;
+    var recId = isNew ? uuid() : b.id;
+    var head = {
+      rno:(b.rno || '').trim(), sale_id:b.sale_id, party_id:b.party_id, rdate:b.rdate || today(),
+      narration:b.narration || '', subtotal:t.total, grand_total:t.total,
+      updated_at:new Date().toISOString()
+    };
+    var linesPayload = good.map(function (l, i) {
+      return { sale_line_id:l.sale_line_id, item_id:l.item_id, qty:num(l.qty), rate:l.rate,
+               amount:round2(num(l.qty) * l.rate), line_no:i + 1 };
+    });
+    var priorRow = isNew ? null : returns.filter(function (x) { return x.id === recId; })[0];
+    var optimistic = Object.assign({}, priorRow || {}, head, {
+      id:recId, version:isNew ? 1 : (b.version || 1),
+      lines:linesPayload.map(function (l, i) { return Object.assign({ id:'temp-' + i }, l); })
+    });
+    if (isNew) returns.push(optimistic); else returns = returns.map(function (x) { return x.id === recId ? optimistic : x; });
+    toast((isNew ? 'Saved ' : 'Updated ') + (head.rno || 'return'));
+    closeBill(); render();
+
+    if (!navigator.onLine) {
+      offQAdd({ opId:uuid(), kind:'return', op:isNew ? 'insert' : 'update', recordId:recId,
+                baseVersion:isNew ? null : (b.version || 1), head:head, lines:linesPayload, label:head.rno });
+      syncNote('Offline \u2014 save queued', '#B08A3E');
+      return;
+    }
+
+    syncNote('Saving…');
+    var step = isNew ? sb.from('sales_returns').insert(Object.assign({ id:recId }, head)).select()
+                     : sb.from('sales_returns').update(head).eq('id', recId).eq('version', b.version || 1).select();
+    step.then(function (res) {
+      if (res.error) throw res.error;
+      if (!isNew && (!res.data || !res.data.length)) {
+        toast('Kisi aur ne "' + head.rno + '" pehle save kar diya \u2014 taaza data la rahe hain', true);
+        loadAll();
+        return;
+      }
+      var row = (res.data || [])[0];
+      return sb.from('sales_return_lines').delete().eq('return_id', recId).then(function (d) {
+        if (d.error) throw d.error;
+        var payload = linesPayload.map(function (l, i) { return Object.assign({ return_id:recId, line_no:i + 1 }, l); });
+        return sb.from('sales_return_lines').insert(payload).select();
+      }).then(function (r2) {
+        if (r2.error) throw r2.error;
+        var saved = Object.assign({}, row || head, { id:recId, lines:(r2.data || []) });
+        returns = returns.map(function (x) { return x.id === recId ? saved : x; });
+        syncNote('Saved', '#7DC9A9');
+        render();
+      });
+    }).catch(function (e) {
+      if (isNetErr(e)) {
+        offQAdd({ opId:uuid(), kind:'return', op:isNew ? 'insert' : 'update', recordId:recId,
+                  baseVersion:isNew ? null : (b.version || 1), head:head, lines:linesPayload, label:head.rno });
+        syncNote('Offline \u2014 save queued', '#B08A3E');
+      } else {
+        if (isNew) returns = returns.filter(function (x) { return x.id !== recId; });
+        else returns = returns.map(function (x) { return x.id === recId ? priorRow : x; });
+        render(); syncNote('');
+        // returnable-qty se zyada ka masla ho to saaf batayein, warna generic error
+        if (/Sirf .* tak hi return/.test(e.message || '')) toast(e.message, true);
+        else sayErr(e, 'save');
+      }
+    });
+  }
+
+  function deleteReturn() {
+    var b = bill;
+    if (!b || !b.id) return;
+    confirmBox('Delete ' + (b.rno || '') + '?',
+      'Recycle Bin mein chala jayega \u2014 aap wahan se restore kar sakte hain. Stock/COGS/customer balance us hisaab se wapas adjust ho jayega.',
+      'Delete').then(function (ok) {
+      if (!ok) return;
+      var recId = b.id, label = b.rno, priorRow = returns.filter(function (x) { return x.id === recId; })[0];
+      returns = returns.filter(function (x) { return x.id !== recId; });
+      closeBill(); render();
+      toast('Deleted ' + (label || ''));
+      if (!navigator.onLine) {
+        offQAdd({ opId:uuid(), kind:'return', op:'delete', recordId:recId, label:label });
+        syncNote('Offline \u2014 delete queued', '#B08A3E');
+        return;
+      }
+      sb.from('sales_returns').update({ deleted_at:new Date().toISOString() }).eq('id', recId).then(function (res) {
+        if (res.error) throw res.error;
+        syncNote('');
+      }).catch(function (e) {
+        if (isNetErr(e)) {
+          offQAdd({ opId:uuid(), kind:'return', op:'delete', recordId:recId, label:label });
+          syncNote('Offline \u2014 delete queued', '#B08A3E');
+        } else {
+          if (priorRow) returns.push(priorRow);
+          render(); syncNote(''); sayErr(e, 'delete');
+        }
+      });
+    });
+  }
+
+  function printReturn() {
+    var b = bill;
+    var p = partyById(b.party_id);
+    var good = b.lines.filter(function (l) { return num(l.qty) > 0; });
+    if (!good.length) { toast('Kam se kam ek item ki quantity honi chahiye', true); return; }
+    var t = returnTotals(b);
+    var rows = good.map(function (l, i) {
+      return '<tr><td class="c">' + (i + 1) + '</td><td>' + esc(l.item_name) + '</td>' +
+        '<td class="c">' + esc(l.unit) + '</td><td class="r">' + fmt(l.qty) + '</td>' +
+        '<td class="r">' + money(l.rate) + '</td><td class="r">' + money(round2(num(l.qty) * l.rate)) + '</td></tr>';
+    }).join('');
+    function rfrow(k, v, cls) {
+      return '<tr' + (cls ? ' class="' + cls + '"' : '') + '><td colspan="4" class="k">' + k + '</td><td class="v">' + v + '</td></tr>';
+    }
+    var foot = rfrow('Return total', money(t.total), 'grand');
+
+    var co = defFirm();
+    var coAdr = co ? [co.address, co.city, co.phone, co.email].filter(Boolean).map(esc).join('<br>') : '';
+    $('sheet').innerHTML =
+      '<div class="hd">' + (co && co.logo ? '<img class="logo" src="' + esc(co.logo) + '" alt="">' : '') +
+      '<div><div class="firm">' + esc(co ? co.name : firmName) + '</div>' +
+      (coAdr ? '<div class="adr">' + coAdr + '</div>' : '') +
+      '<div class="kind">Sales Return \u00b7 Against Sale ' + esc(b.sale_vno || '') + '</div></div>' +
+      '<div class="rt"><div class="no">' + esc(b.rno || '') + '</div><div>' + esc(human(b.rdate)) + '</div></div></div>' +
+
+      '<div class="who"><div><div class="lb">Customer</div>' +
+      '<div class="nm">' + esc(p ? p.name : '') + '</div>' +
+      (p && p.address ? '<div>' + esc(p.address) + '</div>' : '') +
+      (p && p.city ? '<div>' + esc(p.city) + '</div>' : '') + '</div></div>' +
+
+      '<table><thead><tr><th class="c" style="width:8mm">#</th><th>Item</th>' +
+      '<th class="c" style="width:16mm">Unit</th><th class="r" style="width:20mm">Qty</th>' +
+      '<th class="r" style="width:26mm">Rate</th><th class="r" style="width:30mm">Amount</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody><tfoot>' + foot + '</tfoot></table>' +
+
+      (b.narration ? '<div class="note">' + esc(b.narration) + '</div>' : '') +
+      '<div class="foot"><div class="sign">Prepared by</div><div class="sign">Received by</div></div>';
+
+    var oldTitle = document.title;
+    var oldTopTitle = (function () { try { return window.top && window.top !== window ? window.top.document.title : oldTitle; } catch (e) { return oldTitle; } })();
+    setPrintTitle(fileSafe(b.rno) + '-' + fileSafe(p ? p.name : 'Party') + '-' + fileDate(b.rdate));
+    window.addEventListener('afterprint', function restore() {
+      restorePrintTitle(oldTitle, oldTopTitle);
+      window.removeEventListener('afterprint', restore);
+    });
+    printWhenReady($('sheet'));
+  }
+
+  function openReturnRec(rr) { startReturn(rr.sale_id, rr); }
+
+  function printBill() {
+    var b = bill; if (!b) return;
+    if (!b.party_id) { toast('Pick a party before printing', true); return; }
+    var p = partyById(b.party_id), t = totals(b);
+    var good = b.lines.filter(function (l) { return l.item_id && num(l.qty) > 0; });
+    if (!good.length) { toast('Add an item before printing', true); return; }
+
+    var rows = good.map(function (l, i) {
+      var it = itemById(l.item_id);
+      return '<tr><td class="c">' + (i + 1) + '</td><td>' + esc(it ? it.name : '') +
+             (l.pcs_on && num(l.pcs) ? '<div style="font-size:8.5pt;color:#9C9384">' + fmt(l.pcs) + ' pcs</div>' : '') + '</td>' +
+             '<td class="c">' + esc(it ? it.unit : '') + '</td>' +
+             '<td class="r">' + fmt(l.qty) + '</td><td class="r">' + money(l.rate) + '</td>' +
+             (b.tax_on ? '<td class="r">' + fmt(l.tax_pct) + '%</td>' : '') +
+             '<td class="r">' + money(round2(num(l.qty) * num(l.rate))) + '</td></tr>';
+    }).join('');
+
+    var cols = b.tax_on ? 7 : 6;
+    var foot = '';
+    function frow(k, v, cls) {
+      return '<tr' + (cls ? ' class="' + cls + '"' : '') + '><td colspan="' + (cols - 1) +
+             '" class="k">' + k + '</td><td class="v">' + v + '</td></tr>';
+    }
+    foot += frow('Items total', money(t.sub));
+    if (t.disc)  foot += frow('Discount', '− ' + money(t.disc));
+    if (b.tax_on) foot += frow('Sales tax', '+ ' + money(t.tax));
+    if (b.loading_on && num(b.loading_amt)) foot += frow('Loading', '+ ' + money(b.loading_amt));
+    if (b.cartage_on && num(b.cartage_amt)) foot += frow('Cartage', '+ ' + money(b.cartage_amt));
+    if (b.cutting_on && num(b.cutting_amt)) foot += frow('Cutting', '+ ' + money(b.cutting_amt));
+    foot += frow('Total', money(t.grand), 'grand');
+    if (!b.doc && t.paid)  foot += frow('Paid', '− ' + money(t.paid));
+    if (!b.doc && t.due)   foot += frow(b.vtype === 'purchase' ? 'Balance payable' : 'Balance receivable', money(t.due));
+
+    var co = firmById(b.company_id) || defFirm();
+    var coAdr = co ? [co.address, co.city, co.phone, co.email,
+                      co.ntn ? 'NTN ' + co.ntn : '',
+                      (b.tax_on && co.strn) ? 'STRN ' + co.strn : '']
+                     .filter(Boolean).map(esc).join('<br>') : '';
+    var kindLabel = b.doc === 'quotation' ? 'Quotation' : b.doc === 'po' ? 'Purchase Order'
+                    : (b.vtype === 'purchase' ? 'Purchase Bill' : 'Sales Invoice');
+    $('sheet').innerHTML =
+      '<div class="hd">' +
+      (co && co.logo ? '<img class="logo" src="' + esc(co.logo) + '" alt="">' : '') +
+      '<div><div class="firm">' + esc(co ? co.name : firmName) + '</div>' +
+      (coAdr ? '<div class="adr">' + coAdr + '</div>' : '') +
+      '<div class="kind">' + kindLabel +
+      (b.tax_on ? ' · Sales Tax' : '') + '</div></div>' +
+      '<div class="rt"><div class="no">' + esc(b.vno || '') + '</div><div>' + esc(human(b.vdate)) + '</div></div></div>' +
+
+      '<div class="who"><div><div class="lb">' + (b.vtype === 'purchase' ? 'Bought from' : 'Sold to') + '</div>' +
+      '<div class="nm">' + esc(p ? p.name : '') + '</div>' +
+      (p && p.address ? '<div>' + esc(p.address) + '</div>' : '') +
+      (p && p.city ? '<div>' + esc(p.city) + '</div>' : '') +
+      (p && p.phone ? '<div>' + esc(p.phone) + '</div>' : '') +
+      (b.tax_on && p && p.ntn ? '<div>NTN ' + esc(p.ntn) + '</div>' : '') + '</div></div>' +
+
+      '<table><thead><tr><th class="c" style="width:8mm">#</th><th>Item</th>' +
+      '<th class="c" style="width:16mm">Unit</th><th class="r" style="width:20mm">Qty</th>' +
+      '<th class="r" style="width:26mm">Rate</th>' + (b.tax_on ? '<th class="r" style="width:16mm">Tax</th>' : '') +
+      '<th class="r" style="width:30mm">Amount</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody><tfoot>' + foot + '</tfoot></table>' +
+
+      (b.narration ? '<div class="note">' + esc(b.narration) + '</div>' : '') +
+      '<div class="foot"><div class="sign">Prepared by</div><div class="sign">Received by</div></div>';
+
+    var oldTitle = document.title;
+    var oldTopTitle = (function () { try { return window.top && window.top !== window ? window.top.document.title : oldTitle; } catch (e) { return oldTitle; } })();
+    setPrintTitle(fileSafe(b.vno) + '-' + fileSafe(p ? p.name : 'Party') + '-' + fileDate(b.vdate));
+    window.addEventListener('afterprint', function restore() {
+      restorePrintTitle(oldTitle, oldTopTitle);
+      window.removeEventListener('afterprint', restore);
+    });
+    printWhenReady($('sheet'));
+  }
+
+  /* ---------- cloud ---------- */
+  var sheets = [];          // ledger sheets — party balance ke liye zaroori
+  var ledgerVouchers = [];  // party balance ke liye — 'bills' se alag (jo sirf recent 600 hai)
+  var ledgerReturns = [];   // party balance ke liye — sales returns bhi customer ka balance ghataate hain
+  var lockDate = null, snapshotActive = false, openingBalances = {};
+
+  /* ═══════════ OFFLINE SUPPORT ═══════════ */
+  var OFFQ_KEY = 'oht-offline-queue-billing';
+  var OFF_CACHE_PREFIX = 'oht-cache-billing-';
+
+  function uuid() {
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+      var r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  }
+  function offQGet() { try { return JSON.parse(localStorage.getItem(OFFQ_KEY) || '[]'); } catch (e) { return []; } }
+  function offQSet(q) { try { localStorage.setItem(OFFQ_KEY, JSON.stringify(q)); } catch (e) {} updatePendingBadge(q.length); }
+  function offQAdd(op) { var q = offQGet(); q.push(op); offQSet(q); }
+  function offQRemove(opId) { offQSet(offQGet().filter(function (o) { return o.opId !== opId; })); }
+  function updatePendingBadge(n) {
+    var el = $('pendingBadge'); if (!el) return;
+    el.style.display = n ? '' : 'none';
+    el.textContent = n + (n === 1 ? ' change pending' : ' changes pending');
+  }
+  function cacheSave(key, rows) { try { localStorage.setItem(OFF_CACHE_PREFIX + key, JSON.stringify(rows)); } catch (e) {} }
+  function cacheLoad(key) { try { return JSON.parse(localStorage.getItem(OFF_CACHE_PREFIX + key) || '[]'); } catch (e) { return []; } }
+
+  var syncingQueue = false;
+  function trySyncQueue() {
+    if (syncingQueue || !navigator.onLine || !sb) return;
+    var q = offQGet();
+    if (!q.length) return;
+    syncingQueue = true;
+    syncNote('Syncing ' + q.length + '\u2026', '#B08A3E');
+    step(0);
+    function step(i) {
+      if (i >= q.length) { syncingQueue = false; syncNote(''); return; }
+      performQueuedOp(q[i]).then(function (result) {
+        if (result === 'conflict') {
+          toast('Kisi aur ne pehle "' + (q[i].label || 'ek record') + '" save kar diya \u2014 aapki wo tabdeeli chhoot gayi, dobara karein', true);
+        } else if (result && result.renumbered) {
+          toast('"' + q[i].label + '" pehle se istemal ho chuka tha \u2014 naya number "' + result.renumbered + '" diya gaya', true);
+        }
+        offQRemove(q[i].opId);
+        step(i + 1);
+      }).catch(function () {
+        syncingQueue = false; syncNote('');
+      });
+    }
+  }
+  function performQueuedOp(op) {
+    if (op.kind === 'bill') return performQueuedBill(op);
+    if (op.kind === 'doc') return performQueuedDoc(op);
+    if (op.kind === 'return') return performQueuedReturn(op);
+    return Promise.resolve('ok');
+  }
+  function performQueuedDoc(op) {
+    var table = op.isQ ? 'quotations' : 'purchase_orders';
+    var lineTable = op.isQ ? 'quotation_lines' : 'po_lines';
+    var fkCol = op.isQ ? 'quotation_id' : 'po_id';
+    if (op.op === 'delete') {
+      return sb.from(table).update({ deleted_at:new Date().toISOString() }).eq('id', op.recordId)
+        .then(function (res) { if (res.error) throw res.error; return 'ok'; });
+    }
+    var headStep = op.op === 'insert'
+      ? sb.from(table).insert(Object.assign({ id:op.recordId }, op.head)).select()
+      : sb.from(table).update(op.head).eq('id', op.recordId).eq('version', op.baseVersion).select();
+    return headStep.then(function (res) {
+      if (res.error) {
+        if (op.op === 'insert' && /duplicate key/i.test(res.error.message || '')) {
+          // pehle hi insert ho chuka tha (retry) — seedha lines par chalo
+        } else throw res.error;
+      } else if (op.op === 'update' && (!res.data || !res.data.length)) {
+        return 'conflict';
+      }
+      return sb.from(lineTable).delete().eq(fkCol, op.recordId).then(function (d) {
+        if (d.error) throw d.error;
+        var payload = op.lines.map(function (l, i) {
+          var o = Object.assign({ line_no:i + 1 }, l); o[fkCol] = op.recordId; return o;
+        });
+        return sb.from(lineTable).insert(payload).select();
+      }).then(function (r2) { if (r2.error) throw r2.error; return 'ok'; });
+    });
+  }
+  function performQueuedReturn(op) {
+    if (op.op === 'delete') {
+      return sb.from('sales_returns').update({ deleted_at:new Date().toISOString() }).eq('id', op.recordId)
+        .then(function (res) { if (res.error) throw res.error; return 'ok'; });
+    }
+    var headStep = op.op === 'insert'
+      ? sb.from('sales_returns').insert(Object.assign({ id:op.recordId }, op.head)).select()
+      : sb.from('sales_returns').update(op.head).eq('id', op.recordId).eq('version', op.baseVersion).select();
+    return headStep.then(function (res) {
+      if (res.error) {
+        if (op.op === 'insert' && /duplicate key/i.test(res.error.message || '')) {
+          // pehle hi insert ho chuka tha (retry) — seedha lines par chalo
+        } else throw res.error;
+      } else if (op.op === 'update' && (!res.data || !res.data.length)) {
+        return 'conflict';
+      }
+      return sb.from('sales_return_lines').delete().eq('return_id', op.recordId).then(function (d) {
+        if (d.error) throw d.error;
+        var payload = op.lines.map(function (l, i) {
+          return Object.assign({ return_id:op.recordId, line_no:i + 1 }, l);
+        });
+        return sb.from('sales_return_lines').insert(payload).select();
+      }).then(function (r2) {
+        if (r2.error) {
+          // returnable-qty se zyada nikla (kisi aur device ne beech mein wahi maal return kar diya)
+          if (/Sirf .* tak hi return/.test(r2.error.message || '')) return 'conflict';
+          throw r2.error;
+        }
+        return 'ok';
+      });
+    });
+  }
+  function performQueuedBill(op, attempt) {
+    attempt = attempt || 1;
+    if (op.op === 'delete') {
+      return sb.from('vouchers').update({ deleted_at:new Date().toISOString() }).eq('id', op.recordId)
+        .then(function (res) { if (res.error) throw res.error; return 'ok'; });
+    }
+    var headStep = op.op === 'insert'
+      ? sb.from('vouchers').insert(Object.assign({ id:op.recordId }, op.head)).select()
+      : sb.from('vouchers').update(op.head).eq('id', op.recordId).eq('version', op.baseVersion).select();
+    return headStep.then(function (res) {
+      if (res.error) {
+        if (op.op === 'insert' && isDupVno(res.error) && attempt < 5) {
+          var m = String(op.head.vno || '').match(/^(\D*)(\d+)$/);
+          var nextVno = m ? m[1] + String(parseInt(m[2], 10) + 1).padStart(m[2].length, '0') : op.head.vno + '-2';
+          var renumbered = nextVno;
+          op = Object.assign({}, op, { head:Object.assign({}, op.head, { vno:nextVno }) });
+          return performQueuedBill(op, attempt + 1).then(function (r) {
+            return (r === 'ok') ? { renumbered:renumbered } : r;
+          });
+        }
+        if (op.op === 'insert' && /duplicate key/i.test(res.error.message || '') && !isDupVno(res.error)) {
+          // id pehle hi insert ho chuka (retry) — seedha lines step par chalo
+        } else throw res.error;
+      } else if (op.op === 'update' && (!res.data || !res.data.length)) {
+        return 'conflict';
+      }
+      return sb.from('voucher_lines').delete().eq('voucher_id', op.recordId).then(function (d) {
+        if (d.error) throw d.error;
+        var payload = op.lines.map(function (l, i) { return Object.assign({ voucher_id:op.recordId, line_no:i + 1 }, l); });
+        return sb.from('voucher_lines').insert(payload).select();
+      }).then(function (r2) { if (r2.error) throw r2.error; return 'ok'; });
+    });
+  }
+  window.addEventListener('online', trySyncQueue);
+  setInterval(trySyncQueue, 15000);
+  updatePendingBadge(offQGet().length);
+
+  function loadAll() {
+    if (!sb) return Promise.resolve();
+    syncNote('Loading…');
+    return sb.from('period_lock').select('locked_before').eq('id', 1).single().then(function (lockRes) {
+      var ld = (!lockRes.error && lockRes.data) ? lockRes.data.locked_before : null;
+      return sb.from('party_opening_balances').select('party_id,as_of_date,balance').then(function (obRes) {
+        var obRows = (!obRes.error && obRes.data) ? obRes.data : [];
+        var active = !!ld && obRows.length > 0 && obRows.every(function (r) { return r.as_of_date === ld; });
+        var ob = {};
+        if (active) obRows.forEach(function (r) { ob[r.party_id] = num(r.balance); });
+
+        var ledgerVoucherQuery = sb.from('vouchers').select('id,party_id,vdate,vtype,grand_total,paid').is('deleted_at', null);
+        var ledgerSheetQuery   = sb.from('sheets').select('sheet_date,rows');
+        var ledgerReturnQuery  = sb.from('sales_returns').select('grand_total,party_id,rdate').is('deleted_at', null);
+        if (active) {
+          ledgerVoucherQuery = ledgerVoucherQuery.gte('vdate', ld);
+          ledgerSheetQuery   = ledgerSheetQuery.gte('sheet_date', ld);
+          ledgerReturnQuery  = ledgerReturnQuery.gte('rdate', ld);
+        }
+
+        return Promise.all([
+          sb.from('parties').select('*'),
+          sb.from('items').select('*'),
+          sb.from('vouchers').select('*').is('deleted_at', null).order('vdate', { ascending:false }).limit(600),
+          sb.from('voucher_lines').select('*'),
+          sb.from('companies').select('*'),
+          ledgerVoucherQuery,
+          ledgerSheetQuery,
+          sb.from('quotations').select('*').is('deleted_at', null).order('qdate', { ascending:false }).limit(300),
+          sb.from('quotation_lines').select('*'),
+          sb.from('purchase_orders').select('*').is('deleted_at', null).order('podate', { ascending:false }).limit(300),
+          sb.from('po_lines').select('*'),
+          sb.from('vouchers').select('vno,vtype'),   // halka query — DELETED bills bhi shamil, sirf numbering ke liye
+          sb.from('sales_returns').select('*').is('deleted_at', null).order('rdate', { ascending:false }).limit(300),
+          sb.from('sales_return_lines').select('*'),
+          ledgerReturnQuery
+        ]).then(function (r) {
+          r.slice(0, 4).forEach(function (x) { if (x.error) throw x.error; });
+          parties = r[0].data || [];
+          items   = r[1].data || [];
+          bills   = r[2].data || [];
+          firms   = r[4].error ? [] : (r[4].data || []);        // SQL na chali ho to bhi bill bane
+          ledgerVouchers = r[5].error ? [] : (r[5].data || []); // party balance ke liye poora/lock-ke-baad set
+          sheets  = r[6].error ? [] : (r[6].data || []);        // ledger sheets
+          lockDate = ld; snapshotActive = active; openingBalances = ob;
+          allVnos = r[11].error ? bills : (r[11].data || []);   // fail ho to kam se kam active bills se hi kaam chale
+
+          // Quotations aur Purchase Orders — bilkul alag, koi balance/stock impact nahi
+          quotes = r[7].error ? [] : (r[7].data || []);
+          pos    = r[9].error ? [] : (r[9].data || []);
+          var byQ = {}; (r[8].error ? [] : (r[8].data || [])).forEach(function (l) { (byQ[l.quotation_id] = byQ[l.quotation_id] || []).push(l); });
+          quotes.forEach(function (q) { q.lines = (byQ[q.id] || []).sort(function (a, c) { return (a.line_no || 0) - (c.line_no || 0); }); });
+          var byP = {}; (r[10].error ? [] : (r[10].data || [])).forEach(function (l) { (byP[l.po_id] = byP[l.po_id] || []).push(l); });
+          pos.forEach(function (p) { p.lines = (byP[p.id] || []).sort(function (a, c) { return (a.line_no || 0) - (c.line_no || 0); }); });
+
+          // Sales Returns — asal financial impact hai (party balance/stock), is liye
+          // ledgerReturns ledgerVouchers jaisa hi scope follow karta hai (lock-ke-baad ya poora)
+          returns = r[12].error ? [] : (r[12].data || []);
+          var byR = {}; (r[13].error ? [] : (r[13].data || [])).forEach(function (l) { (byR[l.return_id] = byR[l.return_id] || []).push(l); });
+          returns.forEach(function (rr) { rr.lines = (byR[rr.id] || []).sort(function (a, c) { return (a.line_no || 0) - (c.line_no || 0); }); });
+          ledgerReturns = r[14].error ? [] : (r[14].data || []);
+
+          // lock set hai lekin snapshot missing/stale mile — masters.html khud theek kar lega
+          // agli baar wahan se khula jaye; yahan billing.html mein sirf safe fallback kaafi hai
+
+          var byV = {};
+          (r[3].data || []).forEach(function (l) { (byV[l.voucher_id] = byV[l.voucher_id] || []).push(l); });
+          bills.forEach(function (b) {
+            b.lines = (byV[b.id] || []).sort(function (a, c) { return (a.line_no || 0) - (c.line_no || 0); });
+          });
+          syncNote(''); render(); tryOpenWanted();
+          // agar bill khula hua hai aur sheets ab aa gayi hain to balance dobara theek karo
+          refreshOpenBillBalance();
+          cacheSave('parties', parties); cacheSave('items', items); cacheSave('bills', bills);
+          cacheSave('firms', firms); cacheSave('allVnos', allVnos);
+          trySyncQueue();
+          if (!parties.length || !items.length) {
+            toast(!parties.length && !items.length ? 'Add parties and items in Masters first'
+                  : (!parties.length ? 'No parties yet — add them in Masters' : 'No items yet — add them in Masters'), true);
+          }
+        });
+      });
+    }).catch(function (e) {
+      if (isNetErr(e)) {
+        parties = cacheLoad('parties'); items = cacheLoad('items'); bills = cacheLoad('bills');
+        firms = cacheLoad('firms'); allVnos = cacheLoad('allVnos');
+        var haveCache = parties.length || items.length || bills.length;
+        syncNote(haveCache ? 'Offline \u2014 purana data' : 'Offline', '#B08A3E');
+        if (!haveCache) toast('No internet \u2014 abhi tak kuch bhi save nahi hua tha is device par', true);
+      }
+      else if (isClockErr(e)) {
+        syncNote('Retrying…', '#B08A3E');
+        toast('Your phone\u2019s clock looks slightly off \u2014 retrying automatically', true);
+        setTimeout(loadAll, 4000);
+      }
+      else { console.error(e); toast((e && e.message) || 'Could not load', true); syncNote('Error', '#E89A9A'); }
+      render();
+    });
+  }
+
+  /* ---------- wiring ---------- */
+  document.querySelectorAll('.sb-item[data-t]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('.sb-item[data-t]').forEach(function (x) { x.classList.remove('on'); });
+      btn.classList.add('on');
+      vtype = btn.getAttribute('data-t');
+      $('moTitle').textContent = vtype === 'purchase' ? 'Purchase' : vtype === 'sale' ? 'Sale'
+                                : vtype === 'quotation' ? 'Quotation' : vtype === 'po' ? 'Purchase order' : 'Sales return';
+      closeSidebar();
+      $('q').value = '';
+      $('newBtn').textContent = vtype === 'purchase' ? '+ Purchase' : vtype === 'sale' ? '+ Sale'
+                               : vtype === 'quotation' ? '+ Quotation' : vtype === 'po' ? '+ Purchase Order' : '+ Return';
+      updateNewBtnPerm();
+      render();
+    });
+  });
+  function openSidebar() { $('sidebar').classList.add('on'); $('sbBackdrop').classList.add('on'); }
+  function closeSidebar() { $('sidebar').classList.remove('on'); $('sbBackdrop').classList.remove('on'); }
+  $('sbOpen').addEventListener('click', openSidebar);
+  $('sbClose').addEventListener('click', closeSidebar);
+  $('sbBackdrop').addEventListener('click', closeSidebar);
+  document.querySelectorAll('.sidebar .sb-item:not([data-t])').forEach(function (b) {
+    b.addEventListener('click', closeSidebar);
+  });
+  $('q').addEventListener('input', render);
+  $('qClr').addEventListener('click', function () { $('q').value = ''; render(); $('q').focus(); });
+  $('newBtn').addEventListener('click', function () {
+    if (!parties.length) { toast('Add a party in Masters first', true); return; }
+    if (!items.length)   { toast('Add an item in Masters first', true); return; }
+    if (vtype === 'quotation') { openDoc('quotation', null); return; }
+    if (vtype === 'po')        { openDoc('po', null); return; }
+    if (vtype === 'return')    { openPickSaleModal(); return; }
+    openBill(null);
+  });
+  function updateNewBtnPerm() {
+    var ok = vtype === 'quotation' ? can('quotation_create')
+           : vtype === 'po'        ? can('po_create')
+           : vtype === 'return'    ? can('bill_create')
+           : can('bill_create');
+    $('newBtn').style.display = ok ? '' : 'none';
+  }
+  function openRowById(id, docType) {
+    if (docType === 'quotation') {
+      var q = quotes.filter(function (x) { return String(x.id) === id; })[0];
+      if (q) openDoc('quotation', q);
+      return;
+    }
+    if (docType === 'po') {
+      var p = pos.filter(function (x) { return String(x.id) === id; })[0];
+      if (p) openDoc('po', p);
+      return;
+    }
+    if (docType === 'return') {
+      var rr = returns.filter(function (x) { return String(x.id) === id; })[0];
+      if (rr) openReturnRec(rr);
+      return;
+    }
+    var b = bills.filter(function (x) { return String(x.id) === id; })[0];
+    if (b) openBill(b);
+  }
+  $('rows').addEventListener('click', function (e) {
+    var row = e.target.closest('.brow'); if (!row) return;
+    openRowById(row.getAttribute('data-id'), row.getAttribute('data-doc'));
+  });
+  $('rows').addEventListener('keydown', function (e) {
+    var row = e.target.closest('.brow'); if (!row) return;
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openRowById(row.getAttribute('data-id'), row.getAttribute('data-doc')); return; }
+    var rows = [].slice.call($('rows').querySelectorAll('.brow'));
+    var i = rows.indexOf(row);
+    if (e.key === 'ArrowDown') { e.preventDefault(); if (rows[i+1]) rows[i+1].focus(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); if (rows[i-1]) rows[i-1].focus(); }
+    else if (e.key === 'Home') { e.preventDefault(); if (rows[0]) rows[0].focus(); }
+    else if (e.key === 'End') { e.preventDefault(); if (rows[rows.length-1]) rows[rows.length-1].focus(); }
+  });
+  $('edSave').addEventListener('click', function () {
+    if (bill && bill.isReturn) { saveReturn(); return; }
+    (bill && bill.doc) ? saveDoc() : saveBill();
+  });
+  $('edDel').addEventListener('click', function () {
+    if (bill && bill.isReturn) { deleteReturn(); return; }
+    (bill && bill.doc) ? deleteDoc() : delBill();
+  });
+  $('edPrint').addEventListener('click', function () {
+    if (bill && bill.isReturn) { printReturn(); return; }
+    printBill();
+  });
+  $('edBack').addEventListener('click', tryClose);
+  function tryClose() {
+    if (!dirty) { closeBill(); return; }
+    confirmBox('Leave without saving?', 'This bill will not be kept.', 'Discard')
+      .then(function (ok) { if (ok) closeBill(); });
+  }
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && $('ed').classList.contains('on')) {
+      if ($('ask').classList.contains('on')) return;
+      e.preventDefault(); tryClose();
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key === 's' && $('ed').classList.contains('on')) {
+      e.preventDefault(); saveBill();
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'k' && !$('ed').classList.contains('on')) {
+      e.preventDefault(); $('q').focus(); $('q').select();
+    }
+  });
+  window.addEventListener('online',  function () { syncNote(''); loadAll(); });
+  /* yeh tab agar pehle se khuli padi thi aur dobara nazar aaye, to taaza data mangwao.
+     bill khulne se koi farq nahi parta — openBill() us ki apni alag copy banata hai */
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState !== 'visible' || !sb) return;
+    loadAll();
+  });
+  /* Realtime kabhi disconnect ho jaye to bhi data stale na rahe — is liye
+     2 minute mein ek dafa backup refresh */
+  setInterval(function () {
+    if (!sb) return;
+    loadAll();
+  }, 120000);
+  window.addEventListener('offline', function () { syncNote('Offline', '#B08A3E'); });
+
+  /* ---------- gates ---------- */
+  function showErr(id, msg) { var el = $(id); el.textContent = msg; el.classList.toggle('on', !!msg); }
+  function makeClient(url, key) {
+    return window.supabase.createClient(url, key, {
+      auth: { persistSession:true, autoRefreshToken:true }
+    });
+  }
+  $('cGo').addEventListener('click', function () {
+    var url = $('cUrl').value.trim().replace(/\/+$/, ''), key = $('cKey').value.trim();
+    showErr('cErr', '');
+    if (!/^https:\/\/.+/.test(url)) { showErr('cErr', 'The URL should start with https://'); return; }
+    if (!key) { showErr('cErr', 'Paste the publishable (anon) key.'); return; }
+    if (/service_role|^sb_secret/i.test(key)) { showErr('cErr', 'That is the secret key. Use the publishable (anon) key.'); return; }
+    $('cGo').disabled = true; $('cGo').textContent = 'Connecting…';
+    try { sb = makeClient(url, key); } catch (e) {
+      $('cGo').disabled = false; $('cGo').textContent = 'Connect';
+      showErr('cErr', 'Could not use those values.'); return;
+    }
+    sb.auth.getSession().then(function () {
+      store.set(CFG, JSON.stringify({ url:url, key:key }));
+      $('cGo').disabled = false; $('cGo').textContent = 'Connect';
+      $('gateConnect').classList.remove('on'); afterConnect();
+    }).catch(function (e) {
+      $('cGo').disabled = false; $('cGo').textContent = 'Connect';
+      showErr('cErr', isNetErr(e) ? 'No internet. Connect and try again.' : 'Could not reach that project.');
+    });
+  });
+  $('lGo').addEventListener('click', function () {
+    var raw = $('lMail').value.trim(), pass = $('lPass').value;
+    showErr('lErr', '');
+    if (!raw || !pass) { showErr('lErr', 'Enter both username and password.'); return; }
+    var mail = raw.indexOf('@') > -1 ? raw : (raw.toLowerCase() + '@oht.internal');
+    $('lGo').disabled = true; $('lGo').textContent = 'Signing in…';
+    sb.auth.signInWithPassword({ email:mail, password:pass }).then(function (res) {
+      $('lGo').disabled = false; $('lGo').textContent = 'Sign in';
+      if (res.error) { showErr('lErr', isNetErr(res.error) ? 'No internet. Connect and try again.'
+                                        : isClockErr(res.error) ? 'Your phone\u2019s clock looks slightly off \u2014 check Date & Time settings and try again.'
+                                        : 'That username and password did not match.'); return; }
+      $('lPass').value = ''; $('gateLogin').classList.remove('on'); start();
+    }).catch(function (e) {
+      $('lGo').disabled = false; $('lGo').textContent = 'Sign in';
+      showErr('lErr', isNetErr(e) ? 'No internet. Connect and try again.' : 'Could not sign in.');
+    });
+  });
+  $('lPass').addEventListener('keydown', function (e) { if (e.key === 'Enter') $('lGo').click(); });
+  $('cKey').addEventListener('keydown', function (e) { if (e.key === 'Enter') $('cGo').click(); });
+  $('cfgReset').addEventListener('click', function () {
+    store.del(CFG); $('gateLogin').classList.remove('on'); $('gateConnect').classList.add('on');
+  });
+  $('outBtn').addEventListener('click', function () {
+    confirmBox('Sign out?', 'You will need your email and password to get back in.', 'Sign out')
+      .then(function (ok) { if (ok) sb.auth.signOut().then(function () { location.reload(); }); });
+  });
+
+  function afterConnect(attempt) {
+    attempt = attempt || 1;
+    sb.auth.getSession().then(function (res) {
+      if (res.data && res.data.session) start(); else $('gateLogin').classList.add('on');
+    }).catch(function (e) {
+      if (isClockErr(e) && attempt < 5) { setTimeout(function () { afterConnect(attempt + 1); }, 3000); return; }
+      $('gateLogin').classList.add('on');
+    });
+  }
+  var wanted = null, wantedType = null;
+  function gotoArg(arg) {
+    var m = String(arg || '').match(/bill=([0-9a-fA-F-]+)/);
+    if (m) { wanted = m[1]; wantedType = 'bill'; tryOpenWanted(); return; }
+    var m2 = String(arg || '').match(/return=([0-9a-fA-F-]+)/);
+    if (m2) { wanted = m2[1]; wantedType = 'return'; tryOpenWanted(); return; }
+  }
+  /* loadAll ke baad, agar bill khula hai to sirf balance wali line taaza karo —
+     poora editor dobara render karna zaroori nahi, sirf us chhoti si cheez ko */
+  function refreshOpenBillBalance() {
+    if (!bill || !bill.party_id) return;
+    var balEl = document.querySelector('.bal');
+    if (!balEl) return;
+    var parent = balEl.parentNode;
+    if (!parent) return;
+    parent.innerHTML = balText(bill.party_id);
+  }
+
+  function tryOpenWanted() {
+    if (!wanted) return;
+    if (wantedType === 'return') {
+      var rr = returns.filter(function (x) { return String(x.id) === wanted; })[0];
+      if (!rr) return;   // abhi load nahi hui — loadAll ke baad dobara
+      wanted = null; wantedType = null;
+      if (vtype !== 'return') {
+        vtype = 'return';
+        document.querySelectorAll('.sb-item[data-t]').forEach(function (x) { x.classList.toggle('on', x.getAttribute('data-t') === 'return'); });
+        render();
+      }
+      openReturnRec(rr);
+      return;
+    }
+    var b = bills.filter(function (x) { return String(x.id) === wanted; })[0];
+    if (!b) return;                       // abhi load nahi hui — loadAll ke baad dobara
+    wanted = null; wantedType = null;
+    var t = b.vtype;
+    if (t !== vtype) {
+      vtype = t;
+      document.querySelectorAll('.sb-item[data-t]').forEach(function (x) {
+        x.classList.toggle('on', x.getAttribute('data-t') === t);
+      });
+      $('moTitle').textContent = t === 'purchase' ? 'Purchase' : 'Sale';
+      $('newBtn').textContent = t === 'purchase' ? '+ Purchase' : '+ Sale';
+      render();
+    }
+    openBill(b);
+  }
+  window.addEventListener('message', function (e) {
+    if (!e.data) return;
+    if (e.data.oht === 'goto') { gotoArg(e.data.arg); return; }
+    if (e.data.oht === 'refresh') {
+      var kind = e.data.kind;
+      if (kind !== 'parties' && kind !== 'items' && kind !== 'companies') return;
+      sb.from(kind).select('*').then(function (res) {
+        if (res.error) return;
+        if (kind === 'parties') parties = res.data || [];
+        else if (kind === 'items') items = res.data || [];
+        else firms = res.data || [];
+        if (!bill) render();      // koi bill khula ho to zabardasti dobara nahi banate — picker khud taaza data dekhega
+      }).catch(function () {});
+    }
+  });
+
+  function start() {
+    $('gateConnect').classList.remove('on'); $('gateLogin').classList.remove('on');
+    loadMe().then(function () {
+      $('newBtn').textContent = '+ Purchase';
+      $('newBtn').style.display = can('bill_create') ? '' : 'none';
+      updateNewBtnPerm();
+      loadAll();
+      setupRealtime();
+    }).catch(function (e) {
+      var msg = (e && e.message === 'disabled')
+        ? 'Aapka access band kar diya gaya hai. Admin se raabta karein.'
+        : (e && e.message === 'not_setup')
+        ? 'Aapka account abhi set up nahi hua. Admin se raabta karein.'
+        : 'Sign-in check nahi ho saka. Dobara koshish karein.';
+      sb.auth.signOut().then(function () { $('gateLogin').classList.add('on'); showErr('lErr', msg); });
+    });
+  }
+
+  /* ---------- me / permissions ---------- */
+  var me = null;
+  function loadMe() {
+    return sb.auth.getUser().then(function (res) {
+      var user = res.data && res.data.user;
+      if (!user) return Promise.reject(new Error('no_user'));
+      return sb.from('app_users').select('*').eq('id', user.id).single().then(function (r) {
+        if (r.error || !r.data) return Promise.reject(new Error('not_setup'));
+        if (!r.data.is_active) return Promise.reject(new Error('disabled'));
+        me = { id:r.data.id, username:r.data.username, isAdmin:!!r.data.is_admin, perms:r.data.perms || {} };
+      });
+    });
+  }
+  function can(key) { return !!(me && (me.isAdmin || me.perms[key])); }
+  /* ---------- Realtime: 20-second polling ki jagah, sirf jab actual change ho tab refresh ---------- */
+  var realtimeChannel = null, realtimeTimer = null;
+  function scheduleRefresh() {
+    clearTimeout(realtimeTimer);
+    realtimeTimer = setTimeout(function () { if (sb) loadAll(); }, 700);
+  }
+  function setupRealtime() {
+    if (!sb || realtimeChannel) return;
+    try {
+      realtimeChannel = sb.channel('oht-billing-changes')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'vouchers' }, scheduleRefresh)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'voucher_lines' }, scheduleRefresh)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'parties' }, scheduleRefresh)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'items' }, scheduleRefresh)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'companies' }, scheduleRefresh)
+        .subscribe();
+    } catch (e) { /* Realtime na chale to bhi app chalta rahe */ }
+  }
+
+  (function boot() {
+    var raw = store.get(CFG);
+    if (!raw) { $('gateConnect').classList.add('on'); return; }
+    var cfg; try { cfg = JSON.parse(raw); } catch (e) { cfg = null; }
+    if (!cfg || !cfg.url || !cfg.key) { $('gateConnect').classList.add('on'); return; }
+    try { sb = makeClient(cfg.url, cfg.key); } catch (e) { $('gateConnect').classList.add('on'); return; }
+    $('gateConnect').classList.remove('on'); afterConnect();
+  })();
+})();
+</script>
+</body>
+</html>
