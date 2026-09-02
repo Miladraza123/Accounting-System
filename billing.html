@@ -20,6 +20,49 @@
          overflow:hidden; font-size:14px; }
   button, input, select, textarea { font:inherit; color:inherit; }
   button { cursor:pointer; }
+
+  /* ---------- shell / sidebar ---------- */
+  .shell { flex:1; min-height:0; display:flex; overflow:hidden; }
+  .main-col { flex:1; min-width:0; display:flex; flex-direction:column; min-height:0; }
+
+  .mobar { display:none; flex:none; background:var(--ink); color:#fff; align-items:center; gap:10px;
+           padding:0 12px; height:calc(48px + env(safe-area-inset-top)); padding-top:env(safe-area-inset-top); }
+  .mobar .hbtn { background:none; border:none; color:#fff; padding:6px; margin:-6px; border-radius:6px; }
+  .mobar .hbtn:active { background:#3A342A; }
+  .mobar .ttl { font-size:14px; font-weight:600; flex:1; }
+
+  .backdrop { display:none; position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:39; }
+  .backdrop.on { display:block; }
+
+  .sidebar { flex:none; width:216px; background:var(--ink); display:flex; flex-direction:column;
+             overflow-y:auto; -webkit-overflow-scrolling:touch; }
+  .sb-hd { flex:none; padding:14px 16px; display:flex; align-items:center; gap:9px;
+           border-bottom:1px solid #4A4436; }
+  .sb-hd .mark { flex:none; width:26px; height:26px; border:1.5px solid var(--accent); border-radius:6px;
+                 display:grid; place-items:center; font-size:9.5px; color:var(--accent); font-weight:700; }
+  .sb-hd .ttl { font-size:13.5px; font-weight:600; color:#F5F1E6; }
+  .sb-close { display:none; margin-left:auto; background:none; border:none; color:#B0A891; padding:4px; }
+
+  .sb-sec { padding:12px 10px 4px; }
+  .sb-lbl { padding:0 8px 6px; font-size:9.5px; letter-spacing:.6px; text-transform:uppercase; color:#8C8577; }
+  .sb-item { display:flex; align-items:center; gap:10px; width:100%; text-align:left;
+             background:none; border:none; color:#D9CFBE; padding:8px 10px; border-radius:7px;
+             font-size:13px; margin-bottom:1px; }
+  .sb-item svg { flex:none; width:16px; height:16px; opacity:.9; }
+  .sb-item .n { margin-left:auto; font-size:11px; color:#8C8577; }
+  .sb-item:hover { background:#3A342A; }
+  .sb-item.on { background:#3A342A; color:#F5F1E6; }
+  .sb-div { height:1px; background:#4A4436; margin:8px 12px; }
+  .sb-spacer { flex:1; }
+
+  @media (max-width:880px) {
+    .mobar { display:flex; }
+    .sidebar { position:fixed; left:0; top:0; bottom:0; width:78%; max-width:280px; z-index:40;
+               transform:translateX(-100%); transition:transform .22s ease; box-shadow:4px 0 20px rgba(0,0,0,.25); }
+    .sidebar.on { transform:translateX(0); }
+    .sb-close { display:block; }
+  }
+
   .spacer { flex:1; }
 
   .appbar { flex:none; background:var(--ink); color:#fff; display:flex; align-items:center; gap:10px;
@@ -29,8 +72,9 @@
   .brand .mark { width:25px; height:25px; border:1.5px solid var(--accent); border-radius:5px;
                  display:grid; place-items:center; font-size:11px; color:var(--accent); font-weight:700; }
   .abtn { background:#3A342A; border:1px solid #4A4436; color:#E8E2D5; border-radius:7px;
-          padding:7px 11px; font-size:12.5px; font-weight:500; }
+          padding:7px 11px; font-size:12.5px; font-weight:500; display:inline-flex; align-items:center; gap:6px; }
   .abtn:hover { background:#3A342A; }
+  .abi { width:14px; height:14px; flex:none; opacity:.85; }
   .sync { font-family:'IBM Plex Mono',monospace; font-size:11px; color:#B0A891; white-space:nowrap; }
 
   .tabs { flex:none; display:flex; background:var(--paper); border-bottom:1px solid var(--line); }
@@ -66,6 +110,13 @@
   .brow:focus-visible { outline:none; background:#EFE7D8; box-shadow:inset 3px 0 0 var(--cash); }
   .brow .no { flex:none; width:62px; font-family:'IBM Plex Mono',monospace; font-size:12px;
               font-weight:600; color:var(--slate); }
+  .docav { flex:none; width:30px; height:30px; border-radius:8px; display:grid; place-items:center;
+           background:var(--panel); color:var(--slate); }
+  .docav.doc-purchase   { background:#F2E9D6; color:#96702E; }
+  .docav.doc-sale       { background:#E4EBF2; color:#4A6D93; }
+  .docav.doc-quotation  { background:#E9E1F0; color:#6E4A96; }
+  .docav.doc-po         { background:#F0E6D2; color:#96702E; }
+  .docav.doc-return     { background:#EFE9E1; color:#8C8577; }
   .brow .mid { flex:1; min-width:0; }
   .brow .nm { font-weight:600; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .brow .sub { font-size:11.5px; color:var(--mute); margin-top:2px; }
@@ -283,31 +334,64 @@
   </div>
 </div>
 
-<div class="appbar">
-  <div class="brand"><span class="mark">OHT</span><span>Billing</span></div>
-  <div class="spacer"></div>
-  <span class="sync" id="syncNote"></span>
-  <button class="abtn" id="outBtn">Sign out</button>
-</div>
+<div class="backdrop" id="sbBackdrop"></div>
+<div class="shell">
+  <div class="sidebar" id="sidebar">
+    <div class="sb-hd">
+      <span class="mark">OHT</span><span class="ttl">Billing</span>
+      <button class="sb-close" id="sbClose" aria-label="Close menu">✕</button>
+    </div>
 
-<div class="tabs">
-  <button class="tab on" data-t="purchase">Purchase <span class="n" id="nPur"></span></button>
-  <button class="tab" data-t="sale">Sale <span class="n" id="nSal"></span></button>
-  <button class="tab" data-t="quotation">Quotation <span class="n" id="nQuo"></span></button>
-  <button class="tab" data-t="po">PO <span class="n" id="nPo"></span></button>
-  <button class="tab" data-t="return">Return <span class="n" id="nRet"></span></button>
-</div>
+    <div class="sb-lbl">Documents</div>
+    <div class="sb-sec" style="padding-top:0">
+      <button class="sb-item on" data-t="purchase">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4h16v16H4z"/><path d="M9 9h6M9 13h6"/></svg>
+        Purchase<span class="n" id="nPur"></span>
+      </button>
+      <button class="sb-item" data-t="sale">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4h16v16H4z"/><path d="M9 9h6M9 13h6"/></svg>
+        Sale<span class="n" id="nSal"></span>
+      </button>
+      <button class="sb-item" data-t="quotation">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 12l2 2 4-4"/><rect x="4" y="4" width="16" height="16" rx="1"/></svg>
+        Quotation<span class="n" id="nQuo"></span>
+      </button>
+      <button class="sb-item" data-t="po">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1h11"/></svg>
+        Purchase order<span class="n" id="nPo"></span>
+      </button>
+      <button class="sb-item" data-t="return">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 15l-4-4 4-4"/><path d="M5 11h9a5 5 0 015 5v1"/></svg>
+        Sales return<span class="n" id="nRet"></span>
+      </button>
+    </div>
 
-<div class="tools">
-  <div class="search" id="searchWrap">
-    <span class="ico">⌕</span>
-    <input id="q" type="search" placeholder="Search by party or bill no…" autocomplete="off">
-    <button class="clr" id="qClr" aria-label="Clear search">×</button>
+    <div class="sb-spacer"></div>
+    <div class="sb-div"></div>
+    <div class="sb-sec">
+      <button class="sb-item" id="outBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4H6a1 1 0 00-1 1v14a1 1 0 001 1h3M15 16l4-4-4-4M19 12H8"/></svg>Sign out</button>
+    </div>
   </div>
-  <button class="newbtn" id="newBtn">+ Bill</button>
-</div>
 
-<div class="wrap"><div class="rows" id="rows"></div></div>
+  <div class="main-col">
+    <div class="mobar">
+      <button class="hbtn" id="sbOpen" aria-label="Open menu"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+      <span class="ttl" id="moTitle">Purchase</span>
+      <span class="sync" id="syncNote"></span>
+    </div>
+
+    <div class="tools">
+      <div class="search" id="searchWrap">
+        <span class="ico">⌕</span>
+        <input id="q" type="search" placeholder="Search by party or bill no…" autocomplete="off">
+        <button class="clr" id="qClr" aria-label="Clear search">×</button>
+      </div>
+      <button class="newbtn" id="newBtn">+ Bill</button>
+    </div>
+
+    <div class="wrap"><div class="rows" id="rows"></div></div>
+  </div>
+</div>
 
 <!-- ══════════ editor ══════════ -->
 <div class="ed" id="ed">
@@ -315,7 +399,7 @@
     <button class="icb" id="edBack" aria-label="Back">‹</button>
     <h3 id="edTitle">New purchase</h3>
     <div class="spacer"></div>
-    <button class="abtn" id="edPrint">Print</button>
+    <button class="abtn" id="edPrint"><svg class="abi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V3h12v6M6 18H4a1 1 0 01-1-1v-6a1 1 0 011-1h16a1 1 0 011 1v6a1 1 0 01-1 1h-2M6 14h12v7H6z"/></svg>Print</button>
   </div>
   <div class="edbody" id="edBody"></div>
   <div class="edfoot">
@@ -584,6 +668,7 @@
       var t = totals(normalise(b));
       var cnt = (b.lines || []).length;
       html += '<div class="brow" data-id="' + b.id + '" tabindex="0" role="button">' +
+        docIcon(b.vtype) +
         '<div class="no">' + esc(b.vno || '—') + '</div><div class="mid">' +
         '<div class="nm">' + esc(p ? p.name : 'No party') + '</div>' +
         '<div class="sub">' + cnt + (cnt === 1 ? ' item' : ' items') +
@@ -633,6 +718,7 @@
       var p = partyById(d.party_id);
       var cnt = (d.lines || []).length;
       html += '<div class="brow" data-doc="' + (isQ ? 'quotation' : 'po') + '" data-id="' + d.id + '" tabindex="0" role="button">' +
+        docIcon(isQ ? 'quotation' : 'po') +
         '<div class="no">' + esc((isQ ? d.qno : d.pono) || '—') + '</div><div class="mid">' +
         '<div class="nm">' + esc(p ? p.name : 'No party') + '</div>' +
         '<div class="sub">' + cnt + (cnt === 1 ? ' item' : ' items') +
@@ -640,6 +726,18 @@
         '<div class="amt clr">' + money(num(d.grand_total)) + '</div></div>';
     });
     box.innerHTML = html;
+  }
+  function docIcon(type) {
+    var icons = {
+      purchase:'<path d="M4 4h16v16H4z"/><path d="M9 9h6M9 13h6"/>',
+      sale:'<path d="M4 4h16v16H4z"/><path d="M9 9h6M9 13h6"/>',
+      quotation:'<path d="M9 12l2 2 4-4"/><rect x="4" y="4" width="16" height="16" rx="1"/>',
+      po:'<path d="M9 11l3 3L22 4"/><path d="M21 12v7a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1h11"/>',
+      return:'<path d="M9 15l-4-4 4-4"/><path d="M5 11h9a5 5 0 015 5v1"/>'
+    };
+    var path = icons[type] || icons.sale;
+    return '<div class="docav doc-' + esc(type) + '"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" ' +
+      'stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + path + '</svg></div>';
   }
   function countOf(t) {
     var n = bills.filter(function (b) { return b.vtype === t; }).length;
@@ -1185,7 +1283,7 @@
     var sourceNo = b.vno;
     bill = newBill;
     vtype = target;
-    document.querySelectorAll('.tab').forEach(function (x) { x.classList.toggle('on', x.getAttribute('data-t') === target); });
+    document.querySelectorAll('.sb-item[data-t]').forEach(function (x) { x.classList.toggle('on', x.getAttribute('data-t') === target); });
     dirty = true;
     $('edTitle').textContent = 'New ' + target + ' (from ' + esc(sourceNo || '') + ')';
     $('edSave').textContent = 'Save bill';
@@ -1254,6 +1352,7 @@
       var orig = bills.filter(function (b) { return b.id === rr.sale_id; })[0];
       var cnt = (rr.lines || []).length;
       html += '<div class="brow" data-doc="return" data-id="' + rr.id + '" tabindex="0" role="button">' +
+        docIcon('return') +
         '<div class="no">' + esc(rr.rno || '\u2014') + '</div><div class="mid">' +
         '<div class="nm">' + esc(p ? p.name : 'No party') + '</div>' +
         '<div class="sub">Against ' + esc(orig ? (orig.vno || '') : '\u2014') + ' \u00b7 ' + cnt + (cnt === 1 ? ' item' : ' items') + '</div></div>' +
@@ -1327,7 +1426,7 @@
     };
     dirty = false;
     vtype = 'return';
-    document.querySelectorAll('.tab').forEach(function (x) { x.classList.toggle('on', x.getAttribute('data-t') === 'return'); });
+    document.querySelectorAll('.sb-item[data-t]').forEach(function (x) { x.classList.toggle('on', x.getAttribute('data-t') === 'return'); });
     $('edTitle').textContent = (existingReturn ? 'Edit ' : 'New ') + 'Sales Return (' + esc(sale.vno || '') + ')';
     $('edDel').style.display = (existingReturn && can('bill_delete')) ? '' : 'none';
     $('edSave').style.display = can(existingReturn ? 'bill_edit' : 'bill_create') ? '' : 'none';
@@ -1676,17 +1775,28 @@
   }
 
   /* ---------- wiring ---------- */
-  document.querySelectorAll('.tab').forEach(function (btn) {
+  document.querySelectorAll('.sb-item[data-t]').forEach(function (btn) {
     btn.addEventListener('click', function () {
-      document.querySelectorAll('.tab').forEach(function (x) { x.classList.remove('on'); });
+      document.querySelectorAll('.sb-item[data-t]').forEach(function (x) { x.classList.remove('on'); });
       btn.classList.add('on');
       vtype = btn.getAttribute('data-t');
+      $('moTitle').textContent = vtype === 'purchase' ? 'Purchase' : vtype === 'sale' ? 'Sale'
+                                : vtype === 'quotation' ? 'Quotation' : vtype === 'po' ? 'Purchase order' : 'Sales return';
+      closeSidebar();
       $('q').value = '';
       $('newBtn').textContent = vtype === 'purchase' ? '+ Purchase' : vtype === 'sale' ? '+ Sale'
                                : vtype === 'quotation' ? '+ Quotation' : vtype === 'po' ? '+ Purchase Order' : '+ Return';
       updateNewBtnPerm();
       render();
     });
+  });
+  function openSidebar() { $('sidebar').classList.add('on'); $('sbBackdrop').classList.add('on'); }
+  function closeSidebar() { $('sidebar').classList.remove('on'); $('sbBackdrop').classList.remove('on'); }
+  $('sbOpen').addEventListener('click', openSidebar);
+  $('sbClose').addEventListener('click', closeSidebar);
+  $('sbBackdrop').addEventListener('click', closeSidebar);
+  document.querySelectorAll('.sidebar .sb-item:not([data-t])').forEach(function (b) {
+    b.addEventListener('click', closeSidebar);
   });
   $('q').addEventListener('input', render);
   $('qClr').addEventListener('click', function () { $('q').value = ''; render(); $('q').focus(); });
@@ -1872,7 +1982,7 @@
       wanted = null; wantedType = null;
       if (vtype !== 'return') {
         vtype = 'return';
-        document.querySelectorAll('.tab').forEach(function (x) { x.classList.toggle('on', x.getAttribute('data-t') === 'return'); });
+        document.querySelectorAll('.sb-item[data-t]').forEach(function (x) { x.classList.toggle('on', x.getAttribute('data-t') === 'return'); });
         render();
       }
       openReturnRec(rr);
@@ -1884,9 +1994,10 @@
     var t = b.vtype;
     if (t !== vtype) {
       vtype = t;
-      document.querySelectorAll('.tab').forEach(function (x) {
+      document.querySelectorAll('.sb-item[data-t]').forEach(function (x) {
         x.classList.toggle('on', x.getAttribute('data-t') === t);
       });
+      $('moTitle').textContent = t === 'purchase' ? 'Purchase' : 'Sale';
       $('newBtn').textContent = t === 'purchase' ? '+ Purchase' : '+ Sale';
       render();
     }
