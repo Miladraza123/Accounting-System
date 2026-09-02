@@ -569,6 +569,7 @@
       <button class="hbtn" id="sbOpen" aria-label="Open menu"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
       <span class="ttl" id="moTitle">Parties</span>
       <span class="sync" id="syncNote"></span>
+      <span id="pendingBadge" style="display:none;font-size:10.5px;color:#B08A3E;background:#F5F1E6;padding:3px 8px;border-radius:20px;margin-left:6px"></span>
     </div>
 
     <div class="tools">
@@ -2606,6 +2607,91 @@
 
   /* ---------- cloud ---------- */
   var dbAll = { parties:[], items:[] };   // deleted-samet poori list — purani ledger entries ka naam dikhane ke liye
+  /* ═══════════ OFFLINE SUPPORT ═══════════
+     Local-first: har save turant screen par dikh jata hai (chahe internet ho
+     ya na ho). Naye records ka ID browser khud banata hai (server ka wait
+     nahi karna parta). Agar internet na ho, tabdeeli "queue" mein reh jati
+     hai aur connection wapas aate hi khud-ba-khud bhej di jati hai. */
+  var OFFQ_KEY = 'oht-offline-queue-masters';
+  var OFF_CACHE_PREFIX = 'oht-cache-masters-';
+
+  function uuid() {
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+      var r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  }
+  function offQGet() {
+    try { return JSON.parse(localStorage.getItem(OFFQ_KEY) || '[]'); } catch (e) { return []; }
+  }
+  function offQSet(q) {
+    try { localStorage.setItem(OFFQ_KEY, JSON.stringify(q)); } catch (e) {}
+    updatePendingBadge(q.length);
+  }
+  function offQAdd(op) { var q = offQGet(); q.push(op); offQSet(q); }
+  function offQRemove(opId) { offQSet(offQGet().filter(function (o) { return o.opId !== opId; })); }
+  function updatePendingBadge(n) {
+    var el = $('pendingBadge'); if (!el) return;
+    el.style.display = n ? '' : 'none';
+    el.textContent = n + (n === 1 ? ' change pending' : ' changes pending');
+  }
+  function cacheSave(table, rows) {
+    try { localStorage.setItem(OFF_CACHE_PREFIX + table, JSON.stringify(rows)); } catch (e) {}
+  }
+  function cacheLoad(table) {
+    try { return JSON.parse(localStorage.getItem(OFF_CACHE_PREFIX + table) || '[]'); } catch (e) { return []; }
+  }
+
+  var syncingQueue = false;
+  function trySyncQueue() {
+    if (syncingQueue || !navigator.onLine || !sb) return;
+    var q = offQGet();
+    if (!q.length) return;
+    syncingQueue = true;
+    syncNote('Syncing ' + q.length + '\u2026', '#B08A3E');
+    step(0);
+    function step(i) {
+      if (i >= q.length) { syncingQueue = false; syncNote(''); return; }
+      performQueuedOp(q[i]).then(function (result) {
+        if (result === 'conflict') {
+          toast('Kisi aur ne pehle "' + (q[i].label || 'ek record') + '" save kar diya \u2014 aapki wo tabdeeli chhoot gayi, dobara karein', true);
+        }
+        offQRemove(q[i].opId);
+        step(i + 1);
+      }).catch(function () {
+        syncingQueue = false; syncNote('');   // network dobara chali gayi — baad mein retry hoga
+      });
+    }
+  }
+  function performQueuedOp(op) {
+    if (op.op === 'insert') {
+      return sb.from(op.table).insert(op.payload).select().then(function (res) {
+        if (res.error) {
+          if (/duplicate key/i.test(res.error.message || '')) return 'ok';   // pehle hi chala gaya tha
+          throw res.error;
+        }
+        return 'ok';
+      });
+    }
+    if (op.op === 'update') {
+      return sb.from(op.table).update(op.payload).eq('id', op.recordId).eq('version', op.baseVersion).select()
+        .then(function (res) {
+          if (res.error) throw res.error;
+          if (!res.data || !res.data.length) return 'conflict';
+          return 'ok';
+        });
+    }
+    if (op.op === 'delete') {
+      return sb.from(op.table).update({ deleted_at:new Date().toISOString() }).eq('id', op.recordId)
+        .then(function (res) { if (res.error) throw res.error; return 'ok'; });
+    }
+    return Promise.resolve('ok');
+  }
+  window.addEventListener('online', trySyncQueue);
+  setInterval(trySyncQueue, 15000);   // har 15 second mein khud check kar lo
+  updatePendingBadge(offQGet().length);   // pichli baar band karte waqt kuch pending tha to abhi dikhado
+
   function loadAll() {
     if (!sb) return Promise.resolve();
     syncNote('Loading…');
@@ -2625,11 +2711,18 @@
       customKinds  = r[3].error ? [] : (r[3].data || []);   // custom party categories, SQL na chali ho to bhi app chale
       dbAll.parties = r[4].error ? db.parties : (r[4].data || []);
       dbAll.items   = r[5].error ? db.items   : (r[5].data || []);
+      cacheSave('parties', db.parties); cacheSave('items', db.items); cacheSave('companies', db.companies);
       syncNote('');
       render();
       if (db.parties.length) loadLedgerData().then(render).catch(function () {});
+      trySyncQueue();
     }).catch(function (e) {
-      if (isNetErr(e)) { syncNote('Offline', '#B08A3E'); toast('No internet — showing nothing yet', true); }
+      if (isNetErr(e)) {
+        db.parties = cacheLoad('parties'); db.items = cacheLoad('items'); db.companies = cacheLoad('companies');
+        var haveCache = db.parties.length || db.items.length || db.companies.length;
+        syncNote(haveCache ? 'Offline \u2014 purana data' : 'Offline', '#B08A3E');
+        if (!haveCache) toast('No internet \u2014 abhi tak kuch bhi save nahi hua tha is device par', true);
+      }
       else if (isClockErr(e)) {
         syncNote('Retrying…', '#B08A3E');
         toast('Your phone\u2019s clock looks slightly off \u2014 retrying automatically', true);
@@ -2645,50 +2738,69 @@
     var body = collect();
     if (!body.name) { toast('Name is needed', true); return; }
     var isNew = !(editing && editing.id);
-    var q = isNew ? sb.from(tab).insert(body).select()
-                  : sb.from(tab).update(body).eq('id', editing.id).eq('version', editing.version || 1).select();
-    $('edSave').disabled = true;
+    var recId = isNew ? uuid() : editing.id;
+    var label = body.name;
+    var priorRow = isNew ? null : editing;
+
+    // Local-first: turant screen par dikhado, editor band karo — internet ka wait nahi
+    var optimisticRow = Object.assign({}, priorRow || {}, body, { id:recId, version:isNew ? 1 : (editing.version || 1) });
+    if (isNew) db[tab].push(optimisticRow);
+    else db[tab] = db[tab].map(function (r) { return r.id === recId ? optimisticRow : r; });
+    cacheSave(tab, db[tab]);
+    led.loaded = false;
+    try { window.parent.postMessage({ oht:'refresh', kind:tab }, '*'); } catch (err) {}
+    toast(isNew ? 'Added ' + body.name : 'Saved ' + body.name);
+    closeEditor(); render();
+
+    if (!navigator.onLine) {
+      offQAdd({ opId:uuid(), table:tab, op:isNew ? 'insert' : 'update', recordId:recId,
+                baseVersion:isNew ? null : (editing.version || 1),
+                payload:isNew ? Object.assign({ id:recId }, body) : body, label:label });
+      syncNote('Offline \u2014 save queued', '#B08A3E');
+      return;
+    }
+
     syncNote('Saving…');
+    var q = isNew ? sb.from(tab).insert(Object.assign({ id:recId }, body)).select()
+                  : sb.from(tab).update(body).eq('id', recId).eq('version', editing.version || 1).select();
     q.then(function (res) {
       if (res.error) throw res.error;
       if (!isNew && (!res.data || !res.data.length)) {
-        // WHERE clause (id + version) ko koi row nahi mili — matlab kisi aur ne
-        // beech mein isi record ko save kar diya, hamara wala purana ho gaya
-        $('edSave').disabled = false;
-        syncNote('');
-        confirmBox('Kisi aur ne pehle save kar diya',
-          'Is record ko aap ke edit karte waqt kisi aur device/user ne bhi update kar diya. ' +
-          'Aapki tabdeeliyan save nahi hui — pehle taaza data dekh lein, phir dobara edit karein.',
-          'Taaza data dekhein').then(function () {
-          closeEditor();
-          loadAll();
-        });
+        // kisi aur ne beech mein isi record ko save kar diya — hamara optimistic
+        // update ab purana ho chuka; taaza data la kar dikhao
+        toast('Kisi aur ne "' + label + '" pehle save kar diya \u2014 taaza data la rahe hain', true);
+        loadAll();
         return;
       }
       var row = (res.data || [])[0];
-      if (isNew) { if (row) db[tab].push(row); }
-      else {
-        db[tab] = db[tab].map(function (r) { return r.id === editing.id ? (row || r) : r; });
-      }
-      led.loaded = false;                      // khata dobara banega
-      try { window.parent.postMessage({ oht:'refresh', kind:tab }, '*'); } catch (err) {}
+      if (row) db[tab] = db[tab].map(function (r) { return r.id === recId ? row : r; });
+      cacheSave(tab, db[tab]);
       if (tab === 'companies' && body.is_default) {
-        var mine = row ? row.id : (editing && editing.id);
-        var others = db.companies.filter(function (c) { return c.is_default && c.id !== mine; });
+        var others = db.companies.filter(function (c) { return c.is_default && c.id !== recId; });
         db.companies = db.companies.map(function (c) {
-          return (c.is_default && c.id !== mine) ? Object.assign({}, c, { is_default:false }) : c;
+          return (c.is_default && c.id !== recId) ? Object.assign({}, c, { is_default:false }) : c;
         });
         others.forEach(function (c) {
           sb.from('companies').update({ is_default:false }).eq('id', c.id).then(function () {});
         });
       }
       syncNote('Saved', '#7DC9A9');
-      toast(isNew ? 'Added ' + body.name : 'Saved ' + body.name);
-      closeEditor(); render();
+      render();
     }).catch(function (e) {
-      $('edSave').disabled = false;
-      syncNote('');
-      sayErr(e, 'save');
+      if (isNetErr(e)) {
+        offQAdd({ opId:uuid(), table:tab, op:isNew ? 'insert' : 'update', recordId:recId,
+                  baseVersion:isNew ? null : (editing.version || 1),
+                  payload:isNew ? Object.assign({ id:recId }, body) : body, label:label });
+        syncNote('Offline \u2014 save queued', '#B08A3E');
+      } else {
+        // asal masla (permission/validation) — optimistic tabdeeli wapas le lo
+        if (isNew) db[tab] = db[tab].filter(function (r) { return r.id !== recId; });
+        else db[tab] = db[tab].map(function (r) { return r.id === recId ? priorRow : r; });
+        cacheSave(tab, db[tab]);
+        render();
+        syncNote('');
+        sayErr(e, 'save');
+      }
     });
   }
 
@@ -2699,20 +2811,31 @@
       'from the Recycle Bin, or if it has been used on a bill, turn it off instead — that keeps old records readable.',
       'Delete').then(function (ok) {
       if (!ok) return;
+      var recId = editing.id, label = editing.name, priorRow = editing;
+      db[tab] = db[tab].filter(function (r) { return r.id !== recId; });
+      cacheSave(tab, db[tab]);
+      closeEditor(); render();
+      if (!navigator.onLine) {
+        offQAdd({ opId:uuid(), table:tab, op:'delete', recordId:recId, label:label });
+        syncNote('Offline \u2014 delete queued', '#B08A3E');
+        return;
+      }
       syncNote('Deleting…');
-      sb.from(tab).update({ deleted_at: new Date().toISOString() }).eq('id', editing.id).then(function (res) {
+      sb.from(tab).update({ deleted_at:new Date().toISOString() }).eq('id', recId).then(function (res) {
         if (res.error) throw res.error;
-        var gone = editing.name;
-        db[tab] = db[tab].filter(function (r) { return r.id !== editing.id; });
-        led.loaded = false;
         try { window.parent.postMessage({ oht:'refresh', kind:tab }, '*'); } catch (err) {}
-        syncNote('');
-        closeEditor(); render();
-        toast('Deleted ' + gone + ' — recoverable from Recycle Bin');
-      }).catch(function (e) { syncNote(''); sayErr(e, 'delete'); });
+        syncNote('Deleted', '#7DC9A9');
+      }).catch(function (e) {
+        if (isNetErr(e)) {
+          offQAdd({ opId:uuid(), table:tab, op:'delete', recordId:recId, label:label });
+          syncNote('Offline \u2014 delete queued', '#B08A3E');
+        } else {
+          db[tab].push(priorRow); cacheSave(tab, db[tab]); render();
+          syncNote(''); sayErr(e, 'delete');
+        }
+      });
     });
   }
-
   /* ---------- Recycle Bin: soft-deleted parties/items/companies, restorable ---------- */
   function openRecycleBin() {
     $('recycle').classList.add('on');
