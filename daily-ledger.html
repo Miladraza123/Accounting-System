@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#1F2933">
+<meta name="theme-color" content="#2A2620">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Ledger">
@@ -39,13 +39,13 @@
              font-size:13px; font-weight:500; padding:3px 4px; width:140px; }
   .firm-in::placeholder { color:#6B7480; }
   .appbar .spacer { flex:1; }
-  .datenav { display:flex; align-items:center; background:#2C3742; border-radius:6px; padding:2px; }
+  .datenav { display:flex; align-items:center; background:#3A342A; border-radius:6px; padding:2px; }
   .datenav button { background:transparent; border:none; color:#C3CAD2; width:27px; height:27px;
                     border-radius:5px; font-size:16px; line-height:1; }
   .datenav .cur { font-size:12.5px; font-weight:600; padding:0 8px; min-width:96px; text-align:center; }
-  .tbtn { background:#2C3742; border:1px solid #3E4C59; color:#E5E9ED; font-size:12.5px;
+  .tbtn { background:#3A342A; border:1px solid #4A4436; color:#E5E9ED; font-size:12.5px;
           font-weight:500; padding:7px 12px; border-radius:6px; }
-  .tbtn.primary { background:var(--accent); border-color:var(--accent); color:#1F2933; font-weight:600; }
+  .tbtn.primary { background:var(--accent); border-color:var(--accent); color:#2A2620; font-weight:600; }
   .menu-btn { display:none; padding:7px 10px; font-size:15px; }
 
   /* ══════ SHELL ══════ */
@@ -121,7 +121,7 @@
   .side-head .dr .cap { color:var(--debit); border-top:0.9mm solid var(--debit); }
   .side-head .cr .cap { color:var(--credit); border-top:0.9mm solid var(--credit); }
   .col-head th { padding:1.5mm 2mm; font-size:7.5pt; font-weight:600; letter-spacing:.7px;
-                 text-transform:uppercase; color:var(--mute); background:#F2F4F5; }
+                 text-transform:uppercase; color:var(--mute); background:#F0EBDF; }
   .col-head .r { text-align:right; }
   .col-head .l { text-align:left; }
   .col-head .c { text-align:center; padding:1.5mm 0; }
@@ -183,7 +183,7 @@
   .ptywrap .mirror { position:absolute; inset:0; color:transparent; pointer-events:none;
                      overflow:hidden; }
   .ptywrap .mirror .chip { border-radius:1.1mm; background:#E2F0F7;
-                           box-shadow:0 0 0 0.15mm #C5DEEA; }
+                           box-shadow:0 0 0 0.15mm #D6E0E8; }
   td.pty textarea { position:relative; display:block; resize:none; background:transparent;
                     overflow:hidden; color:inherit; }
   td.pty textarea:focus { outline:none; }
@@ -193,9 +193,9 @@
 
   .ptywrap .unlink { position:absolute; top:0.5mm; right:0.6mm; z-index:3; display:none;
                      width:4.4mm; height:4.4mm; border:none; border-radius:50%;
-                     background:#D8E7EF; color:#0B6E99; font-size:11px; line-height:1;
+                     background:#E9EFF3; color:#4A6D93; font-size:11px; line-height:1;
                      padding:0; cursor:pointer; }
-  .ptywrap .unlink:hover { background:#C5DEEA; }
+  .ptywrap .unlink:hover { background:#D6E0E8; }
   td.pty.lit:focus-within .unlink { display:block; }
 
   .ptywrap .pmenu { position:absolute; left:0; right:0; top:100%; z-index:30; display:none;
@@ -206,7 +206,7 @@
   .pmenu .opt { padding:2mm 2.4mm; font-size:10.5pt; cursor:pointer;
                 border-bottom:1px solid var(--hair); }
   .pmenu .opt:last-child { border-bottom:none; }
-  .pmenu .opt.cur, .pmenu .opt:hover { background:#EDF3F7; }
+  .pmenu .opt.cur, .pmenu .opt:hover { background:#EFE7D8; }
   .pmenu .opt .s { font-size:8.5pt; color:var(--mute); margin-top:0.4mm; }
   .pmenu .none { padding:2.4mm; font-size:9pt; color:var(--mute); line-height:1.5; }
   td.amt input { font-family:'IBM Plex Mono',monospace; font-weight:600; text-align:right;
@@ -216,7 +216,7 @@
   td input:focus { background:#FFF8E1; outline:none; }
   tr.focus-row td { background:#FCF6E4; box-shadow:inset 0 0 0 0.3mm rgba(166,124,46,.4); }
 
-  tfoot td { padding:2.3mm 2mm; border-top:0.5mm solid var(--slate); background:#F2F4F5; }
+  tfoot td { padding:2.3mm 2mm; border-top:0.5mm solid var(--slate); background:#F0EBDF; }
   tfoot .lbl { font-size:8pt; letter-spacing:.9px; text-transform:uppercase; font-weight:600; color:var(--slate); }
   tfoot .num { font-family:'IBM Plex Mono',monospace; font-size:11pt; font-weight:700;
                text-align:right; padding-right:2.5mm; }
@@ -227,7 +227,7 @@
   .closing .calc { flex:1; padding:2.7mm 3mm; font-size:8.5pt; color:var(--mute); display:flex;
                    align-items:center; border-right:0.25mm solid var(--line);
                    font-family:'IBM Plex Mono',monospace; }
-  .closing .res { padding:2.7mm 4mm; display:flex; align-items:center; gap:2.5mm; background:#F2F4F5; }
+  .closing .res { padding:2.7mm 4mm; display:flex; align-items:center; gap:2.5mm; background:#F0EBDF; }
   .closing .res .lbl { font-size:8pt; letter-spacing:1.1px; text-transform:uppercase; font-weight:600; color:var(--slate); }
   .closing .res .val { font-family:'IBM Plex Mono',monospace; font-size:15pt; font-weight:700; }
   .closing .res .tag { font-size:9.5pt; font-weight:700; letter-spacing:1px; }
@@ -248,7 +248,7 @@
   .status .spacer { flex:1; }
   .saved { font-size:11px; color:#6E7A87; }
   .zoom { display:flex; align-items:center; gap:1px; }
-  .zoom button { background:#2C3742; border:none; color:#C3CAD2; width:26px; height:26px;
+  .zoom button { background:#3A342A; border:none; color:#C3CAD2; width:26px; height:26px;
                  border-radius:5px; font-size:14px; }
   .zoom .lvl { font-size:10.5px; color:#8A95A1; width:38px; text-align:center;
                font-family:'IBM Plex Mono',monospace; }
@@ -275,7 +275,7 @@
   .choice { flex:1; border:1.5px solid var(--line); background:#fff; border-radius:7px;
             padding:10px 8px; text-align:center; font-size:12.5px; font-weight:600; color:var(--slate); }
   .choice small { display:block; font-weight:400; font-size:10px; color:var(--mute); margin-top:2px; }
-  .choice.on { border-color:var(--ink); background:#F2F4F5; color:var(--ink); }
+  .choice.on { border-color:var(--ink); background:#F0EBDF; color:var(--ink); }
   .dialog footer { padding:13px 18px; background:var(--panel); border-top:1px solid var(--hair);
                    display:flex; gap:8px; justify-content:flex-end; }
   .dbtn { border:1px solid var(--line); background:#fff; border-radius:6px; padding:9px 15px;
@@ -329,7 +329,7 @@
 <body>
 
 <!-- ═══ CONNECT / LOGIN GATE ═══ -->
-<div id="gate" style="position:fixed;inset:0;z-index:200;background:#1F2933;
+<div id="gate" style="position:fixed;inset:0;z-index:200;background:#2A2620;
      display:flex;align-items:center;justify-content:center;padding:20px;overflow:auto">
   <div style="background:#fff;border-radius:12px;width:100%;max-width:390px;
        box-shadow:0 20px 60px rgba(0,0,0,.4);overflow:hidden">
@@ -340,22 +340,22 @@
            display:grid;place-items:center;color:#A67C2E;font-weight:700">₨</div>
       <div>
         <div style="font-weight:600;font-size:16px">Daily Ledger</div>
-        <div style="font-size:12px;color:#7B8794" id="gateSub">Connect your database</div>
+        <div style="font-size:12px;color:#9C9384" id="gateSub">Connect your database</div>
       </div>
     </div>
 
     <!-- step 1: project keys -->
     <div id="stepConnect" style="padding:18px 22px">
-      <div style="font-size:12.5px;color:#3E4C59;line-height:1.6;margin-bottom:14px">
+      <div style="font-size:12.5px;color:#4A4436;line-height:1.6;margin-bottom:14px">
         Paste these from your Supabase project. Asked once, then remembered on this device.
       </div>
       <label style="font-size:10px;letter-spacing:1.2px;text-transform:uppercase;
-             color:#7B8794;font-weight:600">Project URL</label>
+             color:#9C9384;font-weight:600">Project URL</label>
       <input id="cfgUrl" type="text" placeholder="https://xxxx.supabase.co"
              style="width:100%;padding:10px;margin:6px 0 14px;border:1px solid #CBD2D9;
                     border-radius:6px;font-size:13px;font-family:'IBM Plex Mono',monospace">
       <label style="font-size:10px;letter-spacing:1.2px;text-transform:uppercase;
-             color:#7B8794;font-weight:600">Publishable / anon key</label>
+             color:#9C9384;font-weight:600">Publishable / anon key</label>
       <input id="cfgKey" type="text" placeholder="sb_publishable_… or eyJ…"
              style="width:100%;padding:10px;margin:6px 0 4px;border:1px solid #CBD2D9;
                     border-radius:6px;font-size:13px;font-family:'IBM Plex Mono',monospace">
@@ -363,7 +363,7 @@
         Never paste the <b>service_role</b> / secret key here.
       </div>
       <button id="cfgSave" style="width:100%;padding:11px;border:none;border-radius:6px;
-              background:#1F2933;color:#fff;font-size:13.5px;font-weight:600;cursor:pointer">
+              background:#2A2620;color:#fff;font-size:13.5px;font-weight:600;cursor:pointer">
         Connect</button>
       <div id="cfgErr" style="font-size:12px;color:#9B2C2C;margin-top:10px"></div>
     </div>
@@ -371,21 +371,21 @@
     <!-- step 2: sign in -->
     <div id="stepLogin" style="padding:18px 22px;display:none">
       <label style="font-size:10px;letter-spacing:1.2px;text-transform:uppercase;
-             color:#7B8794;font-weight:600">Username</label>
+             color:#9C9384;font-weight:600">Username</label>
       <input id="loginEmail" type="text" autocomplete="username"
              style="width:100%;padding:10px;margin:6px 0 14px;border:1px solid #CBD2D9;
                     border-radius:6px;font-size:14px">
       <label style="font-size:10px;letter-spacing:1.2px;text-transform:uppercase;
-             color:#7B8794;font-weight:600">Password</label>
+             color:#9C9384;font-weight:600">Password</label>
       <input id="loginPass" type="password" autocomplete="current-password"
              style="width:100%;padding:10px;margin:6px 0 14px;border:1px solid #CBD2D9;
                     border-radius:6px;font-size:14px">
       <button id="loginBtn" style="width:100%;padding:11px;border:none;border-radius:6px;
-              background:#1F2933;color:#fff;font-size:13.5px;font-weight:600;cursor:pointer">
+              background:#2A2620;color:#fff;font-size:13.5px;font-weight:600;cursor:pointer">
         Sign in</button>
       <div id="loginErr" style="font-size:12px;color:#9B2C2C;margin-top:10px"></div>
       <button id="cfgReset" style="width:100%;margin-top:12px;padding:8px;border:none;
-              background:none;color:#7B8794;font-size:11.5px;cursor:pointer">
+              background:none;color:#9C9384;font-size:11.5px;cursor:pointer">
         Change database settings</button>
     </div>
 
@@ -966,8 +966,8 @@
       $('askTitle').textContent = title;
       $('askBody').textContent = body;
       $('askYes').textContent = yesLabel || 'Delete';
-      $('askYes').style.background = infoOnly ? '#1F2933' : '#9B2C2C';
-      $('askYes').style.borderColor = infoOnly ? '#1F2933' : '#9B2C2C';
+      $('askYes').style.background = infoOnly ? '#2A2620' : '#9B2C2C';
+      $('askYes').style.borderColor = infoOnly ? '#2A2620' : '#9B2C2C';
       $('askNo').style.display = infoOnly ? 'none' : '';
       $('askOverlay').classList.add('open');
       function done(v) {
@@ -1932,7 +1932,7 @@
 
   try {
     var manifest = { name:'Ledger — Daily Debit / Credit', short_name:'Ledger', start_url:'.',
-      display:'standalone', background_color:'#DDE1E6', theme_color:'#1F2933',
+      display:'standalone', background_color:'#E8E2D5', theme_color:'#2A2620',
       icons:[{ src:"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' fill='%231F2933'/%3E%3Ctext x='256' y='360' font-size='240' font-family='serif' font-weight='700' fill='%23A67C2E' text-anchor='middle'%3E%E2%82%A8%3C/text%3E%3C/svg%3E",
         sizes:'512x512', type:'image/svg+xml', purpose:'any' }] };
     var link = document.createElement('link');
@@ -2059,7 +2059,7 @@
     sb = makeClient({ url: url, key: key });
     if (!sb) { $('cfgErr').textContent = 'Could not start. Check your internet and reload.'; return; }
 
-    $('cfgErr').style.color = '#7B8794';
+    $('cfgErr').style.color = '#9C9384';
     $('cfgErr').textContent = 'Checking\u2026';
     sb.auth.getSession().then(function () {
       window.localStorage.setItem(CFG, JSON.stringify({ url: url, key: key }));
