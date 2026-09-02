@@ -9,9 +9,9 @@
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Serif:wght@600&display=swap" rel="stylesheet">
 <style>
   :root {
-    --ink:#1F2933; --slate:#3E4C59; --mute:#7B8794; --line:#CBD2D9; --hair:#E4E7EB;
-    --paper:#FFFFFF; --desk:#DDE1E6; --panel:#F5F7F8;
-    --debit:#9B2C2C; --credit:#14614A; --accent:#A67C2E; --cash:#0B6E99;
+    --ink:#2A2620; --slate:#5A5346; --mute:#9C9384; --line:#D8D0BF; --hair:#E7E1D3;
+    --paper:#FCFAF7; --desk:#EDE7D9; --panel:#F5F1E6;
+    --debit:#A0532E; --credit:#5F7A4E; --accent:#B0824A; --cash:#4A6D93;
   }
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html, body { margin:0; height:100%; }
@@ -1846,12 +1846,12 @@
       $('gateLogin').classList.add('on');
     });
   }
-  var wanted = null;
+  var wanted = null, wantedType = null;
   function gotoArg(arg) {
     var m = String(arg || '').match(/bill=([0-9a-fA-F-]+)/);
-    if (!m) return;
-    wanted = m[1];
-    tryOpenWanted();
+    if (m) { wanted = m[1]; wantedType = 'bill'; tryOpenWanted(); return; }
+    var m2 = String(arg || '').match(/return=([0-9a-fA-F-]+)/);
+    if (m2) { wanted = m2[1]; wantedType = 'return'; tryOpenWanted(); return; }
   }
   /* loadAll ke baad, agar bill khula hai to sirf balance wali line taaza karo —
      poora editor dobara render karna zaroori nahi, sirf us chhoti si cheez ko */
@@ -1866,9 +1866,21 @@
 
   function tryOpenWanted() {
     if (!wanted) return;
+    if (wantedType === 'return') {
+      var rr = returns.filter(function (x) { return String(x.id) === wanted; })[0];
+      if (!rr) return;   // abhi load nahi hui — loadAll ke baad dobara
+      wanted = null; wantedType = null;
+      if (vtype !== 'return') {
+        vtype = 'return';
+        document.querySelectorAll('.tab').forEach(function (x) { x.classList.toggle('on', x.getAttribute('data-t') === 'return'); });
+        render();
+      }
+      openReturnRec(rr);
+      return;
+    }
     var b = bills.filter(function (x) { return String(x.id) === wanted; })[0];
     if (!b) return;                       // abhi load nahi hui — loadAll ke baad dobara
-    wanted = null;
+    wanted = null; wantedType = null;
     var t = b.vtype;
     if (t !== vtype) {
       vtype = t;

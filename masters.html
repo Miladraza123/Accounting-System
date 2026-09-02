@@ -9,9 +9,9 @@
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Serif:wght@600&display=swap" rel="stylesheet">
 <style>
   :root {
-    --ink:#1F2933; --slate:#3E4C59; --mute:#7B8794; --line:#CBD2D9; --hair:#E4E7EB;
-    --paper:#FFFFFF; --desk:#DDE1E6; --panel:#F5F7F8;
-    --debit:#9B2C2C; --credit:#14614A; --accent:#A67C2E; --cash:#0B6E99;
+    --ink:#2A2620; --slate:#5A5346; --mute:#9C9384; --line:#D8D0BF; --hair:#E7E1D3;
+    --paper:#FCFAF7; --desk:#EDE7D9; --panel:#F5F1E6;
+    --debit:#A0532E; --credit:#5F7A4E; --accent:#B0824A; --cash:#4A6D93;
   }
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html, body { margin:0; height:100%; }
@@ -1636,7 +1636,7 @@
       run = r2(run + e.delta);
       var isIn = e.delta >= 0;
       if (isIn) totIn += e.delta; else totOut += -e.delta;
-      var tap = e.kind === 'bill' ? ' data-bill="' + e.id + '"' : '';
+      var tap = (e.kind === 'bill' || e.kind === 'return') ? ' data-' + e.kind + '="' + e.id + '"' : '';
       rows += '<tr class="' + (tap ? 'tap' : '') + '"' + tap +
         (tap ? ' tabindex="0" role="button"' : '') + '>' +
         '<td class="dt">' + esc(e.date ? dayText(e.date) : '\u2014') + '</td>' +
@@ -1655,7 +1655,7 @@
       '<td></td><td>Closing stock</td>' +
       '<td class="r">' + fmt(totIn) + '</td><td class="r">' + fmt(totOut) + '</td>' +
       '<td class="r">' + fmt(run) + '</td></tr></tfoot></table>' +
-      '<div class="stmt-note">Tap a purchase or sale to open the bill.</div>' +
+      '<div class="stmt-note">Tap a purchase, sale, or return to open it.</div>' +
       '</div></div>';
     return head;
   }
@@ -1913,6 +1913,7 @@
       var isDr = e.delta >= 0;
       if (isDr) totDr += e.delta; else totCr += -e.delta;
       var tap = (e.kind === 'bill' || e.kind === 'billpaid') ? ' data-bill="' + e.id + '"'
+              : (e.kind === 'return') ? ' data-return="' + e.id + '"'
               : (e.kind === 'day' ? ' data-day="' + e.date + '"' : '');
       rows += '<tr class="' + (tap ? 'tap' : '') + '"' + tap +
         (tap ? ' tabindex="0" role="button"' : '') + '>' +
@@ -2077,8 +2078,9 @@
   });
 
   function openTapRow(row) {
-    var b = row.getAttribute('data-bill'), d = row.getAttribute('data-day');
+    var b = row.getAttribute('data-bill'), r = row.getAttribute('data-return'), d = row.getAttribute('data-day');
     if (b) jump('billing', 'bill=' + b);
+    else if (r) jump('billing', 'return=' + r);
     else if (d) jump('ledger', 'date=' + d);
   }
   document.addEventListener('click', function (e) {
