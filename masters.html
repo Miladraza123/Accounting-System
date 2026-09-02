@@ -3151,7 +3151,7 @@
 
   function computeProfitLoss(from, to) {
     return sb.from('vouchers')
-      .select('id,vtype,vdate,sub_total,discount,tax_total,grand_total,party_id,loading_on,loading_amt,cartage_on,cartage_amt,cutting_on,cutting_amt')
+      .select('id,vno,vtype,vdate,sub_total,discount,tax_total,grand_total,party_id,loading_on,loading_amt,cartage_on,cartage_amt,cutting_on,cutting_amt')
       .is('deleted_at', null).eq('vtype', 'sale').gte('vdate', from).lte('vdate', to)
       .then(function (vr) {
         if (vr.error) throw vr.error;
