@@ -767,12 +767,16 @@
   }
   function newLine() { return { key:'L' + (++lineSeq), item_id:null, qty:'', rate:'', tax_pct:0, amount:0, pcs_on:false, pcs:null }; }
 
+  var originalLineSnapshot = null;   // audit-diff ke liye — sirf existing bill edit karte waqt
   function openBill(rec) {
     bill = rec ? JSON.parse(JSON.stringify(rec)) : blank();
     bill.lines = (bill.lines || []).map(function (l) {
       if (!l.key) l.key = 'L' + (++lineSeq); return l;
     });
     if (!bill.lines.length) bill.lines.push(newLine());
+    originalLineSnapshot = rec ? bill.lines.map(function (l) {
+      return { item_id:l.item_id, qty:num(l.qty), rate:num(l.rate) };
+    }) : null;
     dirty = false;
     $('edTitle').textContent = (rec ? 'Edit ' : 'New ') + (bill.vtype === 'purchase' ? 'purchase' : 'sale');
     $('edSave').textContent = 'Save bill';
@@ -1072,6 +1076,25 @@
   }
 
   /* ---------- save ---------- */
+  function lineDiffSummary(oldLines, newLines) {
+    if (!oldLines) return null;
+    var byOld = {}; oldLines.forEach(function (l) { if (l.item_id) byOld[l.item_id] = l; });
+    var byNew = {}; newLines.forEach(function (l) { if (l.item_id) byNew[l.item_id] = l; });
+    var msgs = [];
+    Object.keys(byOld).forEach(function (id) {
+      var it = itemById(id), nm = it ? it.name : 'item';
+      if (!byNew[id]) { msgs.push('Removed ' + nm); return; }
+      var o = byOld[id], nw = byNew[id];
+      if (num(o.qty) !== num(nw.qty)) msgs.push(nm + ' qty ' + fmt(o.qty) + ' \u2192 ' + fmt(nw.qty));
+      if (num(o.rate) !== num(nw.rate)) msgs.push(nm + ' rate ' + fmt(o.rate) + ' \u2192 ' + fmt(nw.rate));
+    });
+    Object.keys(byNew).forEach(function (id) {
+      if (byOld[id]) return;
+      var it = itemById(id), nm = it ? it.name : 'item';
+      msgs.push('Added ' + nm + ' (' + fmt(byNew[id].qty) + ')');
+    });
+    return msgs.length ? msgs : null;
+  }
   function saveBill() {
     var b = bill;
     if (!b.party_id) { toast('Pick a party first', true); return; }
@@ -1140,6 +1163,13 @@
           syncNote('Saved', '#7DC9A9');
           try { window.parent.postMessage({ oht:'refresh', kind:'bills' }, '*'); } catch (err) {}
           toast((isNew ? 'Saved ' : 'Updated ') + (head.vno || 'bill'));
+          if (!isNew) {
+            var diff = lineDiffSummary(originalLineSnapshot, good);
+            if (diff) sb.rpc('log_manual_audit', {
+              p_table:'vouchers', p_record_id:vid, p_label:head.vno, p_action:'update',
+              p_changes:{ lines:diff }
+            }).catch(function () {});
+          }
           closeBill(); render();
         });
     }).catch(function (e) {
