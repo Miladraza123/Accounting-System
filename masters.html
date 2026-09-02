@@ -33,8 +33,10 @@
                  display:grid; place-items:center; font-size:11px; color:var(--accent); font-weight:700; }
   .spacer { flex:1; }
   .abtn { background:#3A342A; border:1px solid #4A4436; color:#E8E2D5; border-radius:7px;
-          padding:7px 11px; font-size:12.5px; font-weight:500; flex-shrink:0; white-space:nowrap; }
+          padding:7px 11px; font-size:12.5px; font-weight:500; flex-shrink:0; white-space:nowrap;
+          display:inline-flex; align-items:center; gap:6px; }
   .abtn:hover { background:#3A342A; }
+  .abi { width:14px; height:14px; flex:none; opacity:.85; }
 
   /* ---------- tabs ---------- */
   .tabs { flex:none; display:flex; background:var(--paper); border-bottom:1px solid var(--line); }
@@ -73,6 +75,11 @@
   .row .av { flex:none; width:32px; height:32px; border-radius:8px; display:grid; place-items:center;
              font-size:13px; font-weight:700; background:var(--panel); color:var(--slate);
              border:1px solid var(--hair); }
+  .row .av.kind-customer { background:#E4EBF2; color:#4A6D93; border-color:#D2DEE9; }
+  .row .av.kind-supplier { background:#F2E9D6; color:#96702E; border-color:#E5D6B4; }
+  .row .av.kind-both     { background:#F0E6D2; color:#96702E; border-color:#E2D2AC; }
+  .row .av.kind-expense  { background:#EFE9E1; color:#8C8577; border-color:#E0D7C8; }
+  .row .av.kind-bank     { background:#E9E1F0; color:#6E4A96; border-color:#D9CBE7; }
   .row .mid { flex:1; min-width:0; }
   .row .nm { font-weight:600; font-size:14px; white-space:nowrap; overflow:hidden;
              text-overflow:ellipsis; }
@@ -475,15 +482,15 @@
   <div class="brand"><span class="mark">OHT</span><span>Masters</span></div>
   <div class="spacer"></div>
   <span class="sync" id="syncNote"></span>
-  <button class="abtn" id="bkBtn">Backup</button>
-  <button class="abtn" id="recycleBtn">Recycle Bin</button>
-  <button class="abtn" id="tbBtn">Trial Balance</button>
-  <button class="abtn" id="lockBtn">Period Lock</button>
-  <button class="abtn" id="agingBtn">Aging Report</button>
-  <button class="abtn" id="plBtn">Profit &amp; Loss</button>
-  <button class="abtn" id="usersBtn" style="display:none">Manage Users</button>
-  <button class="abtn" id="pwBtn">Change Password</button>
-  <button class="abtn" id="outBtn">Sign out</button>
+  <button class="abtn" id="bkBtn"><svg class="abi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 18a4 4 0 01-1-7.9A5 5 0 0116 8a4.5 4.5 0 011 8.9"/><path d="M12 12v7M9.5 16.5L12 19l2.5-2.5"/></svg>Backup</button>
+  <button class="abtn" id="recycleBtn"><svg class="abi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0l1 12a1 1 0 001 1h6a1 1 0 001-1l1-12"/></svg>Recycle Bin</button>
+  <button class="abtn" id="tbBtn"><svg class="abi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3M5 8l3-2 3 2-3 5a3 3 0 01-6 0zM16 8l3-2 3 2-3 5a3 3 0 01-6 0zM12 21h-4M12 21h4M12 6v15"/></svg>Trial Balance</button>
+  <button class="abtn" id="lockBtn"><svg class="abi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="1.5"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>Period Lock</button>
+  <button class="abtn" id="agingBtn"><svg class="abi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>Aging Report</button>
+  <button class="abtn" id="plBtn"><svg class="abi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5M4 19h16M8 15l3-4 3 2.5L18 8"/></svg>Profit &amp; Loss</button>
+  <button class="abtn" id="usersBtn" style="display:none"><svg class="abi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3 2.5-5 6-5s6 2 6 5M16 4.5a3 3 0 010 5.9M19 20c0-2.3-1.3-4-3.5-4.7"/></svg>Manage Users</button>
+  <button class="abtn" id="pwBtn"><svg class="abi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3"/><path d="M12 11v5M9.5 14h5"/></svg>Change Password</button>
+  <button class="abtn" id="outBtn"><svg class="abi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4H6a1 1 0 00-1 1v14a1 1 0 001 1h3M15 16l4-4-4-4M19 12H8"/></svg>Sign out</button>
 </div>
 
 <div class="tabs">
@@ -984,6 +991,28 @@
     partyPageLimit = PAGE_SIZE;
     render();
   });
+  function kindIcon(kind) {
+    var icons = {
+      customer:'<circle cx="12" cy="8" r="3.2"/><path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6"/>',
+      supplier:'<rect x="2" y="8" width="11" height="8"/><path d="M13 11h4l3 3v2h-7z"/><circle cx="6" cy="18" r="1.6"/><circle cx="16.5" cy="18" r="1.6"/>',
+      bank:'<path d="M12 3l9 5H3z"/><path d="M5 10v8M9 10v8M15 10v8M19 10v8"/><path d="M3 20h18"/>',
+      expense:'<path d="M6 3h12v18l-2.5-1.5L13 21l-2.5-1.5L8 21l-2-1.5z"/><path d="M8.5 8h7M8.5 12h7"/>',
+      both:'<rect x="4" y="3" width="16" height="18" rx="1"/><path d="M8 7h2M14 7h2M8 11h2M14 11h2M8 15h2M14 15h2"/>'
+    };
+    var path = icons[kind] || icons.both;
+    return '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" ' +
+      'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + path + '</svg>';
+  }
+  function itemIconSvg() {
+    return '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" ' +
+      'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
+      '<path d="M3 8l9-5 9 5-9 5-9-5z"/><path d="M3 8v9l9 5 9-5V8"/><path d="M12 13v9"/></svg>';
+  }
+  function firmIconSvg() {
+    return '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" ' +
+      'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
+      '<rect x="4" y="3" width="16" height="18" rx="1"/><path d="M8 7h2M14 7h2M8 11h2M14 11h2M8 15h2M14 15h2"/></svg>';
+  }
   function render() {
     var q = norm($('q').value);
     renderCatbar();
@@ -1029,14 +1058,16 @@
       return;
     }
 
-    var html = '', letter = '';
-    list.forEach(function (r) {
+  var html = '', letter = '';
+  list.forEach(function (r) {
       var first = (r.name || '?').trim().charAt(0).toUpperCase();
       if (first !== letter) { letter = first; html += '<div class="letter">' + esc(letter) + '</div>'; }
       var av = (tab === 'companies' && r.logo)
              ? '<div class="av" style="padding:2px;background:#fff"><img src="' + esc(r.logo) +
                '" alt="" style="width:100%;height:100%;object-fit:contain"></div>'
-             : '<div class="av">' + esc(first) + '</div>';
+             : tab === 'parties' ? '<div class="av kind-' + esc(r.kind || 'both') + '">' + kindIcon(r.kind) + '</div>'
+             : tab === 'items'   ? '<div class="av">' + itemIconSvg() + '</div>'
+             : '<div class="av">' + firmIconSvg() + '</div>';
       html += '<div class="row' + (r.active ? '' : ' off') + '" data-id="' + r.id + '" tabindex="0" role="button">' +
               av + '<div class="mid">' +
               '<div class="nm">' + esc(r.name) + '</div><div class="sub">' +
