@@ -3,8 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Osman Haji Tayyab</title>
-<meta name="theme-color" content="#1F2933">
+<title>OHT Accounting</title>
+<meta name="theme-color" content="#2A2620">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="icons/favicon-16.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="OHT">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -80,8 +88,15 @@
 <div class="nav">
   <span class="mark">OHT</span>
   <div class="navs" id="navs"></div>
+  <button class="out" id="installBtn" style="display:none">⭳ Install</button>
   <button class="out" id="rl" title="Load the newest version">⟳</button>
   <button class="out" id="out">Sign out</button>
+</div>
+
+<div id="updateBanner" style="display:none;position:fixed;left:0;right:0;bottom:0;z-index:60;background:#2A2620;color:#F5F1E6;padding:10px 16px;display:flex;align-items:center;gap:12px;font-size:13px;font-family:'IBM Plex Sans',sans-serif">
+  <span style="flex:1">Naya version available hai.</span>
+  <button id="updateNowBtn" style="background:#B0824A;color:#2A2620;border:none;padding:7px 14px;border-radius:7px;font-size:13px;font-weight:600">Update karein</button>
+  <button id="updateLaterBtn" style="background:none;color:#D9CFBE;border:none;padding:7px 10px;font-size:13px">Baad mein</button>
 </div>
 
 <div class="stage" id="stage">
@@ -110,6 +125,65 @@
     { k:'masters', label:'Masters', file:'masters.html' },
     { k:'billing', label:'Billing', file:'billing.html' }
   ];
+
+  /* ---------- PWA: Service Worker + Install + Update ---------- */
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').then(function (reg) {
+      // Naya SW "waiting" state mein aa jaye to banner dikhado — user ki
+      // marzi se hi activate hoga, kabhi khud-ba-khud bill-likhte waqt reload nahi
+      function showUpdateBannerIfWaiting() {
+        if (reg.waiting) $('updateBanner').style.display = 'flex';
+      }
+      showUpdateBannerIfWaiting();
+      reg.addEventListener('updatefound', function () {
+        var newSW = reg.installing;
+        if (!newSW) return;
+        newSW.addEventListener('statechange', function () {
+          if (newSW.state === 'installed' && navigator.serviceWorker.controller) {
+            $('updateBanner').style.display = 'flex';
+          }
+        });
+      });
+    }).catch(function () {});
+
+    var refreshedOnce = false;
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (refreshedOnce) return; refreshedOnce = true;
+      location.reload();
+    });
+  }
+  $('updateNowBtn').addEventListener('click', function () {
+    navigator.serviceWorker.getRegistration().then(function (reg) {
+      if (reg && reg.waiting) reg.waiting.postMessage('SKIP_WAITING');
+    });
+    $('updateBanner').style.display = 'none';
+  });
+  $('updateLaterBtn').addEventListener('click', function () {
+    $('updateBanner').style.display = 'none';
+  });
+
+  // Install button — sirf tab dikhao jab browser ne mauka diya ho, aur
+  // agar app pehle se installed hai to kabhi mat dikhao
+  var deferredInstallPrompt = null;
+  function alreadyInstalled() {
+    return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  }
+  if (!alreadyInstalled()) {
+    window.addEventListener('beforeinstallprompt', function (e) {
+      e.preventDefault();
+      deferredInstallPrompt = e;
+      $('installBtn').style.display = '';
+    });
+  }
+  $('installBtn').addEventListener('click', function () {
+    if (!deferredInstallPrompt) return;
+    deferredInstallPrompt.prompt();
+    deferredInstallPrompt.userChoice.then(function () {
+      deferredInstallPrompt = null;
+      $('installBtn').style.display = 'none';
+    });
+  });
+  window.addEventListener('appinstalled', function () { $('installBtn').style.display = 'none'; });
 
   /* khud ko dekho — GitHub par nayi shakl aa gayi ho to foran badal jao.
      Sirf meta tag par bharosa nahi, browser use aksar nazarandaz karta hai. */
