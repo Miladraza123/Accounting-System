@@ -1983,6 +1983,23 @@
         subscribeRealtime();
       });
     }).catch(function (e) {
+      if (isNetErr(e)) {
+        // Internet nahi hai — bahar mat nikalein, cached local data se kaam chalayein
+        $('delSheet').style.display = can('ledger_delete') ? '' : 'none';
+        $('newSheet').style.display = can('ledger_create') ? '' : 'none';
+        if (!can('ledger_create')) rowsEl.classList.add('readonly-grid');
+        store.get(KEY).then(function (raw) {
+          if (raw) { try { data = JSON.parse(raw); } catch (e2) {} }
+          if (!data.sheets) data.sheets = {};
+          $('firmName').value = data.firm || '';
+          $('shFirm').textContent = (data.firm || '').trim() || 'Daily Register';
+          ready = true;
+          openSheet(todayISO());
+          setPageRule();
+          fit();
+        });
+        return;
+      }
       var msg = (e && e.message === 'disabled')
         ? 'Aapka access band kar diya gaya hai. Admin se raabta karein.'
         : (e && e.message === 'not_setup')
@@ -1994,6 +2011,7 @@
 
   /* ---------- me / permissions ---------- */
   var me = null;
+  var ME_CACHE_KEY_L = 'oht-cache-me';
   function loadMe() {
     return sb.auth.getUser().then(function (res) {
       var user = res.data && res.data.user;
@@ -2002,7 +2020,15 @@
         if (r.error || !r.data) return Promise.reject(new Error('not_setup'));
         if (!r.data.is_active) return Promise.reject(new Error('disabled'));
         me = { id:r.data.id, username:r.data.username, isAdmin:!!r.data.is_admin, perms:r.data.perms || {} };
+        try { localStorage.setItem(ME_CACHE_KEY_L, JSON.stringify(me)); } catch (e) {}
       });
+    }).catch(function (e) {
+      if (isNetErr(e)) {
+        var cached = null;
+        try { cached = JSON.parse(localStorage.getItem(ME_CACHE_KEY_L) || 'null'); } catch (e2) {}
+        if (cached) { me = cached; return; }
+      }
+      throw e;
     });
   }
   function can(key) { return !!(me && (me.isAdmin || me.perms[key])); }
@@ -2119,11 +2145,22 @@
       attempt = attempt || 1;
       sb.auth.getSession().then(function (res) {
         if (res.data && res.data.session) startApp();
+        else if (!navigator.onLine && hasCachedAuthToken()) startApp();
         else showLogin();
       }).catch(function (e) {
         if (isClockErr(e) && attempt < 5) { setTimeout(function () { checkSession(attempt + 1); }, 3000); return; }
+        if (!navigator.onLine && hasCachedAuthToken()) { startApp(); return; }
         showLogin('Could not reach the database.');
       });
+    }
+    function hasCachedAuthToken() {
+      try {
+        for (var i = 0; i < localStorage.length; i++) {
+          var k = localStorage.key(i);
+          if (k && /^sb-.*-auth-token$/.test(k)) return true;
+        }
+      } catch (e) {}
+      return false;
     }
     checkSession();
   })();

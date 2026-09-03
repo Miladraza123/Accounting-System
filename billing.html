@@ -2498,11 +2498,23 @@
   function afterConnect(attempt) {
     attempt = attempt || 1;
     sb.auth.getSession().then(function (res) {
-      if (res.data && res.data.session) start(); else $('gateLogin').classList.add('on');
+      if (res.data && res.data.session) start();
+      else if (!navigator.onLine && hasCachedAuthToken()) start();
+      else $('gateLogin').classList.add('on');
     }).catch(function (e) {
       if (isClockErr(e) && attempt < 5) { setTimeout(function () { afterConnect(attempt + 1); }, 3000); return; }
+      if (!navigator.onLine && hasCachedAuthToken()) { start(); return; }
       $('gateLogin').classList.add('on');
     });
+  }
+  function hasCachedAuthToken() {
+    try {
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (k && /^sb-.*-auth-token$/.test(k)) return true;
+      }
+    } catch (e) {}
+    return false;
   }
   var wanted = null, wantedType = null;
   function gotoArg(arg) {
@@ -2576,6 +2588,14 @@
       loadAll();
       setupRealtime();
     }).catch(function (e) {
+      if (isNetErr(e)) {
+        // Internet nahi hai — bahar mat nikalein, jitna offline ho sakta hai utna karne dein
+        $('newBtn').textContent = '+ Purchase';
+        $('newBtn').style.display = can('bill_create') ? '' : 'none';
+        updateNewBtnPerm();
+        loadAll();
+        return;
+      }
       var msg = (e && e.message === 'disabled')
         ? 'Aapka access band kar diya gaya hai. Admin se raabta karein.'
         : (e && e.message === 'not_setup')
@@ -2587,6 +2607,7 @@
 
   /* ---------- me / permissions ---------- */
   var me = null;
+  var ME_CACHE_KEY_B = 'oht-cache-me';
   function loadMe() {
     return sb.auth.getUser().then(function (res) {
       var user = res.data && res.data.user;
@@ -2595,7 +2616,15 @@
         if (r.error || !r.data) return Promise.reject(new Error('not_setup'));
         if (!r.data.is_active) return Promise.reject(new Error('disabled'));
         me = { id:r.data.id, username:r.data.username, isAdmin:!!r.data.is_admin, perms:r.data.perms || {} };
+        try { localStorage.setItem(ME_CACHE_KEY_B, JSON.stringify(me)); } catch (e) {}
       });
+    }).catch(function (e) {
+      if (isNetErr(e)) {
+        var cached = null;
+        try { cached = JSON.parse(localStorage.getItem(ME_CACHE_KEY_B) || 'null'); } catch (e2) {}
+        if (cached) { me = cached; return; }
+      }
+      throw e;
     });
   }
   function can(key) { return !!(me && (me.isAdmin || me.perms[key])); }

@@ -4101,8 +4101,21 @@
   function afterConnect() {
     sb.auth.getSession().then(function (res) {
       if (res.data && res.data.session) { start(); }
+      else if (!navigator.onLine && hasCachedAuthToken()) { start(); }   // offline, lekin pehle login ho chuka tha
       else { $('gateLogin').classList.add('on'); }
-    }).catch(function () { $('gateLogin').classList.add('on'); });
+    }).catch(function () {
+      if (!navigator.onLine && hasCachedAuthToken()) { start(); return; }
+      $('gateLogin').classList.add('on');
+    });
+  }
+  function hasCachedAuthToken() {
+    try {
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (k && /^sb-.*-auth-token$/.test(k)) return true;
+      }
+    } catch (e) {}
+    return false;
   }
   function start() {
     $('gateConnect').classList.remove('on');
@@ -4115,6 +4128,16 @@
       loadAll();
       setupRealtime();
     }).catch(function (e) {
+      if (isNetErr(e)) {
+        // Internet nahi hai — user ko bahar mat nikalein, jitna offline ho
+        // sakta hai utna hi karne dein (cached data, agar hai to)
+        applyPermissionsUI();
+        $('newBtn').textContent = '+ Party';
+        $('newBtn').style.display = can('masters_edit') ? '' : 'none';
+        $('q').placeholder = 'Search by name, phone or city…';
+        loadAll();
+        return;
+      }
       var msg = (e && e.message === 'disabled')
         ? 'Aapka access band kar diya gaya hai. Admin se raabta karein.'
         : (e && e.message === 'not_setup')
@@ -4129,6 +4152,7 @@
 
   /* ---------- me / permissions ---------- */
   var me = null;
+  var ME_CACHE_KEY = 'oht-cache-me';
   function loadMe() {
     return sb.auth.getUser().then(function (res) {
       var user = res.data && res.data.user;
@@ -4137,7 +4161,17 @@
         if (r.error || !r.data) return Promise.reject(new Error('not_setup'));
         if (!r.data.is_active) return Promise.reject(new Error('disabled'));
         me = { id:r.data.id, username:r.data.username, isAdmin:!!r.data.is_admin, perms:r.data.perms || {} };
+        try { localStorage.setItem(ME_CACHE_KEY, JSON.stringify(me)); } catch (e) {}
       });
+    }).catch(function (e) {
+      // Offline ho to permission-check server tak pahunch hi nahi sakta —
+      // isay "logged out" na samjhein, purani (cached) permissions se kaam chalayein
+      if (isNetErr(e)) {
+        var cached = null;
+        try { cached = JSON.parse(localStorage.getItem(ME_CACHE_KEY) || 'null'); } catch (e2) {}
+        if (cached) { me = cached; return; }
+      }
+      throw e;
     });
   }
   function can(key) { return !!(me && (me.isAdmin || me.perms[key])); }
