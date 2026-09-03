@@ -364,6 +364,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 15l-4-4 4-4"/><path d="M5 11h9a5 5 0 015 5v1"/></svg>
         Sales return<span class="n" id="nRet"></span>
       </button>
+      <button class="sb-item" data-t="transfer">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7 16V4M7 4L3 8M7 4l4 4M17 8v12M17 20l4-4M17 20l-4-4"/></svg>
+        Stock transfer<span class="n" id="nTra"></span>
+      </button>
     </div>
 
     <div class="sb-spacer"></div>
@@ -444,7 +448,7 @@
   var allVnos = [];   // sab vouchers ke numbers (deleted bhi shamil) — takraav se bachne ke liye
   var quotes = [], pos = [];   // Quotations aur Purchase Orders — alag arrays, vouchers/balance se koi taluq nahi
   var returns = [];   // Sales Returns — asal financial impact hai, is liye alag nahi (ledger/stock mein shamil)
-  var parties = [], items = [], bills = [], firms = [], lineSeq = 0;
+  var parties = [], items = [], bills = [], firms = [], warehouses = [], transfers = [], lineSeq = 0;
   var firmName = 'Osman Haji Tayyab';
 
   /* ---------- helpers ---------- */
@@ -634,6 +638,7 @@
   function render() {
     if (vtype === 'quotation' || vtype === 'po') { renderDocs(); return; }
     if (vtype === 'return') { renderReturns(); return; }
+    if (vtype === 'transfer') { renderTransfers(); return; }
     var q = norm($('q').value);
     var list = bills.filter(function (b) { return b.vtype === vtype; });
     if (q) list = list.filter(function (b) {
@@ -766,7 +771,7 @@
              company_id:d ? d.id : null, tax_on:false, discount:0, paid:0, lines:[newLine()],
              loading_on:false, loading_amt:0, cartage_on:false, cartage_amt:0, cutting_on:false, cutting_amt:0 };
   }
-  function newLine() { return { key:'L' + (++lineSeq), item_id:null, qty:'', rate:'', tax_pct:0, amount:0, pcs_on:false, pcs:null }; }
+  function newLine() { return { key:'L' + (++lineSeq), item_id:null, qty:'', rate:'', tax_pct:0, amount:0, pcs_on:false, pcs:null, warehouse_id:defaultWarehouseId() }; }
 
   var originalLineSnapshot = null;   // audit-diff ke liye — sirf existing bill edit karte waqt
   var originalHeadSnapshot = null;   // smart-merge ke liye — bill/doc/return ke header fields ka pehla version
@@ -891,6 +896,10 @@
       (on ? '<div class="f num"><input id="b' + key + 'Amt" type="text" inputmode="decimal" value="' +
         (num(b[key + '_amt']) ? fmt(b[key + '_amt']) : '') + '" placeholder="0"></div>' : '');
   }
+  function defaultWarehouseId() {
+    var d = warehouses.filter(function (w) { return w.is_default; })[0];
+    return d ? d.id : (warehouses[0] ? warehouses[0].id : null);
+  }
   function lineHtml(l, i) {
     var it = itemById(l.item_id);
     var amt = round2(num(l.qty) * num(l.rate));
@@ -906,6 +915,14 @@
           (num(l.rate) ? fmt(l.rate) : '') + '" placeholder="0"></div>' +
         '<div class="tot" data-t="' + l.key + '">' + (amt ? money(amt) : '—') + '</div>' +
       '</div>' +
+      (warehouses.length > 1
+        ? '<div class="f" style="margin-top:6px"><label>Warehouse</label><select class="lwh" data-k="' + l.key + '">' +
+            warehouses.map(function (w) {
+              return '<option value="' + esc(w.id) + '"' +
+                     (String(l.warehouse_id || defaultWarehouseId()) === String(w.id) ? ' selected' : '') + '>' +
+                     esc(w.name) + '</option>';
+            }).join('') + '</select></div>'
+        : '') +
       '<div style="display:flex;align-items:center;gap:8px;margin-top:6px">' +
         '<button data-pcs-toggle="' + l.key + '" style="font-size:11.5px;padding:4px 9px;border-radius:20px;' +
           (l.pcs_on ? 'background:var(--ink);color:#fff;border:1px solid var(--ink)'
@@ -1044,6 +1061,12 @@
         l.pcs = num(this.value); dirty = true;
       });
     });
+    $('edBody').querySelectorAll('.lwh').forEach(function (el) {
+      el.addEventListener('change', function () {
+        var l = lineByKey(this.getAttribute('data-k')); if (!l) return;
+        l.warehouse_id = this.value; dirty = true;
+      });
+    });
     $('addLn').addEventListener('click', function () {
       b.lines.push(newLine()); dirty = true; drawEditor();
       var all = $('edBody').querySelectorAll('.ln input[type="text"]');
@@ -1153,7 +1176,8 @@
     var linesForMerge = good.map(function (l) {
       return { id:l.id || null, item_id:l.item_id, qty:num(l.qty), rate:num(l.rate),
                tax_pct:num(l.tax_pct), amount:round2(num(l.qty) * num(l.rate)),
-               pcs_on:!!l.pcs_on, pcs:l.pcs_on ? num(l.pcs) : null };
+               pcs_on:!!l.pcs_on, pcs:l.pcs_on ? num(l.pcs) : null,
+               warehouse_id:l.warehouse_id || defaultWarehouseId() };
     });
     var linesPayload = linesForMerge.map(function (l) {
       var o = Object.assign({}, l); delete o.id; return o;
@@ -1637,7 +1661,8 @@
       return {
         id:exLine ? exLine.id : null, sale_line_id:sl.id, item_id:sl.item_id,
         item_name:it ? it.name : '', unit:it ? it.unit : '',
-        rate:num(sl.rate), max:avail, qty:exLine ? num(exLine.qty) : 0
+        rate:num(sl.rate), max:avail, qty:exLine ? num(exLine.qty) : 0,
+        warehouse_id:exLine ? (exLine.warehouse_id || sl.warehouse_id) : sl.warehouse_id
       };
     });
 
@@ -1698,7 +1723,16 @@
             (num(l.qty) ? fmt(l.qty) : '') + '" placeholder="0"></div>' +
           '<div class="f num"><label>Rate</label><input value="' + fmt(l.rate) + '" readonly style="background:var(--panel)"></div>' +
           '<div class="tot" data-t="' + i + '">' + (num(l.qty) ? money(round2(num(l.qty) * l.rate)) : '\u2014') + '</div>' +
-        '</div></div>';
+        '</div>' +
+        (warehouses.length > 1
+          ? '<div class="f" style="margin-top:6px"><label>Maal kis warehouse mein wapas jaye</label><select class="retwh" data-i="' + i + '">' +
+              warehouses.map(function (w) {
+                return '<option value="' + esc(w.id) + '"' +
+                       (String(l.warehouse_id || defaultWarehouseId()) === String(w.id) ? ' selected' : '') + '>' +
+                       esc(w.name) + '</option>';
+              }).join('') + '</select></div>'
+          : '') +
+        '</div>';
     });
     h += '</div>';
 
@@ -1711,6 +1745,12 @@
     $('edBody').innerHTML = h;
     $('rDate').addEventListener('change', function () { b.rdate = this.value || today(); dirty = true; });
     $('rNote').addEventListener('input', function () { b.narration = this.value; dirty = true; });
+    $('edBody').querySelectorAll('.retwh').forEach(function (el) {
+      el.addEventListener('change', function () {
+        var i = parseInt(this.getAttribute('data-i'), 10);
+        b.lines[i].warehouse_id = this.value; dirty = true;
+      });
+    });
     $('edBody').querySelectorAll('.retq').forEach(function (el) {
       el.addEventListener('input', function () {
         var i = parseInt(this.getAttribute('data-i'), 10);
@@ -1748,7 +1788,7 @@
     };
     var linesForMerge = good.map(function (l) {
       return { id:l.id || null, sale_line_id:l.sale_line_id, item_id:l.item_id, qty:num(l.qty), rate:l.rate,
-               amount:round2(num(l.qty) * l.rate) };
+               amount:round2(num(l.qty) * l.rate), warehouse_id:l.warehouse_id || defaultWarehouseId() };
     });
     var linesPayload = linesForMerge.map(function (l) { var o = Object.assign({}, l); delete o.id; return o; });
     var priorRow = isNew ? null : returns.filter(function (x) { return x.id === recId; })[0];
@@ -1866,6 +1906,265 @@
       });
     });
   }
+
+  /* ---------- Stock Transfers ---------- */
+  function nextTransferNo() {
+    var max = 0;
+    transfers.forEach(function (t) {
+      var m = String(t.tno || '').match(/(\d+)\s*$/);
+      if (m) max = Math.max(max, parseInt(m[1], 10));
+    });
+    return 'T-' + String(max + 1).padStart(4, '0');
+  }
+
+  function renderTransfers() {
+    var q = norm($('q').value);
+    var list = transfers.slice();
+    if (q) list = list.filter(function (t) {
+      var fw = warehouses.filter(function (w) { return w.id === t.from_warehouse; })[0];
+      var tw = warehouses.filter(function (w) { return w.id === t.to_warehouse; })[0];
+      return (norm(t.tno) + ' ' + norm(fw && fw.name) + ' ' + norm(tw && tw.name)).indexOf(q) !== -1;
+    });
+    list.sort(function (a, b) { return a.tdate < b.tdate ? 1 : (a.tdate > b.tdate ? -1 : 0); });
+
+    $('nTra').textContent = transfers.length ? '(' + transfers.length + ')' : '';
+    $('searchWrap').classList.toggle('has', !!$('q').value);
+
+    var box = $('rows');
+    if (!list.length) {
+      box.innerHTML = '<div class="empty">' + (q
+        ? '<div class="big">Nothing matched \u201c' + esc($('q').value) + '\u201d</div>'
+        : '<div class="big">Koi Stock Transfer nahi</div><div class="sm">Ek warehouse se doosre mein maal bhejne ke liye "+ Transfer" dabayein.</div>') + '</div>';
+      return;
+    }
+    var html = '', day = '';
+    list.forEach(function (t) {
+      if (t.tdate !== day) { day = t.tdate; html += '<div class="datehead">' + esc(human(day)) + '</div>'; }
+      var fw = warehouses.filter(function (w) { return w.id === t.from_warehouse; })[0];
+      var tw = warehouses.filter(function (w) { return w.id === t.to_warehouse; })[0];
+      var cnt = (t.lines || []).length;
+      html += '<div class="brow" data-doc="transfer" data-id="' + t.id + '" tabindex="0" role="button">' +
+        '<div class="docav" style="background:#E3EDDC"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#5F7A4E" stroke-width="1.8"><path d="M7 16V4M7 4L3 8M7 4l4 4M17 8v12M17 20l4-4M17 20l-4-4"/></svg></div>' +
+        '<div class="no">' + esc(t.tno || '\u2014') + '</div><div class="mid">' +
+        '<div class="nm">' + esc(fw ? fw.name : '?') + ' \u2192 ' + esc(tw ? tw.name : '?') + '</div>' +
+        '<div class="sub">' + cnt + (cnt === 1 ? ' item' : ' items') + '</div></div></div>';
+    });
+    box.innerHTML = html;
+  }
+
+  function openTransfer(rec) {
+    bill = rec ? JSON.parse(JSON.stringify(rec)) : {
+      isTransfer:true, id:null, tno:nextTransferNo(), tdate:today(),
+      from_warehouse:warehouses[0] ? warehouses[0].id : null,
+      to_warehouse:(warehouses[1] || warehouses[0] || {}).id || null,
+      narration:'', version:1, lines:[{ key:'L' + (++lineSeq), item_id:null, qty:'' }]
+    };
+    if (rec) {
+      bill.isTransfer = true;
+      bill.lines = (bill.lines || []).map(function (l) {
+        return { key:'L' + (++lineSeq), id:l.id, item_id:l.item_id, qty:l.qty };
+      });
+    }
+    if (!bill.lines.length) bill.lines.push({ key:'L' + (++lineSeq), item_id:null, qty:'' });
+    originalHeadSnapshot = rec ? JSON.parse(JSON.stringify(rec)) : null;
+    originalLineSnapshot = rec ? bill.lines.map(function (l) { return { id:l.id, item_id:l.item_id, qty:num(l.qty) }; }) : null;
+    dirty = false;
+    $('edTitle').textContent = (rec ? 'Edit ' : 'New ') + 'Stock Transfer';
+    $('edDel').style.display = (rec && can('bill_delete')) ? '' : 'none';
+    $('edSave').style.display = can(rec ? 'bill_edit' : 'bill_create') ? '' : 'none';
+    $('edSave').textContent = 'Save Transfer';
+    drawTransferEditor();
+    $('edBody').scrollTop = 0;
+    $('ed').classList.add('on');
+  }
+
+  function drawTransferEditor() {
+    var b = bill;
+    var h = '<div class="card"><div class="ttl">Stock Transfer</div>' +
+      '<div class="f2">' +
+        '<div class="f"><label>Transfer no</label><input value="' + esc(b.tno) + '" readonly style="background:var(--panel)"></div>' +
+        '<div class="f"><label>Date</label><input id="trDate" type="date" value="' + esc(b.tdate) + '"></div>' +
+      '</div>' +
+      '<div class="f2">' +
+        '<div class="f"><label>From warehouse</label><select id="trFrom">' +
+          warehouses.map(function (w) { return '<option value="' + esc(w.id) + '"' + (String(b.from_warehouse) === String(w.id) ? ' selected' : '') + '>' + esc(w.name) + '</option>'; }).join('') +
+        '</select></div>' +
+        '<div class="f"><label>To warehouse</label><select id="trTo">' +
+          warehouses.map(function (w) { return '<option value="' + esc(w.id) + '"' + (String(b.to_warehouse) === String(w.id) ? ' selected' : '') + '>' + esc(w.name) + '</option>'; }).join('') +
+        '</select></div>' +
+      '</div></div>';
+
+    h += '<div class="card"><div class="ttl">Items</div>';
+    b.lines.forEach(function (l, i) {
+      var it = itemById(l.item_id);
+      h += '<div class="ln" data-k="' + l.key + '"><div class="top">' + pickBox('trit_' + l.key, it ? it.name : '', 'Which item?') +
+        '<button class="rm" data-trrm="' + l.key + '" aria-label="Remove line">×</button></div>' +
+        '<div class="f num"><label>Qty' + (it ? ' (' + esc(it.unit) + ')' : '') + '</label>' +
+        '<input class="trq" data-k="' + l.key + '" type="text" inputmode="decimal" value="' + (num(l.qty) ? fmt(l.qty) : '') + '" placeholder="0"></div>' +
+        '</div>';
+    });
+    h += '<button class="addln" id="trAddLn">+ Add another item</button></div>';
+
+    h += '<div class="card"><div class="ttl">Note</div><div class="f"><textarea id="trNote" placeholder="Optional">' + esc(b.narration || '') + '</textarea></div></div>';
+
+    $('edBody').innerHTML = h;
+    $('trDate').addEventListener('change', function () { b.tdate = this.value || today(); dirty = true; });
+    $('trFrom').addEventListener('change', function () { b.from_warehouse = this.value; dirty = true; });
+    $('trTo').addEventListener('change', function () { b.to_warehouse = this.value; dirty = true; });
+    $('trNote').addEventListener('input', function () { b.narration = this.value; dirty = true; });
+    b.lines.forEach(function (l) {
+      attachPick('trit_' + l.key, function () {
+        return items.filter(function (i) { return i.active !== false && !i.deleted_at; }).map(function (i) {
+          return { id:i.id, name:i.name, sub:i.unit };
+        });
+      }, function (id) { l.item_id = id; dirty = true; drawTransferEditor(); });
+    });
+    $('edBody').querySelectorAll('.trq').forEach(function (el) {
+      el.addEventListener('input', function () {
+        var key = this.getAttribute('data-k');
+        var l = bill.lines.filter(function (x) { return x.key === key; })[0];
+        if (l) { l.qty = num(this.value); dirty = true; }
+      });
+    });
+    $('edBody').querySelectorAll('[data-trrm]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var key = btn.getAttribute('data-trrm');
+        if (bill.lines.length <= 1) bill.lines = [{ key:'L' + (++lineSeq), item_id:null, qty:'' }];
+        else bill.lines = bill.lines.filter(function (l) { return l.key !== key; });
+        dirty = true; drawTransferEditor();
+      });
+    });
+    $('trAddLn').addEventListener('click', function () {
+      bill.lines.push({ key:'L' + (++lineSeq), item_id:null, qty:'' });
+      dirty = true; drawTransferEditor();
+    });
+  }
+
+  function saveTransfer() {
+    var b = bill;
+    if (!b.from_warehouse || !b.to_warehouse) { toast('Dono warehouses choose karein', true); return; }
+    if (b.from_warehouse === b.to_warehouse) { toast('From aur To warehouse alag hone chahiye', true); return; }
+    var good = b.lines.filter(function (l) { return l.item_id && num(l.qty) > 0; });
+    if (!good.length) { toast('Kam se kam ek item ki quantity daalein', true); return; }
+
+    var isNew = !b.id;
+    var recId = isNew ? uuid() : b.id;
+    var head = {
+      tno:(b.tno || '').trim(), tdate:b.tdate || today(), from_warehouse:b.from_warehouse,
+      to_warehouse:b.to_warehouse, narration:b.narration || '', updated_at:new Date().toISOString(),
+    };
+    var linesForMerge = good.map(function (l) { return { id:l.id || null, item_id:l.item_id, qty:num(l.qty) }; });
+    var linesPayload = linesForMerge.map(function (l) { var o = Object.assign({}, l); delete o.id; return o; });
+    var priorRow = isNew ? null : transfers.filter(function (x) { return x.id === recId; })[0];
+
+    var optimistic = Object.assign({}, priorRow || {}, head, {
+      id:recId, version:isNew ? 1 : (b.version || 1),
+      lines:linesForMerge.map(function (l, i) { return Object.assign({ id:'temp-' + i }, l); }),
+    });
+    if (isNew) transfers.push(optimistic); else transfers = transfers.map(function (x) { return x.id === recId ? optimistic : x; });
+    toast((isNew ? 'Saved ' : 'Updated ') + (head.tno || 'transfer'));
+    closeBill(); render();
+
+    if (!navigator.onLine) {
+      offQAdd({ opId:uuid(), kind:'transfer', op:isNew ? 'insert' : 'update', recordId:recId,
+                baseVersion:isNew ? null : (b.version || 1), original:isNew ? null : originalHeadSnapshot,
+                head:head, lines:linesPayload, linesForMerge:isNew ? null : linesForMerge,
+                originalLines:isNew ? null : originalLineSnapshot, label:head.tno });
+      syncNote('Offline \u2014 save queued', '#B08A3E');
+      return;
+    }
+
+    syncNote('Saving…');
+    var step = isNew ? sb.from('stock_transfers').insert(Object.assign({ id:recId }, head)).select()
+                     : sb.rpc('smart_merge_update', { p_table:'stock_transfers', p_id:recId, p_original:originalHeadSnapshot, p_new:head });
+    step.then(function (res) {
+      if (res.error) throw res.error;
+      if (!isNew) {
+        var result = res.data;
+        if (result.status === 'conflict') {
+          toast('"' + head.tno + '" mein "' + result.fields.join(', ') + '" kisi aur ne bhi isi waqt badla \u2014 taaza dekh kar dobara karein', true);
+          loadAll();
+          return;
+        }
+        if (result.status === 'missing') { toast('"' + head.tno + '" kisi aur ne delete kar diya hai', true); loadAll(); return; }
+      }
+      var row = isNew ? (res.data || [])[0] : res.data.row;
+      if (isNew) {
+        var payload = linesPayload.map(function (l, i) { return Object.assign({ transfer_id:recId, line_no:i + 1 }, l); });
+        return sb.from('stock_transfer_lines').insert(payload).select().then(function (r2) {
+          if (r2.error) throw r2.error;
+          finishTransferSave(row, r2.data, recId, head);
+        });
+      }
+      return sb.rpc('smart_merge_lines', {
+        p_line_table:'stock_transfer_lines', p_fk_col:'transfer_id', p_fk_id:recId,
+        p_original_lines:originalLineSnapshot, p_new_lines:linesForMerge, p_ignore_fields:['transfer_id', 'line_no']
+      }).then(function (mr) {
+        if (mr.error) throw mr.error;
+        if (mr.data.status === 'conflict') {
+          var names = mr.data.items.map(function (id) { var it = itemById(id); return it ? it.name : id; });
+          toast('"' + head.tno + '" mein "' + names.join(', ') + '" kisi aur ne bhi isi waqt badla \u2014 taaza dekh kar dobara karein', true);
+          loadAll();
+          return null;
+        }
+        return sb.rpc('apply_merged_lines', { p_line_table:'stock_transfer_lines', p_fk_col:'transfer_id', p_fk_id:recId, p_final_lines:mr.data.lines })
+          .then(function (ar) {
+            if (ar.error) throw ar.error;
+            return fetch_lines('stock_transfer_lines', 'transfer_id', recId).then(function (finalLines) {
+              finishTransferSave(row, finalLines, recId, head);
+            });
+          });
+      });
+    }).catch(function (e) {
+      if (isNetErr(e)) {
+        offQAdd({ opId:uuid(), kind:'transfer', op:isNew ? 'insert' : 'update', recordId:recId,
+                  baseVersion:isNew ? null : (b.version || 1), original:isNew ? null : originalHeadSnapshot,
+                  head:head, lines:linesPayload, linesForMerge:isNew ? null : linesForMerge,
+                  originalLines:isNew ? null : originalLineSnapshot, label:head.tno });
+        syncNote('Offline \u2014 save queued', '#B08A3E');
+      } else {
+        if (isNew) transfers = transfers.filter(function (x) { return x.id !== recId; });
+        else transfers = transfers.map(function (x) { return x.id === recId ? priorRow : x; });
+        render(); syncNote(''); sayErr(e, 'save');
+      }
+    });
+  }
+  function finishTransferSave(row, finalLines, recId, head) {
+    var saved = Object.assign({}, row || head, { id:recId, lines:finalLines || [] });
+    transfers = transfers.map(function (x) { return x.id === recId ? saved : x; });
+    syncNote('Saved', '#7DC9A9');
+    render();
+  }
+
+  function deleteTransfer() {
+    var b = bill;
+    if (!b || !b.id) return;
+    confirmBox('Delete ' + (b.tno || '') + '?', 'Recycle Bin mein chala jayega, stock wapas apni jagah adjust ho jayega.', 'Delete').then(function (ok) {
+      if (!ok) return;
+      var recId = b.id, label = b.tno, priorRow = transfers.filter(function (x) { return x.id === recId; })[0];
+      transfers = transfers.filter(function (x) { return x.id !== recId; });
+      closeBill(); render();
+      toast('Deleted ' + (label || ''));
+      if (!navigator.onLine) {
+        offQAdd({ opId:uuid(), kind:'transfer', op:'delete', recordId:recId, label:label });
+        syncNote('Offline \u2014 delete queued', '#B08A3E');
+        return;
+      }
+      sb.from('stock_transfers').update({ deleted_at:new Date().toISOString() }).eq('id', recId).then(function (res) {
+        if (res.error) throw res.error;
+        syncNote('');
+      }).catch(function (e) {
+        if (isNetErr(e)) {
+          offQAdd({ opId:uuid(), kind:'transfer', op:'delete', recordId:recId, label:label });
+          syncNote('Offline \u2014 delete queued', '#B08A3E');
+        } else {
+          if (priorRow) transfers.push(priorRow);
+          render(); syncNote(''); sayErr(e, 'delete');
+        }
+      });
+    });
+  }
+
 
   function printReturn() {
     var b = bill;
@@ -2048,7 +2347,49 @@
     if (op.kind === 'bill') return performQueuedBill(op);
     if (op.kind === 'doc') return performQueuedDoc(op);
     if (op.kind === 'return') return performQueuedReturn(op);
+    if (op.kind === 'transfer') return performQueuedTransfer(op);
     return Promise.resolve('ok');
+  }
+  function performQueuedTransfer(op) {
+    if (op.op === 'delete') {
+      return sb.from('stock_transfers').update({ deleted_at:new Date().toISOString() }).eq('id', op.recordId)
+        .then(function (res) { if (res.error) throw res.error; return 'ok'; });
+    }
+    var headStep = op.op === 'insert'
+      ? sb.from('stock_transfers').insert(Object.assign({ id:op.recordId }, op.head)).select()
+      : op.original
+        ? sb.rpc('smart_merge_update', { p_table:'stock_transfers', p_id:op.recordId, p_original:op.original, p_new:op.head })
+        : sb.from('stock_transfers').update(op.head).eq('id', op.recordId).eq('version', op.baseVersion).select();
+    return headStep.then(function (res) {
+      if (res.error) {
+        if (op.op === 'insert' && /duplicate key/i.test(res.error.message || '')) {
+          // pehle hi insert ho chuka tha (retry) — seedha lines par chalo
+        } else throw res.error;
+      } else if (op.op === 'update') {
+        if (op.original) { if (res.data && res.data.status === 'conflict') return 'conflict'; }
+        else if (!res.data || !res.data.length) return 'conflict';
+      }
+      if (op.op === 'insert') {
+        var payload = op.lines.map(function (l, i) { return Object.assign({ transfer_id:op.recordId, line_no:i + 1 }, l); });
+        return sb.from('stock_transfer_lines').insert(payload).select().then(function (r2) { if (r2.error) throw r2.error; return 'ok'; });
+      }
+      if (!op.linesForMerge) {
+        return sb.from('stock_transfer_lines').delete().eq('transfer_id', op.recordId).then(function (d) {
+          if (d.error) throw d.error;
+          var payload = op.lines.map(function (l, i) { return Object.assign({ transfer_id:op.recordId, line_no:i + 1 }, l); });
+          return sb.from('stock_transfer_lines').insert(payload).select();
+        }).then(function (r2) { if (r2.error) throw r2.error; return 'ok'; });
+      }
+      return sb.rpc('smart_merge_lines', {
+        p_line_table:'stock_transfer_lines', p_fk_col:'transfer_id', p_fk_id:op.recordId,
+        p_original_lines:op.originalLines, p_new_lines:op.linesForMerge, p_ignore_fields:['transfer_id', 'line_no']
+      }).then(function (mr) {
+        if (mr.error) throw mr.error;
+        if (mr.data.status === 'conflict') return 'conflict';
+        return sb.rpc('apply_merged_lines', { p_line_table:'stock_transfer_lines', p_fk_col:'transfer_id', p_fk_id:op.recordId, p_final_lines:mr.data.lines })
+          .then(function (ar) { if (ar.error) throw ar.error; return 'ok'; });
+      });
+    });
   }
   function performQueuedDoc(op) {
     var table = op.isQ ? 'quotations' : 'purchase_orders';
@@ -2257,13 +2598,23 @@
           sb.from('vouchers').select('vno,vtype'),   // halka query — DELETED bills bhi shamil, sirf numbering ke liye
           sb.from('sales_returns').select('*').is('deleted_at', null).order('rdate', { ascending:false }).limit(300),
           sb.from('sales_return_lines').select('*'),
-          ledgerReturnQuery
+          ledgerReturnQuery,
+          sb.from('warehouses').select('*').is('deleted_at', null).order('name'),
+          sb.from('stock_transfers').select('*').is('deleted_at', null).order('tdate', { ascending:false }).limit(300),
+          sb.from('stock_transfer_lines').select('*')
         ]).then(function (r) {
           r.slice(0, 4).forEach(function (x) { if (x.error) throw x.error; });
           parties = r[0].data || [];
           items   = r[1].data || [];
           bills   = r[2].data || [];
           firms   = r[4].error ? [] : (r[4].data || []);        // SQL na chali ho to bhi bill bane
+          warehouses = r[15] && !r[15].error ? (r[15].data || []) : [];
+          transfers = r[16] && !r[16].error ? (r[16].data || []) : [];
+          var byTr = {};
+          (r[17] && !r[17].error ? (r[17].data || []) : []).forEach(function (l) {
+            (byTr[l.transfer_id] = byTr[l.transfer_id] || []).push(l);
+          });
+          transfers.forEach(function (t) { t.lines = (byTr[t.id] || []).sort(function (a, b) { return (a.line_no || 0) - (b.line_no || 0); }); });
           ledgerVouchers = r[5].error ? [] : (r[5].data || []); // party balance ke liye poora/lock-ke-baad set
           sheets  = r[6].error ? [] : (r[6].data || []);        // ledger sheets
           lockDate = ld; snapshotActive = active; openingBalances = ob;
@@ -2329,11 +2680,13 @@
       btn.classList.add('on');
       vtype = btn.getAttribute('data-t');
       $('moTitle').textContent = vtype === 'purchase' ? 'Purchase' : vtype === 'sale' ? 'Sale'
-                                : vtype === 'quotation' ? 'Quotation' : vtype === 'po' ? 'Purchase order' : 'Sales return';
+                                : vtype === 'quotation' ? 'Quotation' : vtype === 'po' ? 'Purchase order'
+                                : vtype === 'transfer' ? 'Stock transfer' : 'Sales return';
       closeSidebar();
       $('q').value = '';
       $('newBtn').textContent = vtype === 'purchase' ? '+ Purchase' : vtype === 'sale' ? '+ Sale'
-                               : vtype === 'quotation' ? '+ Quotation' : vtype === 'po' ? '+ Purchase Order' : '+ Return';
+                               : vtype === 'quotation' ? '+ Quotation' : vtype === 'po' ? '+ Purchase Order'
+                               : vtype === 'transfer' ? '+ Transfer' : '+ Return';
       updateNewBtnPerm();
       render();
     });
@@ -2354,12 +2707,17 @@
     if (vtype === 'quotation') { openDoc('quotation', null); return; }
     if (vtype === 'po')        { openDoc('po', null); return; }
     if (vtype === 'return')    { openPickSaleModal(); return; }
+    if (vtype === 'transfer')  {
+      if (warehouses.length < 2) { toast('Kam se kam 2 warehouses chahiye (Masters mein banayein)', true); return; }
+      openTransfer(null); return;
+    }
     openBill(null);
   });
   function updateNewBtnPerm() {
     var ok = vtype === 'quotation' ? can('quotation_create')
            : vtype === 'po'        ? can('po_create')
            : vtype === 'return'    ? can('bill_create')
+           : vtype === 'transfer'  ? can('bill_create')
            : can('bill_create');
     $('newBtn').style.display = ok ? '' : 'none';
   }
@@ -2377,6 +2735,11 @@
     if (docType === 'return') {
       var rr = returns.filter(function (x) { return String(x.id) === id; })[0];
       if (rr) openReturnRec(rr);
+      return;
+    }
+    if (docType === 'transfer') {
+      var tr = transfers.filter(function (x) { return String(x.id) === id; })[0];
+      if (tr) openTransfer(tr);
       return;
     }
     var b = bills.filter(function (x) { return String(x.id) === id; })[0];
@@ -2398,14 +2761,17 @@
   });
   $('edSave').addEventListener('click', function () {
     if (bill && bill.isReturn) { saveReturn(); return; }
+    if (bill && bill.isTransfer) { saveTransfer(); return; }
     (bill && bill.doc) ? saveDoc() : saveBill();
   });
   $('edDel').addEventListener('click', function () {
     if (bill && bill.isReturn) { deleteReturn(); return; }
+    if (bill && bill.isTransfer) { deleteTransfer(); return; }
     (bill && bill.doc) ? deleteDoc() : delBill();
   });
   $('edPrint').addEventListener('click', function () {
     if (bill && bill.isReturn) { printReturn(); return; }
+    if (bill && bill.isTransfer) { toast('Print filhaal is document ke liye nahi bana'); return; }
     printBill();
   });
   $('edBack').addEventListener('click', tryClose);

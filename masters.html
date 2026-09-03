@@ -1483,7 +1483,8 @@
 
   /* ══════════ party ka khata ══════════ */
   var led = { loaded:false, loading:false, vouchers:[], lines:[], sheets:[], adjustments:[], returns:[],
-              lockDate:null, snapshotActive:false, openingBalances:{}, forcedFull:false };
+              lockDate:null, snapshotActive:false, openingBalances:{}, forcedFull:false,
+              warehouses:[], transfers:[], transferLines:[] };
   var edView = 'details';
 
   /* Party ka balance "cutoff" tareekh tak — bilkul buildAccount() wala formula,
@@ -1603,7 +1604,11 @@
             lineQuery = sb.from('voucher_lines').select('*');
             retLineQuery = sb.from('sales_return_lines').select('*');
           }
-          return Promise.all([lineQuery, retLineQuery]).then(function (rr2) {
+          return Promise.all([lineQuery, retLineQuery,
+            sb.from('warehouses').select('*').is('deleted_at', null),
+            sb.from('stock_transfers').select('*').is('deleted_at', null),
+            sb.from('stock_transfer_lines').select('*')
+          ]).then(function (rr2) {
             var linesRes = rr2[0], retLinesRes = rr2[1];
             if (linesRes.error) throw linesRes.error;
             var byR = {};
@@ -1617,6 +1622,9 @@
             led.sheets          = sheets;
             led.adjustments     = r[2].error ? [] : (r[2].data || []);   // SQL na chali ho to bhi chale
             led.returns         = srets;
+            led.warehouses      = rr2[2].error ? [] : (rr2[2].data || []);
+            led.transfers       = rr2[3].error ? [] : (rr2[3].data || []);
+            led.transferLines   = rr2[4].error ? [] : (rr2[4].data || []);
             led.lockDate        = lockDate;
             led.snapshotActive  = snapshotActive;
             led.openingBalances = openingBalances;
@@ -1733,6 +1741,62 @@
     return { events:ev, balance:run };
   }
 
+  function warehouseName(id) {
+    var w = led.warehouses.filter(function (x) { return String(x.id) === String(id); })[0];
+    return w ? w.name : null;
+  }
+  function stockByWarehouse(itemId) {
+    var byW = {};   // warehouseId -> qty
+    function bump(wid, delta) {
+      var key = wid || 'unknown';
+      byW[key] = r2((byW[key] || 0) + delta);
+    }
+    var it = db.items.filter(function (x) { return x.id === itemId; })[0];
+    if (it && n(it.opening_qty)) {
+      var defW = led.warehouses.filter(function (w) { return w.is_default; })[0];
+      bump(defW ? defW.id : 'unknown', n(it.opening_qty));
+    }
+    led.lines.filter(function (ln) { return String(ln.item_id) === String(itemId); }).forEach(function (ln) {
+      var v = led.vouchers.filter(function (x) { return x.id === ln.voucher_id; })[0];
+      if (!v) return;
+      var q = n(ln.qty);
+      bump(ln.warehouse_id, v.vtype === 'purchase' ? q : -q);
+    });
+    led.adjustments.filter(function (a) { return String(a.item_id) === String(itemId); }).forEach(function (a) {
+      bump(a.warehouse_id, n(a.qty));
+    });
+    led.returns.forEach(function (rr) {
+      (rr.lines || []).filter(function (l) { return String(l.item_id) === String(itemId); }).forEach(function (l) {
+        bump(l.warehouse_id, n(l.qty));
+      });
+    });
+    var linesByTransfer = {};
+    led.transferLines.filter(function (l) { return String(l.item_id) === String(itemId); }).forEach(function (l) {
+      (linesByTransfer[l.transfer_id] = linesByTransfer[l.transfer_id] || []).push(l);
+    });
+    led.transfers.forEach(function (t) {
+      (linesByTransfer[t.id] || []).forEach(function (l) {
+        bump(t.from_warehouse, -n(l.qty));
+        bump(t.to_warehouse, n(l.qty));
+      });
+    });
+    return byW;
+  }
+  function stockByWarehouseHtml(itemId) {
+    if (led.warehouses.length <= 1) return '';
+    var byW = stockByWarehouse(itemId);
+    var rows = led.warehouses.map(function (w) {
+      var q = byW[w.id] || 0;
+      return '<tr><td style="padding:4px 0;color:var(--slate)">' + esc(w.name) + '</td>' +
+             '<td style="padding:4px 0;text-align:right;font-weight:600' + (q < 0 ? ';color:var(--debit)' : '') + '">' + fmt(q) + '</td></tr>';
+    }).join('');
+    if (byW.unknown) {
+      rows += '<tr><td style="padding:4px 0;color:var(--mute)">Warehouse na-maloom (purana data)</td>' +
+              '<td style="padding:4px 0;text-align:right;color:var(--mute)">' + fmt(byW.unknown) + '</td></tr>';
+    }
+    return '<div style="margin:10px 0"><div style="font-size:11px;color:var(--mute);text-transform:uppercase;margin-bottom:4px">Warehouse ke hisaab se</div>' +
+           '<table style="width:100%;font-size:13px">' + rows + '</table></div>';
+  }
   function itemLedgerHtml(it) {
     var acc = buildStockAccount(it);
     var kind = $('accRange').value;
@@ -1765,6 +1829,7 @@
     head += '<div class="stmt-balrow"><span class="k">Current stock</span>' +
       '<span class="v ' + (v < 0 ? 'dr' : '') + '">' + fmt(v) + ' ' + esc(it.unit || '') +
       (v < 0 ? '  \u2014 over-sold' : '') + '</span></div>' +
+      stockByWarehouseHtml(it.id) +
       '<div class="stmt-hr thin"></div>' +
       stockFormHtml(it, v);
 
