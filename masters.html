@@ -2049,14 +2049,21 @@
 
   /* ---- tareekh se chhaanna ---- */
   function rangeBounds(kind) {
-    var d = new Date(), y = d.getFullYear(), m = d.getMonth();
+    // ZAROORI: purana tareeqa device ki local-timezone se "aaj" nikalta tha,
+    // phir device ki hi timezone-offset se wapas format karta tha — dono
+    // jagah galti ho sakti thi agar phone Karachi se alag zone par ho. Ab
+    // pura hisaab UTC methods se, Karachi-anchored "aaj" (jaisa today()) se
+    // karte hain — kisi bhi device par hamesha sahi.
+    var pk = new Date(Date.now() + 5 * 60 * 60000);
+    var y = pk.getUTCFullYear(), m = pk.getUTCMonth();
+    function mk(yy, mm, dd) { return new Date(Date.UTC(yy, mm, dd)); }
     function iso(dt) {
-      return new Date(dt.getTime() - dt.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+      return dt.getUTCFullYear() + '-' + String(dt.getUTCMonth() + 1).padStart(2, '0') + '-' + String(dt.getUTCDate()).padStart(2, '0');
     }
-    if (kind === 'tm') return [iso(new Date(y, m, 1)), iso(new Date(y, m + 1, 0))];
-    if (kind === 'lm') return [iso(new Date(y, m - 1, 1)), iso(new Date(y, m, 0))];
-    if (kind === '3m') return [iso(new Date(y, m - 2, 1)), iso(new Date(y, m + 1, 0))];
-    if (kind === 'ty') return [iso(new Date(y, 0, 1)), iso(new Date(y, 11, 31))];
+    if (kind === 'tm') return [iso(mk(y, m, 1)), iso(mk(y, m + 1, 0))];
+    if (kind === 'lm') return [iso(mk(y, m - 1, 1)), iso(mk(y, m, 0))];
+    if (kind === '3m') return [iso(mk(y, m - 2, 1)), iso(mk(y, m + 1, 0))];
+    if (kind === 'ty') return [iso(mk(y, 0, 1)), iso(mk(y, 11, 31))];
     if (kind === 'cu') return [$('accFrom').value || '', $('accTo').value || ''];
     return ['', ''];
   }
