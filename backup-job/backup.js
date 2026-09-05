@@ -18,10 +18,6 @@ const nodemailer = require('nodemailer');
 const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
 
 async function signIn() {
-  // Core tables (parties/items/vouchers waghera) ki RLS policy sirf
-  // "authenticated" (logged-in) session ko data dekhne deti hai — is liye
-  // backup script ko bhi pehle sign-in karna zaroori hai, warna sirf
-  // headings milti hain, data nahi.
   var res = await sb.auth.signInWithPassword({
     email: process.env.BACKUP_EMAIL,
     password: process.env.BACKUP_PASSWORD
@@ -35,13 +31,32 @@ async function fetchAll() {
   for (const t of tables) {
     const { data, error } = await sb.from(t).select('*');
     if (error) throw new Error(t + ': ' + error.message);
-    // Poora (deleted samet) data yahan rakhte hain — taake agar koi purana/
-    // deleted bill kisi active voucher_line se juda ho to uska naam bhi
-    // sahi dikhe. "Active only" list sirf sheet mein dikhane ke waqt banti hai.
     out[t] = data || [];
   }
   return out;
 }
+
+/* ══════ Formatting helpers (masters.html ke bkBtn wale style se, ExcelJS API mein) ══════ */
+const INK = 'FF1F2933', MUTE = 'FF7B8794', CR_C = 'FF0E6132', DR_C = 'FF9B2C2C';
+const CR_BG = 'FFEEF5F1', DR_BG = 'FFFBEFEF', PANEL = 'FFF2F4F5', HAIR = 'FFE4E7EB';
+const thinBorder = { top: { style: 'thin', color: { argb: HAIR } }, bottom: { style: 'thin', color: { argb: HAIR } },
+                      left: { style: 'thin', color: { argb: HAIR } }, right: { style: 'thin', color: { argb: HAIR } } };
+const mediumTB = { top: { style: 'medium', color: { argb: INK } }, bottom: { style: 'medium', color: { argb: INK } } };
+
+function setCell(ws, row, col, val, opts) {
+  opts = opts || {};
+  var cell = ws.getCell(row, col);
+  cell.value = val;
+  cell.font = { bold: !!opts.bold, color: { argb: opts.color || INK }, size: opts.title ? 14 : (opts.header ? 9 : 10),
+                name: opts.title ? 'Georgia' : undefined };
+  cell.alignment = { horizontal: opts.align || 'left', vertical: 'center' };
+  if (opts.header) { cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: opts.fg || PANEL } }; cell.border = thinBorder; }
+  else if (opts.border) cell.border = thinBorder;
+  if (opts.total) cell.border = mediumTB;
+  if (opts.numFmt) cell.numFmt = opts.numFmt;
+  return cell;
+}
+const INT_FMT = '#,##0', NUM_FMT = '#,##0.00';
 
 async function buildExcel(data) {
   const wb = new ExcelJS.Workbook();
@@ -49,86 +64,146 @@ async function buildExcel(data) {
   wb.created = new Date();
 
   var notDeleted = function (r) { return !r.deleted_at; };
+  const P = (data.parties || []).filter(notDeleted);
+  const I = (data.items || []).filter(notDeleted);
+  const C = (data.companies || []).filter(notDeleted);
+  const V = (data.vouchers || []).filter(notDeleted).sort(function (a, b) { return (a.vdate || '') < (b.vdate || '') ? -1 : 1; });
+  const L = (data.voucher_lines || []);
+  const S = (data.sheets || []).filter(notDeleted).sort(function (a, b) { return (a.sheet_date || '') < (b.sheet_date || '') ? -1 : 1; });
 
-  // ── ID → naam lookup tables — POORE (deleted samet) data se banate hain,
-  // taake koi bhi purana/deleted record bhi apne naam se hi resolve ho ──
-  const partyName = {};
-  (data.parties || []).forEach(function (p) { partyName[p.id] = p.name; });
-  const companyName = {};
-  (data.companies || []).forEach(function (c) { companyName[c.id] = c.name; });
-  const itemName = {};
-  (data.items || []).forEach(function (i) { itemName[i.id] = i.name; });
-  const voucherNo = {};
-  (data.vouchers || []).forEach(function (v) { voucherNo[v.id] = v.vno; });
+  const partyName = {}; P.forEach(function (p) { partyName[p.id] = p.name; });
+  const itemName = {}; I.forEach(function (i) { itemName[i.id] = i.name; });
+  const firmName = {}; C.forEach(function (c) { firmName[c.id] = c.name; });
+  const linesByV = {}; L.forEach(function (l) { (linesByV[l.voucher_id] = linesByV[l.voucher_id] || []).push(l); });
 
-  // Sheets mein dikhane ke liye sirf ACTIVE (non-deleted) rows
-  const activeVouchers = (data.vouchers || []).filter(notDeleted);
-  const activeVoucherLines = (data.voucher_lines || []).filter(notDeleted);
-
-  const readableVouchers = activeVouchers.map(function (v) {
-    return {
-      vno:v.vno, vtype:v.vtype, vdate:v.vdate,
-      party:partyName[v.party_id] || v.party_id || '',
-      company:companyName[v.company_id] || v.company_id || '',
-      paid:v.paid, notes:v.notes, grand_total:v.grand_total, id:v.id
-    };
-  });
-  const readableVoucherLines = activeVoucherLines.map(function (l) {
-    return {
-      voucher_no:voucherNo[l.voucher_id] || l.voucher_id || '',
-      item:itemName[l.item_id] || l.item_id || '',
-      qty:l.qty, rate:l.rate, tax_pct:l.tax_pct, amount:l.amount, id:l.id
-    };
-  });
-
-  const sheetDefs = [
-    { name: 'Parties',   rows: (data.parties || []).filter(notDeleted),
-      cols: ['id','name','kind','phone','city','address','ntn','opening','opening_side','active'] },
-    { name: 'Items',     rows: (data.items || []).filter(notDeleted),
-      cols: ['id','name','unit','buy_rate','sale_rate','opening_qty','opening_rate','hs_code','reorder_level'] },
-    { name: 'Companies', rows: (data.companies || []).filter(notDeleted),
-      cols: ['id','name','is_default','active'] },
-    { name: 'Vouchers',  rows: readableVouchers,
-      cols: ['vno','vtype','vdate','party','company','paid','notes','grand_total','id'] },
-    { name: 'Voucher Lines', rows: readableVoucherLines,
-      cols: ['voucher_no','item','qty','rate','tax_pct','amount','id'] },
-    { name: 'Sheets',    rows: (data.sheets || []).filter(notDeleted),
-      cols: ['sheet_date','opening','side','page'] }   // 'rows' (JSON) column jaan-boojh kar chhoda hai
-  ];
-
-  sheetDefs.forEach(function (def) {
-    const ws = wb.addWorksheet(def.name);
-    ws.columns = def.cols.map(function (c) { return { header: c, key: c, width: 16 }; });
-    ws.getRow(1).font = { bold: true };
-    (def.rows || []).forEach(function (r) { ws.addRow(r); });
-  });
-
-  // ── Daily Ledger ki har entry (Dr/Cr line) readable form mein ──
-  // sheets.rows JSON array hai: [dr_amt, dr_narration, cr_amt, cr_narration,
-  // cash_flag_dr, cash_flag_cr, credit_party_id, debit_party_id]
-  const led = wb.addWorksheet('Ledger Entries');
-  led.columns = [
-    { header: 'sheet_date', key: 'd', width: 14 },
-    { header: 'dr_amount', key: 'dra', width: 14 },
-    { header: 'dr_narration', key: 'drn', width: 28 },
-    { header: 'dr_party', key: 'drp', width: 22 },
-    { header: 'cr_amount', key: 'cra', width: 14 },
-    { header: 'cr_narration', key: 'crn', width: 28 },
-    { header: 'cr_party', key: 'crp', width: 22 }
-  ];
-  led.getRow(1).font = { bold: true };
-  (data.sheets || []).filter(notDeleted).forEach(function (s) {
-    (s.rows || []).forEach(function (r) {
-      var drAmt = r[0], drNar = r[1], crAmt = r[2], crNar = r[3];
-      var crParty = r[6], drParty = r[7];
-      var blank = !drAmt && !drNar && !crAmt && !crNar;
-      if (blank) return;   // khali lines chhor do
-      led.addRow({
-        d: s.sheet_date, dra: drAmt || '', drn: drNar || '', drp: partyName[drParty] || '',
-        cra: crAmt || '', crn: crNar || '', crp: partyName[crParty] || ''
-      });
+  /* ─── SHEET 1: LEDGER ─── */
+  const wsL = wb.addWorksheet('Ledger');
+  var rowL = 1;
+  S.forEach(function (sh) {
+    var ds = sh.sheet_date ? new Date(sh.sheet_date + 'T00:00:00').toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
+    setCell(wsL, rowL, 1, sh.firm || 'Daily Register', { title: true });
+    setCell(wsL, rowL, 4, 'Date: ' + ds, { bold: true, align: 'right' });
+    if (sh.opening && Number(sh.opening)) {
+      setCell(wsL, rowL, 6, 'Opening: ' + Number(sh.opening).toLocaleString('en-PK') + ' ' + (sh.side || 'Cr').toUpperCase(), { bold: true, align: 'right' });
+    }
+    rowL++;
+    setCell(wsL, rowL, 1, 'CREDIT', { header: true, fg: CR_BG, color: CR_C, align: 'center' });
+    setCell(wsL, rowL, 4, 'DEBIT', { header: true, fg: DR_BG, color: DR_C, align: 'center' });
+    rowL++;
+    ['Cash', 'Amount (Rs)', 'Party / Remarks', 'Cash', 'Amount (Rs)', 'Party / Remarks'].forEach(function (h, i) {
+      setCell(wsL, rowL, i + 1, h, { header: true, align: 'center' });
     });
+    rowL++;
+    var crTot = 0, drTot = 0;
+    (sh.rows || []).forEach(function (row) {
+      if (!row || row.every(function (c) { return !c; })) return;
+      var ca = Number(String(row[2] || '').replace(/,/g, '')) || 0, cp = row[3] || '';
+      var da = Number(String(row[0] || '').replace(/,/g, '')) || 0, dp = row[1] || '';
+      crTot += ca; drTot += da;
+      setCell(wsL, rowL, 1, row[4] ? '\u2713' : '', { color: CR_C, align: 'center', border: true });
+      setCell(wsL, rowL, 2, ca || '', { bold: !!ca, color: ca ? CR_C : INK, align: 'right', border: true, numFmt: ca ? INT_FMT : undefined });
+      setCell(wsL, rowL, 3, cp, { align: 'left', border: true });
+      setCell(wsL, rowL, 4, row[5] ? '\u2713' : '', { color: DR_C, align: 'center', border: true });
+      setCell(wsL, rowL, 5, da || '', { bold: !!da, color: da ? DR_C : INK, align: 'right', border: true, numFmt: da ? INT_FMT : undefined });
+      setCell(wsL, rowL, 6, dp, { align: 'left', border: true });
+      rowL++;
+    });
+    setCell(wsL, rowL, 2, crTot, { bold: true, color: CR_C, align: 'right', total: true, numFmt: INT_FMT });
+    setCell(wsL, rowL, 3, 'TOTAL CREDIT', { bold: true, color: MUTE, align: 'left', total: true });
+    setCell(wsL, rowL, 5, drTot, { bold: true, color: DR_C, align: 'right', total: true, numFmt: INT_FMT });
+    setCell(wsL, rowL, 6, 'TOTAL DEBIT', { bold: true, color: MUTE, align: 'left', total: true });
+    rowL += 2;
   });
+  wsL.getColumn(1).width = 6; wsL.getColumn(2).width = 14; wsL.getColumn(3).width = 28;
+  wsL.getColumn(4).width = 6; wsL.getColumn(5).width = 14; wsL.getColumn(6).width = 28;
+
+  /* ─── SHEET 2: ACCOUNT ─── */
+  const wsA = wb.addWorksheet('Account');
+  var rowA = 1;
+  P.forEach(function (p) {
+    var pB = V.filter(function (v) { return v.party_id === p.id; });
+    if (!pB.length && !Number(p.opening)) return;
+    setCell(wsA, rowA, 1, p.name + (p.city ? '  \u2014  ' + p.city : ''), { title: true }); rowA++;
+    ['Date', 'Particulars', 'Debit', 'Credit', 'Balance'].forEach(function (h, i) {
+      setCell(wsA, rowA, i + 1, h, { header: true, color: MUTE, align: i >= 2 ? 'right' : 'left' });
+    }); rowA++;
+    var bal = (p.opening_side === 'dr' ? 1 : -1) * (Number(p.opening) || 0);
+    if (Number(p.opening)) {
+      setCell(wsA, rowA, 2, 'Balance brought forward', { color: MUTE, border: true });
+      setCell(wsA, rowA, 5, Math.abs(bal).toLocaleString('en-PK') + (bal > 0 ? ' Dr' : ' Cr'), { bold: true, align: 'right', border: true });
+      rowA++;
+    }
+    pB.forEach(function (v) {
+      var g = Number(v.grand_total) || 0, pd = Number(v.paid) || 0;
+      var dr = v.vtype === 'sale' ? g : 0, cr = v.vtype === 'purchase' ? g : 0;
+      bal += (v.vtype === 'sale' ? (g - pd) : -(g - pd));
+      var lns = (linesByV[v.id] || []).length;
+      setCell(wsA, rowA, 1, v.vdate || '', { border: true });
+      setCell(wsA, rowA, 2, (v.vtype === 'sale' ? 'Sale ' : 'Purchase ') + v.vno + ' \u2014 ' + (partyName[v.party_id] || '') + ' (' + lns + ' item' + (lns !== 1 ? 's' : '') + ')', { border: true });
+      setCell(wsA, rowA, 3, dr || '', { bold: !!dr, color: DR_C, align: 'right', border: true, numFmt: dr ? INT_FMT : undefined });
+      setCell(wsA, rowA, 4, cr || '', { bold: !!cr, color: CR_C, align: 'right', border: true, numFmt: cr ? INT_FMT : undefined });
+      setCell(wsA, rowA, 5, Math.abs(bal).toLocaleString('en-PK') + (bal > 0 ? ' Dr' : ' Cr'), { bold: true, color: bal > 0 ? DR_C : CR_C, align: 'right', border: true });
+      rowA++;
+    });
+    setCell(wsA, rowA, 2, 'Closing balance', { bold: true, total: true });
+    setCell(wsA, rowA, 5, Math.abs(bal).toLocaleString('en-PK') + (bal > 0 ? ' Dr' : ' Cr'), { bold: true, color: bal > 0 ? DR_C : CR_C, align: 'right', total: true });
+    rowA += 2;
+  });
+  wsA.getColumn(1).width = 12; wsA.getColumn(2).width = 40; wsA.getColumn(3).width = 14;
+  wsA.getColumn(4).width = 14; wsA.getColumn(5).width = 16;
+
+  /* ─── SHEET 3: BILLS ─── */
+  const wsB = wb.addWorksheet('Bills');
+  var rowB = 1;
+  V.forEach(function (v) {
+    var p = partyName[v.party_id] || '', f = firmName[v.company_id] || '';
+    var lines = (linesByV[v.id] || []).sort(function (a, b) { return (a.line_no || 0) - (b.line_no || 0); });
+    var typ = v.vtype === 'sale' ? 'Sales Invoice' : 'Purchase Bill';
+    setCell(wsB, rowB, 1, typ + ' \u00b7 ' + v.vno, { title: true });
+    setCell(wsB, rowB, 5, v.vdate || '', { color: MUTE, align: 'right' });
+    setCell(wsB, rowB, 6, f, { color: MUTE, align: 'right' }); rowB++;
+    setCell(wsB, rowB, 1, (v.vtype === 'sale' ? 'Sold To: ' : 'Bought From: ') + p, { bold: true }); rowB++;
+    ['#', 'Item', 'Unit', 'Qty', 'Rate', 'Amount'].forEach(function (h, i) {
+      setCell(wsB, rowB, i + 1, h, { header: true, align: i >= 3 ? 'right' : 'left' });
+    }); rowB++;
+    lines.forEach(function (l, idx) {
+      var qty = Number(l.qty) || 0, rate = Number(l.rate) || 0, amt = Number(l.amount) || (qty * rate);
+      setCell(wsB, rowB, 1, idx + 1, { color: MUTE, align: 'center', border: true });
+      setCell(wsB, rowB, 2, itemName[l.item_id] || '', { border: true });
+      setCell(wsB, rowB, 3, l.unit || '', { align: 'center', border: true });
+      setCell(wsB, rowB, 4, qty, { bold: true, align: 'right', border: true, numFmt: INT_FMT });
+      setCell(wsB, rowB, 5, rate, { align: 'right', border: true, numFmt: NUM_FMT });
+      setCell(wsB, rowB, 6, amt, { bold: true, align: 'right', border: true, numFmt: NUM_FMT });
+      rowB++;
+    });
+    var sub = Number(v.sub_total) || 0, disc = Number(v.discount) || 0, tax = Number(v.tax_total) || 0, grand = Number(v.grand_total) || 0, paid = Number(v.paid) || 0;
+    function tRow(lbl, val, col) {
+      setCell(wsB, rowB, 5, lbl, { bold: true, color: MUTE, align: 'right' });
+      setCell(wsB, rowB, 6, val, { bold: true, color: col || INK, align: 'right', numFmt: NUM_FMT });
+      rowB++;
+    }
+    tRow('Items total', sub); if (disc) tRow('Discount', disc); if (tax) tRow('Tax', tax);
+    setCell(wsB, rowB, 5, 'Total', { bold: true, total: true, align: 'right' });
+    setCell(wsB, rowB, 6, grand, { bold: true, total: true, align: 'right', numFmt: NUM_FMT }); rowB++;
+    if (paid) { tRow('Paid', paid, CR_C); tRow('Balance due', grand - paid, DR_C); }
+    rowB += 2;
+  });
+  wsB.getColumn(1).width = 4; wsB.getColumn(2).width = 28; wsB.getColumn(3).width = 8;
+  wsB.getColumn(4).width = 10; wsB.getColumn(5).width = 14; wsB.getColumn(6).width = 16;
+
+  /* ─── SHEETS 4-6: DATA (Parties / Items / Firms) — saaf, koi UUID nahi ─── */
+  function addPlain(name, headers, rows) {
+    const ws = wb.addWorksheet(name);
+    ws.columns = headers.map(function (h) { return { header: h, key: h, width: 16 }; });
+    ws.getRow(1).font = { bold: true };
+    rows.forEach(function (r) { ws.addRow(r); });
+  }
+  addPlain('Parties', ['Name', 'Type', 'Phone', 'City', 'Opening Amount', 'Opening Side', 'Notes', 'Active'],
+    P.map(function (p) { return { Name: p.name, Type: p.kind, Phone: p.phone, City: p.city, 'Opening Amount': Number(p.opening) || 0, 'Opening Side': (p.opening_side === 'dr' ? 'They owe us' : 'We owe them'), Notes: p.notes, Active: p.active === false ? 'No' : 'Yes' }; }));
+  addPlain('Items', ['Name', 'Unit', 'Sale Rate', 'Purchase Rate', 'Tax %', 'Opening Qty', 'Opening Rate', 'Low Stock Alert', 'HS Code', 'Notes', 'Active'],
+    I.map(function (i) { return { Name: i.name, Unit: i.unit, 'Sale Rate': Number(i.sale_rate) || 0, 'Purchase Rate': Number(i.buy_rate) || 0, 'Tax %': Number(i.tax_pct) || 0, 'Opening Qty': Number(i.opening_qty) || 0, 'Opening Rate': Number(i.opening_rate) || 0, 'Low Stock Alert': Number(i.reorder_level) || 0, 'HS Code': i.hs_code, Notes: i.notes, Active: i.active === false ? 'No' : 'Yes' }; }));
+  addPlain('Firms', ['Name', 'Address', 'City', 'Phone', 'NTN', 'STRN', 'Default', 'Active'],
+    C.map(function (c) { return { Name: c.name, Address: c.address, City: c.city, Phone: c.phone, NTN: c.ntn, STRN: c.strn, Default: c.is_default ? 'Yes' : 'No', Active: c.active === false ? 'No' : 'Yes' }; }));
 
   return wb.xlsx.writeBuffer();
 }
@@ -136,17 +211,13 @@ async function buildExcel(data) {
 async function sendEmail(buffer, filename) {
   const transporter = nodemailer.createTransport({
     service: 'gmail',
-    auth: {
-      user: process.env.GMAIL_USER,
-      pass: process.env.GMAIL_APP_PASSWORD
-    }
+    auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD }
   });
-
   await transporter.sendMail({
     from: process.env.GMAIL_USER,
     to: process.env.BACKUP_TO_EMAIL,
     subject: 'OHT Daily Backup — ' + new Date().toISOString().slice(0, 10),
-    text: 'Aaj ka poora OHT accounting data attached hai (Excel file). Ye backup roz khud-b-khud banti hai.',
+    text: 'Aaj ka poora OHT accounting data attached hai (Excel file, saaf/formatted). Ye backup roz khud-b-khud banti hai.',
     attachments: [{ filename: filename, content: buffer }]
   });
 }
