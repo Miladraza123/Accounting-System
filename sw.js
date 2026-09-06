@@ -7,7 +7,7 @@
    nahi. Version badhane ke liye sirf CACHE_VERSION number badlein.
    ═══════════════════════════════════════════════════════════════ */
 
-var CACHE_VERSION = 'oht-shell-v1';
+var CACHE_VERSION = 'oht-shell-v2';
 
 var SHELL_FILES = [
   './',
@@ -63,8 +63,13 @@ self.addEventListener('fetch', function (event) {
     // hamesha PEHLE INTERNET try karo — taake koi bhi naya deploy turant
     // milta rahe (bilkul jaisa Service Worker ke bina hota hai). Cache
     // sirf tab kaam aaye jab internet bilkul na ho.
+    // ZAROORI FIX: 'cache: no-store' zabardasti lagate hain — warna
+    // browser apna khud ka purana HTTP-cache de sakta hai, chahe hum
+    // "fetch se lao" bhi keh rahe hon (GitHub Pages ki caching-headers
+    // ki wajah se).
+    var freshRequest = new Request(event.request.url, { cache: 'no-store' });
     event.respondWith(
-      fetch(event.request).then(function (res) {
+      fetch(freshRequest).then(function (res) {
         if (res && res.ok) {
           var copy = res.clone();
           caches.open(CACHE_VERSION).then(function (cache) { cache.put(event.request, copy); });
