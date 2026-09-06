@@ -26,7 +26,7 @@ async function signIn() {
 }
 
 async function fetchAll() {
-  const tables = ['parties', 'items', 'companies', 'vouchers', 'voucher_lines', 'sheets'];
+  const tables = ['parties', 'items', 'companies', 'vouchers', 'voucher_lines', 'sheets', 'sales_returns'];
   const out = {};
   for (const t of tables) {
     const { data, error } = await sb.from(t).select('*');
@@ -70,6 +70,7 @@ async function buildExcel(data) {
   const V = (data.vouchers || []).filter(notDeleted).sort(function (a, b) { return (a.vdate || '') < (b.vdate || '') ? -1 : 1; });
   const L = (data.voucher_lines || []);
   const S = (data.sheets || []).filter(notDeleted).sort(function (a, b) { return (a.sheet_date || '') < (b.sheet_date || '') ? -1 : 1; });
+  const R = (data.sales_returns || []).filter(notDeleted);
 
   const partyName = {}; P.forEach(function (p) { partyName[p.id] = p.name; });
   const itemName = {}; I.forEach(function (i) { itemName[i.id] = i.name; });
@@ -122,7 +123,8 @@ async function buildExcel(data) {
   var rowA = 1;
   P.forEach(function (p) {
     var pB = V.filter(function (v) { return v.party_id === p.id; });
-    if (!pB.length && !Number(p.opening)) return;
+    var pR = R.filter(function (rr) { return rr.party_id === p.id; });
+    if (!pB.length && !pR.length && !Number(p.opening)) return;
     setCell(wsA, rowA, 1, p.name + (p.city ? '  \u2014  ' + p.city : ''), { title: true }); rowA++;
     ['Date', 'Particulars', 'Debit', 'Credit', 'Balance'].forEach(function (h, i) {
       setCell(wsA, rowA, i + 1, h, { header: true, color: MUTE, align: i >= 2 ? 'right' : 'left' });
@@ -133,15 +135,30 @@ async function buildExcel(data) {
       setCell(wsA, rowA, 5, Math.abs(bal).toLocaleString('en-PK') + (bal > 0 ? ' Dr' : ' Cr'), { bold: true, align: 'right', border: true });
       rowA++;
     }
-    pB.forEach(function (v) {
-      var g = Number(v.grand_total) || 0, pd = Number(v.paid) || 0;
-      var dr = v.vtype === 'sale' ? g : 0, cr = v.vtype === 'purchase' ? g : 0;
-      bal += (v.vtype === 'sale' ? (g - pd) : -(g - pd));
-      var lns = (linesByV[v.id] || []).length;
-      setCell(wsA, rowA, 1, v.vdate || '', { border: true });
-      setCell(wsA, rowA, 2, (v.vtype === 'sale' ? 'Sale ' : 'Purchase ') + v.vno + ' \u2014 ' + (partyName[v.party_id] || '') + ' (' + lns + ' item' + (lns !== 1 ? 's' : '') + ')', { border: true });
-      setCell(wsA, rowA, 3, dr || '', { bold: !!dr, color: DR_C, align: 'right', border: true, numFmt: dr ? INT_FMT : undefined });
-      setCell(wsA, rowA, 4, cr || '', { bold: !!cr, color: CR_C, align: 'right', border: true, numFmt: cr ? INT_FMT : undefined });
+    // Bills aur Returns dono ko ek hi timeline mein, tareekh ke hisaab se jama karte hain
+    var timeline = pB.map(function (v) { return { kind: 'voucher', date: v.vdate, rec: v }; })
+      .concat(pR.map(function (rr) { return { kind: 'return', date: rr.rdate, rec: rr }; }));
+    timeline.sort(function (a, b) { return (a.date || '') < (b.date || '') ? -1 : 1; });
+    timeline.forEach(function (item) {
+      if (item.kind === 'voucher') {
+        var v = item.rec;
+        var g = Number(v.grand_total) || 0, pd = Number(v.paid) || 0;
+        var dr = v.vtype === 'sale' ? g : 0, cr = v.vtype === 'purchase' ? g : 0;
+        bal += (v.vtype === 'sale' ? (g - pd) : -(g - pd));
+        var lns = (linesByV[v.id] || []).length;
+        setCell(wsA, rowA, 1, v.vdate || '', { border: true });
+        setCell(wsA, rowA, 2, (v.vtype === 'sale' ? 'Sale ' : 'Purchase ') + v.vno + ' \u2014 ' + (partyName[v.party_id] || '') + ' (' + lns + ' item' + (lns !== 1 ? 's' : '') + ')', { border: true });
+        setCell(wsA, rowA, 3, dr || '', { bold: !!dr, color: DR_C, align: 'right', border: true, numFmt: dr ? INT_FMT : undefined });
+        setCell(wsA, rowA, 4, cr || '', { bold: !!cr, color: CR_C, align: 'right', border: true, numFmt: cr ? INT_FMT : undefined });
+      } else {
+        // Sales Return: customer jitna wapas kare utna kam owe karta hai
+        var rr = item.rec, ramt = Number(rr.grand_total) || 0;
+        bal -= ramt;
+        setCell(wsA, rowA, 1, rr.rdate || '', { border: true });
+        setCell(wsA, rowA, 2, 'Sales Return ' + (rr.rno || '') + ' \u2014 ' + (partyName[rr.party_id] || ''), { border: true });
+        setCell(wsA, rowA, 3, '', { border: true });
+        setCell(wsA, rowA, 4, ramt, { bold: true, color: CR_C, align: 'right', border: true, numFmt: INT_FMT });
+      }
       setCell(wsA, rowA, 5, Math.abs(bal).toLocaleString('en-PK') + (bal > 0 ? ' Dr' : ' Cr'), { bold: true, color: bal > 0 ? DR_C : CR_C, align: 'right', border: true });
       rowA++;
     });
@@ -200,8 +217,23 @@ async function buildExcel(data) {
   }
   addPlain('Parties', ['Name', 'Type', 'Phone', 'City', 'Opening Amount', 'Opening Side', 'Notes', 'Active'],
     P.map(function (p) { return { Name: p.name, Type: p.kind, Phone: p.phone, City: p.city, 'Opening Amount': Number(p.opening) || 0, 'Opening Side': (p.opening_side === 'dr' ? 'They owe us' : 'We owe them'), Notes: p.notes, Active: p.active === false ? 'No' : 'Yes' }; }));
-  addPlain('Items', ['Name', 'Unit', 'Sale Rate', 'Purchase Rate', 'Tax %', 'Opening Qty', 'Opening Rate', 'Low Stock Alert', 'HS Code', 'Notes', 'Active'],
-    I.map(function (i) { return { Name: i.name, Unit: i.unit, 'Sale Rate': Number(i.sale_rate) || 0, 'Purchase Rate': Number(i.buy_rate) || 0, 'Tax %': Number(i.tax_pct) || 0, 'Opening Qty': Number(i.opening_qty) || 0, 'Opening Rate': Number(i.opening_rate) || 0, 'Low Stock Alert': Number(i.reorder_level) || 0, 'HS Code': i.hs_code, Notes: i.notes, Active: i.active === false ? 'No' : 'Yes' }; }));
+  /* Opening ke saath ABHI ka stock bhi — asal sawaal yehi hota hai ke aaj
+     kitna maal para hai. stock_qty aur avg_cost costing engine khud rakhta
+     hai: har purchase, sale, return aur adjustment par. */
+  addPlain('Items',
+    ['Name', 'Unit', 'Stock', 'Avg Cost', 'Stock Value', 'Sale Rate', 'Purchase Rate',
+     'Tax %', 'Opening Qty', 'Opening Rate', 'Low Stock Alert', 'HS Code', 'Notes', 'Active'],
+    I.map(function (i) {
+      var qty = Number(i.stock_qty) || 0, cost = Number(i.avg_cost) || 0;
+      return { Name: i.name, Unit: i.unit,
+               'Stock': qty, 'Avg Cost': cost, 'Stock Value': Math.round(qty * cost * 100) / 100,
+               'Sale Rate': Number(i.sale_rate) || 0, 'Purchase Rate': Number(i.buy_rate) || 0,
+               'Tax %': Number(i.tax_pct) || 0,
+               'Opening Qty': Number(i.opening_qty) || 0, 'Opening Rate': Number(i.opening_rate) || 0,
+               'Low Stock Alert': Number(i.reorder_level) || 0, 'HS Code': i.hs_code,
+               Notes: i.notes, Active: i.active === false ? 'No' : 'Yes' };
+    }));
+
   addPlain('Firms', ['Name', 'Address', 'City', 'Phone', 'NTN', 'STRN', 'Default', 'Active'],
     C.map(function (c) { return { Name: c.name, Address: c.address, City: c.city, Phone: c.phone, NTN: c.ntn, STRN: c.strn, Default: c.is_default ? 'Yes' : 'No', Active: c.active === false ? 'No' : 'Yes' }; }));
 
