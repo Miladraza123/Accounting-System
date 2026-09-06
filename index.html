@@ -103,6 +103,16 @@
   <div class="boot" id="boot"><div><div class="sp"></div>Opening…</div></div>
 </div>
 
+<div class="ask" id="installStepsModal">
+  <div class="box">
+    <h4>App Install Karein</h4>
+    <p id="installStepsBody">…</p>
+    <div class="acts">
+      <button class="btn" id="installStepsClose">Theek hai</button>
+    </div>
+  </div>
+</div>
+
 <div class="ask" id="ask">
   <div class="box">
     <h4>Sign out?</h4>
@@ -127,17 +137,8 @@
   ];
 
   /* ---------- PWA: Service Worker + Install + Update ---------- */
-  function dbg(msg) {
-    console.log('[OHT-DEBUG] ' + msg);
-    var d = document.createElement('div');
-    d.textContent = 'DBG: ' + msg;
-    d.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:#2A2620;color:#F5F1E6;padding:4px 8px;font-size:10px;z-index:9999;border-top:1px solid #444';
-    document.body.appendChild(d);
-  }
-  dbg('script start, sw-in-navigator=' + ('serviceWorker' in navigator));
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').then(function (reg) {
-      dbg('SW registered OK');
       // Naya SW "waiting" state mein aa jaye to banner dikhado — user ki
       // marzi se hi activate hoga, kabhi khud-ba-khud bill-likhte waqt reload nahi
       function showUpdateBannerIfWaiting() {
@@ -153,7 +154,7 @@
           }
         });
       });
-    }).catch(function (err) { dbg('SW FAILED: ' + err.message); });
+    }).catch(function () {});
 
     var refreshedOnce = false;
     navigator.serviceWorker.addEventListener('controllerchange', function () {
@@ -171,35 +172,53 @@
     $('updateBanner').style.display = 'none';
   });
 
-  // Install button — sirf tab dikhao jab browser ne mauka diya ho, aur
-  // agar app pehle se installed hai to kabhi mat dikhao
+  // ZAROORI: "Install" button ab HAMESHA dikhता hai (jab tak app pehle se
+  // installed na ho) — chahe browser 'beforeinstallprompt' de ya na de.
+  // Click par: agar Chrome/Edge ne mauka diya ho to seedha unka native
+  // install-popup; warna Safari/kisi aur browser ke liye khud ke
+  // instructions dikha dete hain — is tarah button "universal" hai.
   var deferredInstallPrompt = null;
   function alreadyInstalled() {
     return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
   }
-  dbg('alreadyInstalled=' + alreadyInstalled());
+  var ua = navigator.userAgent || '';
+  var isIOS = /iPhone|iPad|iPod/.test(ua);
+  var isSafari = /^((?!chrome|android|crios|fxios|edgios).)*safari/i.test(ua);
+  var isFirefox = /firefox|fxios/i.test(ua);
+
   if (!alreadyInstalled()) {
-    dbg('attaching beforeinstallprompt listener');
+    $('installBtn').style.display = '';
     window.addEventListener('beforeinstallprompt', function (e) {
-      dbg('beforeinstallprompt FIRED');
       e.preventDefault();
       deferredInstallPrompt = e;
-      $('installBtn').style.display = '';
     });
-    setTimeout(function () {
-      dbg(deferredInstallPrompt ? 'event WAS captured' : 'event NOT captured after 45s');
-    }, 45000);
   }
-  dbg('reached end of PWA setup block');
-  $('installBtn').addEventListener('click', function () {
-    if (!deferredInstallPrompt) return;
-    deferredInstallPrompt.prompt();
-    deferredInstallPrompt.userChoice.then(function () {
-      deferredInstallPrompt = null;
-      $('installBtn').style.display = 'none';
-    });
-  });
   window.addEventListener('appinstalled', function () { $('installBtn').style.display = 'none'; });
+
+  $('installBtn').addEventListener('click', function () {
+    if (deferredInstallPrompt) {
+      deferredInstallPrompt.prompt();
+      deferredInstallPrompt.userChoice.then(function () {
+        deferredInstallPrompt = null;
+        $('installBtn').style.display = 'none';
+      });
+      return;
+    }
+    // Native mauka nahi mila — khud ke instructions dikhao
+    var steps;
+    if (isIOS && isSafari) {
+      steps = 'Neeche <b>Share</b> button (\u2b06\ufe0f) dabayen, phir <b>"Add to Home Screen"</b> choose karein.';
+    } else if (isSafari) {
+      steps = 'Safari ke <b>File</b> menu se <b>"Add to Dock"</b> (ya "Add to Home Screen") choose karein.';
+    } else if (isFirefox) {
+      steps = 'Firefox is waqt install-button support nahi karta. Address-bar ka link copy kar ke Chrome/Edge mein khol kar install karein.';
+    } else {
+      steps = 'Browser ke <b>3-dots menu</b> (\u22ee) mein jaayen aur <b>"Install app"</b> ya <b>"Add to Home screen"</b> choose karein.';
+    }
+    $('installStepsBody').innerHTML = steps;
+    $('installStepsModal').classList.add('on');
+  });
+  $('installStepsClose').addEventListener('click', function () { $('installStepsModal').classList.remove('on'); });
 
   /* khud ko dekho — GitHub par nayi shakl aa gayi ho to foran badal jao.
      Sirf meta tag par bharosa nahi, browser use aksar nazarandaz karta hai. */
