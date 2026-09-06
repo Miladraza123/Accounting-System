@@ -127,9 +127,17 @@
   ];
 
   /* ---------- PWA: Service Worker + Install + Update ---------- */
+  function dbg(msg) {
+    console.log('[OHT-DEBUG] ' + msg);
+    var d = document.createElement('div');
+    d.textContent = 'DBG: ' + msg;
+    d.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:#2A2620;color:#F5F1E6;padding:4px 8px;font-size:10px;z-index:9999;border-top:1px solid #444';
+    document.body.appendChild(d);
+  }
+  dbg('script start, sw-in-navigator=' + ('serviceWorker' in navigator));
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').then(function (reg) {
-      console.log('[OHT-DEBUG] Service worker registered OK', reg);
+      dbg('SW registered OK');
       // Naya SW "waiting" state mein aa jaye to banner dikhado — user ki
       // marzi se hi activate hoga, kabhi khud-ba-khud bill-likhte waqt reload nahi
       function showUpdateBannerIfWaiting() {
@@ -145,7 +153,7 @@
           }
         });
       });
-    }).catch(function (err) { console.log('[OHT-DEBUG] Service worker FAILED:', err); });
+    }).catch(function (err) { dbg('SW FAILED: ' + err.message); });
 
     var refreshedOnce = false;
     navigator.serviceWorker.addEventListener('controllerchange', function () {
@@ -169,26 +177,20 @@
   function alreadyInstalled() {
     return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
   }
+  dbg('alreadyInstalled=' + alreadyInstalled());
   if (!alreadyInstalled()) {
+    dbg('attaching beforeinstallprompt listener');
     window.addEventListener('beforeinstallprompt', function (e) {
+      dbg('beforeinstallprompt FIRED');
       e.preventDefault();
       deferredInstallPrompt = e;
       $('installBtn').style.display = '';
     });
-    // MUQAT (temporary) DEBUG — 6 second baad bata dega ke event mili ya nahi.
-    // Confirm hone ke baad ye hata dunga.
     setTimeout(function () {
-      if (!deferredInstallPrompt) {
-        console.log('[OHT-DEBUG] beforeinstallprompt 6 second mein nahi mili');
-        var d = document.createElement('div');
-        d.textContent = 'DEBUG: beforeinstallprompt event nahi mili (6s)';
-        d.style.cssText = 'position:fixed;bottom:60px;left:8px;right:8px;background:#B0603A;color:#fff;padding:8px;border-radius:6px;font-size:11px;z-index:999';
-        document.body.appendChild(d);
-      } else {
-        console.log('[OHT-DEBUG] beforeinstallprompt mil gayi!');
-      }
+      dbg(deferredInstallPrompt ? 'event WAS captured' : 'event NOT captured after 6s');
     }, 6000);
   }
+  dbg('reached end of PWA setup block');
   $('installBtn').addEventListener('click', function () {
     if (!deferredInstallPrompt) return;
     deferredInstallPrompt.prompt();
