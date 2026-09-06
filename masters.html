@@ -1681,10 +1681,12 @@
 
   function n(v) { var x = parseFloat(String(v == null ? '' : v).replace(/[^0-9.\-]/g, '')); return isFinite(x) ? x : 0; }
   function today() {
-    // Karachi (PKT, UTC+5) time use karte hain — device ki apni timezone se koi
-    // farq nahi padta, chahe staff ka phone kisi bhi zone par set ho
-    var d = new Date(Date.now() + 5 * 60 * 60000);
-    return d.toISOString().slice(0, 10);
+    // Hamesha Karachi ka waqt — device ki apni timezone se koi farq nahi
+    // padta. Pehle UTC+5 ka pakka hisaab tha; nateeja wahi tha, magar agar
+    // kabhi daylight saving aa gayi to yeh khud sambhal lega.
+    var pk = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Karachi' }));
+    return pk.getFullYear() + '-' + String(pk.getMonth() + 1).padStart(2, '0') +
+           '-' + String(pk.getDate()).padStart(2, '0');
   }
   function r2(v) { return Math.round((Number(v) || 0) * 100) / 100; }
   function money(v) { return (Number(v) || 0).toLocaleString('en-PK', { minimumFractionDigits:2, maximumFractionDigits:2 }); }
@@ -2049,13 +2051,11 @@
 
   /* ---- tareekh se chhaanna ---- */
   function rangeBounds(kind) {
-    // ZAROORI: purana tareeqa device ki local-timezone se "aaj" nikalta tha,
-    // phir device ki hi timezone-offset se wapas format karta tha — dono
-    // jagah galti ho sakti thi agar phone Karachi se alag zone par ho. Ab
-    // pura hisaab UTC methods se, Karachi-anchored "aaj" (jaisa today()) se
-    // karte hain — kisi bhi device par hamesha sahi.
-    var pk = new Date(Date.now() + 5 * 60 * 60000);
-    var y = pk.getUTCFullYear(), m = pk.getUTCMonth();
+    // "Aaj" hamesha Karachi ke waqt se nikalta hai — device kisi bhi zone par
+    // ho, farq nahi padta. Age ka hisaab UTC methods se, taake mahine ki
+    // hadd (pehli/aakhri tareekh) kabhi ek din aage peeche na ho.
+    var pk = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Karachi' }));
+    var y = pk.getFullYear(), m = pk.getMonth();
     function mk(yy, mm, dd) { return new Date(Date.UTC(yy, mm, dd)); }
     function iso(dt) {
       return dt.getUTCFullYear() + '-' + String(dt.getUTCMonth() + 1).padStart(2, '0') + '-' + String(dt.getUTCDate()).padStart(2, '0');
@@ -2855,10 +2855,15 @@
     var isNew = !(editing && editing.id);
     var recId = isNew ? uuid() : editing.id;
     var label = body.name;
-    var priorRow = isNew ? null : editing;
+    /* Editor server se pehle band ho jata hai (local-first), aur closeEditor()
+       `editing` ko null kar deta hai. Is liye "badalne se pehle row aisi thi"
+       wala snapshot YAHIN mehfooz karna zaroori hai — warna merge ko null
+       milta tha aur wo har badle hue field par conflict de deta tha. */
+    var priorRow = isNew ? null : JSON.parse(JSON.stringify(editing));
+    var priorVersion = isNew ? null : (editing.version || 1);
 
     // Local-first: turant screen par dikhado, editor band karo — internet ka wait nahi
-    var optimisticRow = Object.assign({}, priorRow || {}, body, { id:recId, version:isNew ? 1 : (editing.version || 1) });
+    var optimisticRow = Object.assign({}, priorRow || {}, body, { id:recId, version:isNew ? 1 : priorVersion });
     if (isNew) db[tab].push(optimisticRow);
     else db[tab] = db[tab].map(function (r) { return r.id === recId ? optimisticRow : r; });
     cacheSave(tab, db[tab]);
@@ -2869,18 +2874,23 @@
 
     if (!navigator.onLine) {
       offQAdd({ opId:uuid(), table:tab, op:isNew ? 'insert' : 'update', recordId:recId,
-                baseVersion:isNew ? null : (editing.version || 1),
-                original:isNew ? null : editing,
+                baseVersion:priorVersion,
+                original:priorRow,
                 payload:isNew ? Object.assign({ id:recId }, body) : body, label:label });
       syncNote('Offline \u2014 save queued', '#B08A3E');
       return;
     }
 
     syncNote('Saving…');
+    var retried = false;
+    function runMerge(original) {
+      return sb.rpc('smart_merge_update',
+        { p_table:tab, p_id:recId, p_original:original, p_new:body });
+    }
     var q = isNew
       ? sb.from(tab).insert(Object.assign({ id:recId }, body)).select()
-      : sb.rpc('smart_merge_update', { p_table:tab, p_id:recId, p_original:editing, p_new:body });
-    q.then(function (res) {
+      : runMerge(priorRow);
+    q.then(function handleRes(res) {
       if (res.error) throw res.error;
       if (isNew) {
         var row0 = (res.data || [])[0];
@@ -2891,7 +2901,17 @@
       }
       var result = res.data;   // smart_merge_update ka jawab: {status, row} ya {status:'conflict', fields, current}
       if (result.status === 'conflict') {
-        toast('"' + label + '" mein "' + result.fields.join(', ') + '" kisi aur ne bhi isi waqt badla \u2014 taaza dekh kar dobara karein', true);
+        /* Database conflict ke saath TAAZA row bhi bhejta hai. Editor to band
+           ho chuka hota hai, is liye user se "dobara Save dabayein" kehna
+           bemaani hai — system khud taaza baseline le kar ek dafa dobara
+           koshish karta hai. Jo fields user ne badle wo lag jate hain; jo
+           nahi chhue un par doosre ki tabdeeli bachi rehti hai. */
+        if (!retried && result.current) {
+          retried = true;
+          return runMerge(result.current).then(handleRes);
+        }
+        toast('"' + label + '" kisi aur ne bhi isi waqt badla (' + result.fields.join(', ') +
+              ') \u2014 aapki wo tabdeeli chhoot gayi, taaza dekh kar dobara karein', true);
         loadAll();
         return;
       }
@@ -2917,8 +2937,8 @@
     }).catch(function (e) {
       if (isNetErr(e)) {
         offQAdd({ opId:uuid(), table:tab, op:isNew ? 'insert' : 'update', recordId:recId,
-                  baseVersion:isNew ? null : (editing.version || 1),
-                  original:isNew ? null : editing,
+                  baseVersion:priorVersion,
+                  original:priorRow,
                   payload:isNew ? Object.assign({ id:recId }, body) : body, label:label });
         syncNote('Offline \u2014 save queued', '#B08A3E');
       } else {
@@ -3944,7 +3964,8 @@
       sb.from('companies').select('*').is('deleted_at', null),
       sb.from('vouchers').select('*').is('deleted_at', null).order('vdate', { ascending: true }),
       sb.from('voucher_lines').select('*'),
-      sb.from('sheets').select('*').order('sheet_date', { ascending: true })
+      sb.from('sheets').select('*').order('sheet_date', { ascending: true }),
+      sb.from('sales_returns').select('*').is('deleted_at', null)
     ]).then(function (r) {
       var P = r[1].error ? [] : (r[1].data || []);
       var I = r[2].error ? [] : (r[2].data || []);
@@ -3952,6 +3973,7 @@
       var V = r[4].error ? [] : (r[4].data || []);
       var L = r[5].error ? [] : (r[5].data || []);
       var S = r[6].error ? [] : (r[6].data || []);
+      var R = r[7] && !r[7].error ? (r[7].data || []) : [];
 
       var partyName = {}; P.forEach(function (p) { partyName[p.id] = p.name; });
       var itemName  = {}; I.forEach(function (i) { itemName[i.id]  = i.name; });
@@ -4026,7 +4048,8 @@
       var AC=['A','B','C','D','E'];
       P.forEach(function(p){
         var pB=V.filter(function(v){ return v.party_id===p.id; });
-        if(!pB.length && !Number(p.opening)) return;
+        var pR=R.filter(function(rr){ return rr.party_id===p.id; });
+        if(!pB.length && !pR.length && !Number(p.opening)) return;
         wsA['A'+rowA]={v:p.name+(p.city?'  —  '+p.city:''),t:'s',s:titleStyle()}; rowA++;
         ['Date','Particulars','Debit','Credit','Balance'].forEach(function(h,i){
           wsA[AC[i]+rowA]={v:h,t:'s',s:Object.assign(hdrStyle(PANEL,MUTE),{alignment:{horizontal:i>=2?'right':'left'}})};
@@ -4037,16 +4060,30 @@
           wsA['C'+rowA]={v:'',t:'s',s:cellStyle(false,DR_C,'right',true)}; wsA['D'+rowA]={v:'',t:'s',s:cellStyle(false,CR_C,'right',true)};
           wsA['E'+rowA]={v:Math.abs(bal).toLocaleString('en-PK')+(bal>0?' Dr':' Cr'),t:'s',s:cellStyle(true,INK,'right',true)}; rowA++;
         }
-        pB.sort(function(a,b){return (a.vdate||'')<(b.vdate||'')?-1:1;});
-        pB.forEach(function(v){
-          var g=Number(v.grand_total)||0, pd=Number(v.paid)||0;
-          var dr=v.vtype==='sale'?g:0, cr=v.vtype==='purchase'?g:0;
-          bal+=(v.vtype==='sale'?(g-pd):-(g-pd));
-          var lns=(linesByV[v.id]||[]).length;
-          wsA['A'+rowA]={v:v.vdate||'',t:'s',s:cellStyle(false,INK,'left',true)};
-          wsA['B'+rowA]={v:(v.vtype==='sale'?'Sale ':'Purchase ')+v.vno+' — '+(partyName[v.party_id]||'')+' ('+lns+' item'+(lns!==1?'s':'')+')',t:'s',s:cellStyle(false,INK,'left',true)};
-          wsA['C'+rowA]=dr?Object.assign(intFmt(dr),{s:cellStyle(true,DR_C,'right',true)}):{v:'',t:'s',s:cellStyle(false,INK,'right',true)};
-          wsA['D'+rowA]=cr?Object.assign(intFmt(cr),{s:cellStyle(true,CR_C,'right',true)}):{v:'',t:'s',s:cellStyle(false,INK,'right',true)};
+        // Bills aur Returns dono ko ek hi timeline mein, tareekh ke hisaab se jama karte hain
+        var timeline = pB.map(function(v){ return { kind:'voucher', date:v.vdate, rec:v }; })
+          .concat(pR.map(function(rr){ return { kind:'return', date:rr.rdate, rec:rr }; }));
+        timeline.sort(function(a,b){return (a.date||'')<(b.date||'')?-1:1;});
+        timeline.forEach(function(item){
+          if (item.kind === 'voucher') {
+            var v=item.rec;
+            var g=Number(v.grand_total)||0, pd=Number(v.paid)||0;
+            var dr=v.vtype==='sale'?g:0, cr=v.vtype==='purchase'?g:0;
+            bal+=(v.vtype==='sale'?(g-pd):-(g-pd));
+            var lns=(linesByV[v.id]||[]).length;
+            wsA['A'+rowA]={v:v.vdate||'',t:'s',s:cellStyle(false,INK,'left',true)};
+            wsA['B'+rowA]={v:(v.vtype==='sale'?'Sale ':'Purchase ')+v.vno+' — '+(partyName[v.party_id]||'')+' ('+lns+' item'+(lns!==1?'s':'')+')',t:'s',s:cellStyle(false,INK,'left',true)};
+            wsA['C'+rowA]=dr?Object.assign(intFmt(dr),{s:cellStyle(true,DR_C,'right',true)}):{v:'',t:'s',s:cellStyle(false,INK,'right',true)};
+            wsA['D'+rowA]=cr?Object.assign(intFmt(cr),{s:cellStyle(true,CR_C,'right',true)}):{v:'',t:'s',s:cellStyle(false,INK,'right',true)};
+          } else {
+            // Sales Return: customer jitna wapas kare utna kam owe karta hai
+            var rr=item.rec, ramt=Number(rr.grand_total)||0;
+            bal -= ramt;
+            wsA['A'+rowA]={v:rr.rdate||'',t:'s',s:cellStyle(false,INK,'left',true)};
+            wsA['B'+rowA]={v:'Sales Return '+(rr.rno||'')+' — '+(partyName[rr.party_id]||''),t:'s',s:cellStyle(false,INK,'left',true)};
+            wsA['C'+rowA]={v:'',t:'s',s:cellStyle(false,INK,'right',true)};
+            wsA['D'+rowA]=Object.assign(intFmt(ramt),{s:cellStyle(true,CR_C,'right',true)});
+          }
           wsA['E'+rowA]={v:Math.abs(bal).toLocaleString('en-PK')+(bal>0?' Dr':' Cr'),t:'s',s:cellStyle(true,bal>0?DR_C:CR_C,'right',true)}; rowA++;
         });
         wsA['B'+rowA]={v:'Closing balance',t:'s',s:Object.assign(totalStyle(INK),{alignment:{horizontal:'left'}})};
