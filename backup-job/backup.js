@@ -67,7 +67,8 @@ async function signIn() {
 }
 
 async function fetchAll() {
-  const tables = ['parties', 'items', 'companies', 'vouchers', 'voucher_lines', 'sheets', 'sales_returns'];
+  // Restore ke liye HAR table chahiye — warna file se system wapas nahi aata
+  const tables = RESTORE_ORDER;
   const out = {};
   for (const t of tables) {
     const { data, error } = await sb.from(t).select('*');
@@ -281,7 +282,40 @@ async function buildExcel(data) {
   return wb.xlsx.writeBuffer();
 }
 
-async function sendEmail(buffer, filename) {
+/* ============================================================
+   RESTORE KE LIYE
+   Excel insaan ke padhne ke liye hai — us mein na ID hoti hai, na
+   rishtay. Us se system wapas nahi aa sakta. Is liye saath mein yeh
+   JSON bhi jati hai: har table poori, apni ID aur rishton ke saath,
+   bilkul waisi jaisi database mein hai.
+   ============================================================ */
+function buildRestoreJson(data) {
+  return Buffer.from(JSON.stringify({
+    format: 'oht-restore',
+    version: 1,
+    taken_at: new Date().toISOString(),
+    taken_at_karachi: takenAtText(),
+    data_date: dataDate(),
+    // Tarteeb ahem hai — restore isi tarteeb se daalta hai, taake
+    // jis cheez par koi doosri cheez khadi hai wo pehle mojood ho.
+    order: RESTORE_ORDER,
+    tables: data
+  }), 'utf8');
+}
+
+/* Pehle wo tables jin par baqi khadi hain, phir un par khadi hui cheezein */
+const RESTORE_ORDER = [
+  'app_settings', 'period_lock',
+  'warehouses', 'companies', 'parties', 'party_kinds', 'items',
+  'vouchers', 'voucher_lines',
+  'sales_returns', 'sales_return_lines',
+  'quotations', 'quotation_lines',
+  'purchase_orders', 'po_lines',
+  'stock_transfers', 'stock_transfer_lines', 'stock_adjustments',
+  'sheets'
+];
+
+async function sendEmail(buffer, filename, jsonBuffer, jsonName) {
   const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD }
@@ -292,9 +326,15 @@ async function sendEmail(buffer, filename) {
     subject: 'OHT Daily Backup — ' + dataDate(),
     text: 'Backup liya gaya: ' + takenAtText() + '\n' +
           'Data is tareekh tak ka: ' + dataDate() + '\n\n' +
-          'Poora OHT accounting data attached hai (Excel file, saaf/formatted).\n' +
+          'Do file hain:\n' +
+          '\u2022 ' + filename + ' \u2014 padhne ke liye (Excel)\n' +
+          '\u2022 ' + jsonName + ' \u2014 system wapas laane ke liye. Isay kholne ki zaroorat nahi, ' +
+          'bas mehfooz rakhein. Zaroorat pade to Masters \u2192 Restore se yehi file daali jati hai.\n\n' +
           'Ye backup roz khud-b-khud banti hai.',
-    attachments: [{ filename: filename, content: buffer }]
+    attachments: [
+      { filename: filename, content: buffer },
+      { filename: jsonName, content: jsonBuffer }
+    ]
   });
 }
 
@@ -305,8 +345,12 @@ async function main() {
   const buffer = await buildExcel(data);
   const stamp = dataDate();                    // jis din ka data hai
   const filename = 'OHT-Backup-' + stamp + '.xlsx';
-  await sendEmail(buffer, filename);
-  console.log('Backup emailed: ' + filename);
+  const jsonName = 'OHT-Restore-' + stamp + '.json';
+  const jsonBuffer = buildRestoreJson(data);
+  await sendEmail(buffer, filename, jsonBuffer, jsonName);
+  console.log('Liya gaya: ' + takenAtText() + ' | data ' + stamp);
+  console.log('Backup emailed: ' + filename + ' + ' + jsonName +
+              ' (' + Math.round(jsonBuffer.length / 1024) + ' KB)');
 }
 
 main().catch(function (e) {
