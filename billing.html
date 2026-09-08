@@ -125,6 +125,8 @@
   .brow .amt .tag { display:block; font-family:'IBM Plex Sans',sans-serif; font-size:9.5px;
                     font-weight:600; letter-spacing:.7px; margin-top:1px; }
   .amt.due .tag { color:var(--debit); } .amt.clr .tag { color:var(--credit); }
+  .dicon.due { background:var(--debit-bg, #FBEFEF); color:var(--debit); }
+
   .loadmore { display:block; width:100%; padding:13px; margin:10px 0 4px; border:1px solid var(--line);
               border-radius:10px; background:none; font-size:14px; font-weight:600; color:var(--ink); }
   .loadmore span { display:block; font-size:12px; font-weight:400; color:var(--mute); margin-top:2px; }
@@ -368,6 +370,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3.2"/><path d="M12 4v2M12 18v2M4 12h2M18 12h2M6.3 6.3l1.5 1.5M16.2 16.2l1.5 1.5M6.3 17.7l1.5-1.5M16.2 7.8l1.5-1.5"/></svg>
         Service invoice<span class="n" id="nSvc"></span>
       </button>
+      <button class="sb-item" data-t="recurring">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.3-6.4M21 12a9 9 0 0 1-15.3 6.4"/><path d="M18 3v5h-5M6 21v-5h5"/></svg>
+        Recurring<span class="n" id="nRec"></span>
+      </button>
       <button class="sb-item" data-t="return">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 15l-4-4 4-4"/><path d="M5 11h9a5 5 0 015 5v1"/></svg>
         Sales return<span class="n" id="nRet"></span>
@@ -457,7 +463,7 @@
   var quotes = [], pos = [];   // Quotations aur Purchase Orders — alag arrays, vouchers/balance se koi taluq nahi
   var returns = [];   // Sales Returns — asal financial impact hai, is liye alag nahi (ledger/stock mein shamil)
   var parties = [], items = [], bills = [], firms = [], warehouses = [], transfers = [],
-      itemUnits = [], services = [], svcInvoices = [], lineSeq = 0;
+      itemUnits = [], services = [], svcInvoices = [], recurTemplates = [], lineSeq = 0;
 
   /* Ek dafa mein kitne bill. Har qism ka apna hissa — warna jis qism ke
      bill naye hote wohi poori hadd bhar leta aur doosri tab khali lagti. */
@@ -706,6 +712,7 @@
     if (vtype === 'return') { renderReturns(); return; }
     if (vtype === 'transfer') { renderTransfers(); return; }
     if (vtype === 'service')  { renderServiceInvoices(); return; }
+    if (vtype === 'recurring'){ renderRecurring(); return; }
     var q = norm($('q').value);
     var list = bills.filter(function (b) { return b.vtype === vtype; });
     if (q) list = list.filter(function (b) {
@@ -2294,6 +2301,408 @@
     box.innerHTML = html;
   }
 
+  /* ============================================================
+     RECURRING SERVICE TEMPLATES
+
+     Yeh sirf ek KHAKA hai. Is se jo invoice banti hai wo poori tarah
+     AZAD hoti hai \u2014 us ka rate, description, period, due date sab
+     baad mein badla ja sakta hai, aur template badalne se wo NAHI
+     badalti. Purani history mehfooz rehti hai.
+
+     Invoice khud ba khud NAHI banti. next_date aa jaye to system yaad
+     dilata hai; user dabata hai tab banti hai. Is tarah ghalat invoice
+     ban jane ka khatra nahi rehta.
+     ============================================================ */
+
+  var FREQ = [
+    ['monthly',       'Har mahine'],
+    ['quarterly',     'Har teen mahine'],
+    ['half_yearly',   'Har chhe mahine'],
+    ['yearly',        'Har saal'],
+    ['custom_months', 'Har N mahine'],
+    ['custom_days',   'Har N din']
+  ];
+  function freqLabel(k, n) {
+    var f = FREQ.filter(function (x) { return x[0] === k; })[0];
+    var t = f ? f[1] : k;
+    return t.replace('N', n || 1);
+  }
+
+  /* Frequency ke hisaab se agli tareekh. Mahine ki hadd khud sambhalta
+     hai \u2014 31 January + 1 mahina = 28/29 February. */
+  function nextRecurDate(from, freq, n) {
+    if (!from) return null;
+    var d = new Date(from + 'T00:00:00');
+    var add = { monthly:1, quarterly:3, half_yearly:6, yearly:12 }[freq];
+    if (freq === 'custom_months') add = Math.max(1, num(n) || 1);
+    if (freq === 'custom_days') {
+      d.setDate(d.getDate() + Math.max(1, num(n) || 1));
+      return d.toISOString().slice(0, 10);
+    }
+    if (!add) add = 1;
+    var day = d.getDate();
+    d.setDate(1);
+    d.setMonth(d.getMonth() + add);
+    var last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    d.setDate(Math.min(day, last));
+    return d.toISOString().slice(0, 10);
+  }
+
+  function recurDue(t) {
+    return t.next_date && t.next_date <= today();
+  }
+
+  function renderRecurring() {
+    var q = norm($('q').value);
+    var list = recurTemplates.slice();
+    if (q) list = list.filter(function (t) {
+      var p = partyById(t.party_id), sv = serviceById(t.service_id);
+      return (norm(p && p.name) + ' ' + norm(sv && sv.name) + ' ' + norm(t.description)).indexOf(q) !== -1;
+    });
+    // jin ki tareekh aa gayi wo upar
+    list.sort(function (a, b) {
+      var da = recurDue(a) && a.active, db = recurDue(b) && b.active;
+      if (da !== db) return da ? -1 : 1;
+      return (a.next_date || '9999') < (b.next_date || '9999') ? -1 : 1;
+    });
+
+    var dueCount = recurTemplates.filter(function (t) { return t.active && recurDue(t); }).length;
+    $('nRec').textContent = recurTemplates.length
+      ? '(' + recurTemplates.length + (dueCount ? ' \u00b7 ' + dueCount + ' due' : '') + ')' : '';
+    $('searchWrap').classList.toggle('has', !!$('q').value);
+
+    var box = $('rows');
+    if (!list.length) {
+      box.innerHTML = '<div class="empty">' + (q
+        ? '<div class="big">Nothing matched \u201c' + esc($('q').value) + '\u201d</div>'
+        : '<div class="big">Koi recurring nahi</div><div class="sm">Jo charges har mahine ya ' +
+          'har saal lagte hain, un ka khaka yahan bana lein. Tareekh aane par system yaad ' +
+          'dila dega \u2014 invoice aap ke dabane par banegi, khud nahi.</div>') + '</div>';
+      return;
+    }
+
+    var html = '';
+    list.forEach(function (t) {
+      var p = partyById(t.party_id), sv = serviceById(t.service_id);
+      var amt = round2(num(t.qty) * num(t.rate) - num(t.discount));
+      var due = t.active && recurDue(t);
+      html += '<div class="brow" data-rec="' + t.id + '" tabindex="0" role="button">' +
+        '<div class="dicon' + (due ? ' due' : '') + '"><svg viewBox="0 0 24 24" fill="none" ' +
+          'stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 12a9 9 0 0 1 ' +
+          '15.3-6.4M21 12a9 9 0 0 1-15.3 6.4"/><path d="M18 3v5h-5M6 21v-5h5"/></svg></div>' +
+        '<div class="mid"><div class="nm">' + esc(p ? p.name : 'No party') + '</div>' +
+        '<div class="sub">' + esc(sv ? sv.name : '') +
+          ' \u00b7 ' + esc(freqLabel(t.frequency, t.interval_n)) +
+          (t.active ? '' : ' \u00b7 PAUSED') + '</div></div>' +
+        '<div class="amt ' + (due ? 'due' : 'clr') + '">' + money(amt) +
+        '<span class="tag">' + (!t.active ? 'PAUSED'
+          : due ? 'AB BANAYEIN' : esc(human(t.next_date))) + '</span></div></div>';
+    });
+    box.innerHTML = html;
+
+    box.querySelectorAll('[data-rec]').forEach(function (row) {
+      row.addEventListener('click', function () { openRecurring(row.getAttribute('data-rec')); });
+    });
+  }
+
+  function openRecurring(id) {
+    var rec = id ? recurTemplates.filter(function (t) { return t.id === id; })[0] : null;
+    bill = rec ? JSON.parse(JSON.stringify(rec)) : {
+      id:null, party_id:null, service_id:null,
+      company_id:(firms.filter(function (f) { return f.is_default; })[0] || firms[0] || {}).id || null,
+      description:'', qty:1, rate:'', discount:0, tax_pct:0, tax_on:false,
+      frequency:'monthly', interval_n:1, start_date:today(), next_date:today(),
+      due_days:'', active:true, notes:'', version:1
+    };
+    bill.isRecurring = true;
+    originalHeadSnapshot = rec ? JSON.parse(JSON.stringify(rec)) : null;
+    dirty = false;
+
+    $('edTitle').textContent = (rec ? 'Edit ' : 'New ') + 'Recurring service';
+    $('edDel').style.display  = (rec && can('bill_delete')) ? '' : 'none';
+    $('edSave').style.display = can(rec ? 'bill_edit' : 'bill_create') ? '' : 'none';
+    $('edSave').textContent = 'Save';
+    drawRecurEditor();
+    $('edBody').scrollTop = 0;
+    $('ed').classList.add('on');
+  }
+
+  function drawRecurEditor() {
+    var b = bill, p = partyById(b.party_id), sv = serviceById(b.service_id);
+    var amt = round2(num(b.qty) * num(b.rate) - num(b.discount));
+    var due = b.active && recurDue(b);
+
+    var h = '<div class="card"><div class="ttl">Kis ka, kaunsi service</div>' +
+      '<div class="f"><label>Customer</label>' + pickBox('rcParty', p ? p.name : '', 'Customer ka naam') + '</div>' +
+      '<div class="f"><label>Service</label>' + pickBox('rcSvc', sv ? sv.name : '', 'Kaunsi service?') + '</div>' +
+      (firms.length > 1
+        ? '<div class="f"><label>Firm</label><select id="rcFirm">' +
+          firms.map(function (f) {
+            return '<option value="' + esc(f.id) + '"' +
+                   (f.id === b.company_id ? ' selected' : '') + '>' + esc(f.name) + '</option>';
+          }).join('') + '</select></div>' : '') +
+      '<div class="f"><label>Description</label>' +
+        '<input id="rcDesc" type="text" value="' + esc(b.description || '') +
+        '" placeholder="Har invoice par yeh matn aayega"></div></div>';
+
+    h += '<div class="card"><div class="ttl">Rate</div>' +
+      '<div class="qr">' +
+        '<div class="f num"><label>Qty</label><input id="rcQty" type="text" inputmode="decimal" value="' +
+          (num(b.qty) ? fmt(b.qty) : '') + '" placeholder="1"></div>' +
+        '<div class="f num"><label>Rate</label><input id="rcRate" type="text" inputmode="decimal" value="' +
+          (num(b.rate) ? fmt(b.rate) : '') + '" placeholder="0"></div>' +
+        '<div class="tot" id="rcAmt">' + (amt ? money(amt) : '\u2014') + '</div>' +
+      '</div>' +
+      '<div class="f2">' +
+        '<div class="f num"><label>Discount</label><input id="rcDisc" type="text" inputmode="decimal" value="' +
+          (num(b.discount) ? fmt(b.discount) : '') + '" placeholder="0"></div>' +
+        '<div class="f num"><label>Tax %</label><input id="rcTax" type="text" inputmode="decimal" value="' +
+          (num(b.tax_pct) ? fmt(b.tax_pct) : '') + '" placeholder="0"></div>' +
+      '</div>' +
+      '<div class="swrow"><div class="lbl">Invoice par tax lagaye</div>' +
+        '<button class="sw' + (b.tax_on ? ' on' : '') + '" id="rcTaxOn" role="switch" ' +
+        'aria-checked="' + (b.tax_on ? 'true' : 'false') + '"></button></div>' +
+      '<div class="f"><div class="hint">Yeh sirf SHURUATI values hain. Jo invoice bane us par ' +
+        'rate, discount aur description sab badle ja sakte hain \u2014 aur badalne se yeh khaka ' +
+        'nahi badalta.</div></div></div>';
+
+    h += '<div class="card"><div class="ttl">Kab kab</div>' +
+      '<div class="f"><label>Kitni der baad</label><select id="rcFreq">' +
+        FREQ.map(function (x) {
+          return '<option value="' + x[0] + '"' + (b.frequency === x[0] ? ' selected' : '') +
+                 '>' + x[1].replace('N', 'N') + '</option>';
+        }).join('') + '</select></div>' +
+      (b.frequency === 'custom_months' || b.frequency === 'custom_days'
+        ? '<div class="f num"><label>Kitne ' + (b.frequency === 'custom_days' ? 'din' : 'mahine') +
+          '</label><input id="rcN" type="text" inputmode="numeric" value="' +
+          esc(b.interval_n || 1) + '"></div>' : '') +
+      '<div class="f2">' +
+        '<div class="f"><label>Shuru se</label><input id="rcStart" type="date" value="' +
+          esc(b.start_date || '') + '"></div>' +
+        '<div class="f"><label>Agli invoice</label><input id="rcNext" type="date" value="' +
+          esc(b.next_date || '') + '"></div>' +
+      '</div>' +
+      '<div class="f num"><label>Due days</label><input id="rcDue" type="text" inputmode="numeric" value="' +
+        esc(b.due_days === null || b.due_days === undefined ? '' : b.due_days) + '" placeholder="party ke credit days">' +
+        '<div class="hint">Khali chhorein to customer ke apne credit days lagenge.</div></div>' +
+      '<div class="swrow"><div class="lbl">Chalu</div>' +
+        '<button class="sw' + (b.active ? ' on' : '') + '" id="rcActive" role="switch" ' +
+        'aria-checked="' + (b.active ? 'true' : 'false') + '"></button></div>' +
+      (b.last_made_on ? '<div class="f"><div class="hint">Pichli invoice: ' +
+        esc(human(b.last_made_on)) + '</div></div>' : '') + '</div>';
+
+    if (b.id && due) {
+      h += '<div class="card"><div class="ttl">Ab banayein</div>' +
+        '<div class="f"><div class="hint">Is khake ki tareekh aa chuki hai (' +
+          esc(human(b.next_date)) + '). Invoice banate hi wo poori tarah azad ho jayegi \u2014 ' +
+          'us mein sab kuch badla ja sakta hai.</div></div>' +
+        '<button class="btn primary" id="rcMake" type="button" style="width:100%">' +
+        'Is khake se invoice banayein</button></div>';
+    }
+
+    h += '<div class="card"><div class="ttl">Notes</div>' +
+      '<div class="f"><textarea id="rcNotes" rows="2">' + esc(b.notes || '') + '</textarea></div></div>';
+
+    $('edBody').innerHTML = h;
+    wireRecurEditor();
+  }
+
+  function wireRecurEditor() {
+    var b = bill;
+    function refresh() {
+      var amt = round2(num(b.qty) * num(b.rate) - num(b.discount));
+      if ($('rcAmt')) $('rcAmt').textContent = amt ? money(amt) : '\u2014';
+    }
+
+    attachPick('rcParty', function () {
+      return parties.filter(function (x) { return !x.deleted_at; })
+        .map(function (x) { return { id:x.id, name:x.name, active:x.active,
+                 sub:[x.city, x.phone].filter(Boolean).join(' \u00b7 ') }; });
+    }, function (r, typing) {
+      if (typing) { b.party_id = null; return; }
+      b.party_id = r.id; dirty = true; drawRecurEditor();
+    }, 'No party by that name. Add it in Masters first.');
+
+    attachPick('rcSvc', function () {
+      return services.filter(function (x) { return !x.deleted_at; })
+        .map(function (x) { return { id:x.id, name:x.name, active:x.active,
+                 sub:Number(x.default_rate) ? 'Rs ' + fmt(x.default_rate) : '' }; });
+    }, function (r, typing) {
+      if (typing) { b.service_id = null; return; }
+      var sv = serviceById(r.id);
+      b.service_id = r.id;
+      if (sv) {
+        if (!num(b.rate)) b.rate = num(sv.default_rate);
+        if (!num(b.tax_pct)) b.tax_pct = num(sv.default_tax);
+        if (!String(b.description || '').trim()) b.description = sv.description || '';
+      }
+      dirty = true; drawRecurEditor();
+    }, 'Koi aisi service nahi. Masters \u2192 Services mein pehle banayein.');
+
+    [['rcDesc','description'], ['rcNotes','notes'], ['rcStart','start_date'],
+     ['rcNext','next_date'], ['rcFirm','company_id']].forEach(function (pair) {
+      if (!$(pair[0])) return;
+      $(pair[0]).addEventListener('input', function () { b[pair[1]] = this.value; dirty = true; });
+    });
+
+    [['rcQty','qty'], ['rcRate','rate'], ['rcDisc','discount'], ['rcTax','tax_pct'],
+     ['rcN','interval_n'], ['rcDue','due_days']].forEach(function (pair) {
+      if (!$(pair[0])) return;
+      $(pair[0]).addEventListener('input', function () {
+        b[pair[1]] = (pair[1] === 'due_days' && this.value.trim() === '') ? null : num(this.value);
+        dirty = true; refresh();
+      });
+    });
+
+    if ($('rcFreq')) $('rcFreq').addEventListener('change', function () {
+      b.frequency = this.value; dirty = true; drawRecurEditor();
+    });
+    if ($('rcTaxOn')) $('rcTaxOn').addEventListener('click', function () {
+      b.tax_on = !b.tax_on; dirty = true; drawRecurEditor();
+    });
+    if ($('rcActive')) $('rcActive').addEventListener('click', function () {
+      b.active = !b.active; dirty = true; drawRecurEditor();
+    });
+    if ($('rcMake')) $('rcMake').addEventListener('click', function () {
+      makeInvoiceFromTemplate(b.id);
+    });
+  }
+
+  function saveRecurring() {
+    var b = bill;
+    if (!b.party_id) { toast('Customer chunein', true); return; }
+    if (!b.service_id) { toast('Service chunein', true); return; }
+    if (!b.start_date) { toast('Shuru ki tareekh daalein', true); return; }
+
+    var isNew = !b.id;
+    var recId = b.id || uuid();
+    var head = {
+      party_id:b.party_id, service_id:b.service_id, company_id:b.company_id || null,
+      description:b.description || null,
+      qty:num(b.qty) || 1, rate:num(b.rate), discount:num(b.discount),
+      tax_pct:num(b.tax_pct), tax_on:!!b.tax_on,
+      frequency:b.frequency, interval_n:Math.max(1, num(b.interval_n) || 1),
+      start_date:b.start_date, next_date:b.next_date || b.start_date,
+      due_days:(b.due_days === null || b.due_days === '' || b.due_days === undefined)
+               ? null : num(b.due_days),
+      active:!!b.active, notes:b.notes || null
+    };
+
+    syncNote('Saving\u2026');
+    closeBill(); render();
+
+    var step = isNew
+      ? sb.from('recurring_service_templates').insert(Object.assign({ id:recId }, head)).select()
+      : sb.rpc('smart_merge_update', { p_table:'recurring_service_templates', p_id:recId,
+                                       p_original:originalHeadSnapshot, p_new:head });
+    step.then(function (res) {
+      if (res.error) throw res.error;
+      if (!isNew && res.data && res.data.status === 'conflict') {
+        toast('Yeh khaka kisi aur ne bhi isi waqt badla \u2014 taaza dekh kar dobara karein', true);
+      }
+      syncNote('Saved', '#7DC9A9');
+      return loadRecurring();
+    }).catch(function (e) {
+      syncNote('');
+      if (isNew) sb.from('recurring_service_templates').delete().eq('id', recId).then(function () {});
+      sayErr(e, 'recurring save');
+    });
+  }
+
+  function deleteRecurring() {
+    var b = bill;
+    if (!b || !b.id) { closeBill(); render(); return; }
+    confirmBox('Yeh khaka delete karein?',
+      'Jo invoices is se ban chuki hain wo bilkul mehfooz rahengi \u2014 sirf aage ki yaad-dihani band ho jayegi.')
+      .then(function (yes) {
+        if (!yes) return;
+        syncNote('Deleting\u2026');
+        closeBill(); render();
+        sb.from('recurring_service_templates').update({ deleted_at:new Date().toISOString() })
+          .eq('id', b.id).then(function (res) {
+            if (res.error) throw res.error;
+            syncNote('');
+            return loadRecurring();
+          }).catch(function (e) { syncNote(''); sayErr(e, 'delete'); });
+      });
+  }
+
+  /* Khake se invoice banao. Invoice banne ke baad TEMPLATE SE AZAD hai \u2014
+     us mein jo bhi badlein, khake par koi asar nahi, aur khaka badlein to
+     ban chuki invoice par koi asar nahi. */
+  function makeInvoiceFromTemplate(id) {
+    var t = recurTemplates.filter(function (x) { return x.id === id; })[0];
+    if (!t) { toast('Khaka mila nahi', true); return; }
+    var p = partyById(t.party_id);
+    var invId = uuid();
+    var d = t.next_date || today();
+    var dueDays = (t.due_days === null || t.due_days === undefined)
+      ? (p ? (Number(p.credit_days) || 0) : 0) : Number(t.due_days);
+    var dd = new Date(d + 'T00:00:00');
+    dd.setDate(dd.getDate() + dueDays);
+    var dueDate = dd.toISOString().slice(0, 10);
+
+    // billing period: is tareekh se agli tareekh se ek din pehle tak
+    var nx = nextRecurDate(d, t.frequency, t.interval_n);
+    var toD = nx ? (function () { var x = new Date(nx + 'T00:00:00'); x.setDate(x.getDate() - 1);
+                                  return x.toISOString().slice(0, 10); })() : null;
+    var MON = ['January','February','March','April','May','June',
+               'July','August','September','October','November','December'];
+    var sd = new Date(d + 'T00:00:00');
+    var label = MON[sd.getMonth()] + ' ' + sd.getFullYear();
+
+    syncNote('Invoice ban rahi hai\u2026');
+    sb.from('service_invoices').insert({
+      id:invId, party_id:t.party_id, company_id:t.company_id,
+      sidate:d, due_date:dueDate,
+      billing_from:d, billing_to:toD, billing_label:label,
+      narration:t.description || null,
+      tax_on:!!t.tax_on, discount:0, paid:0, status:'active',
+      template_id:t.id
+    }).then(function (r1) {
+      if (r1.error) throw r1.error;
+      return sb.from('service_invoice_lines').insert({
+        invoice_id:invId, service_id:t.service_id,
+        description:t.description || null,
+        qty:num(t.qty) || 1, rate:num(t.rate), discount:num(t.discount),
+        tax_pct:num(t.tax_pct),
+        amount:round2((num(t.qty) || 1) * num(t.rate) - num(t.discount)),
+        line_no:0
+      });
+    }).then(function (r2) {
+      if (r2 && r2.error) throw r2.error;
+      // khake ki agli tareekh aage barha do
+      return sb.from('recurring_service_templates')
+        .update({ next_date:nx, last_made_on:d }).eq('id', t.id);
+    }).then(function (r3) {
+      if (r3 && r3.error) throw r3.error;
+      syncNote('Saved', '#7DC9A9');
+      toast('Invoice ban gayi \u2014 ab isay jaisa chahein badal sakte hain');
+      return Promise.all([loadRecurring(), loadServiceInvoices()]);
+    }).then(function () {
+      vtype = 'service';
+      document.querySelectorAll('.sb-item[data-t]').forEach(function (x) {
+        x.classList.toggle('on', x.getAttribute('data-t') === 'service');
+      });
+      render();
+      openServiceInvoice(invId);
+    }).catch(function (e) {
+      syncNote('');
+      sb.from('service_invoice_lines').delete().eq('invoice_id', invId).then(function () {
+        sb.from('service_invoices').delete().eq('id', invId).then(function () {});
+      });
+      sayErr(e, 'invoice banane');
+    });
+  }
+
+  function loadRecurring() {
+    if (!sb) return Promise.resolve();
+    return sb.from('recurring_service_templates').select('*').is('deleted_at', null)
+      .order('next_date').then(function (r) {
+        if (!r.error) { recurTemplates = r.data || []; render(); }
+      }).catch(function () {});
+  }
+
   /* ---------- Service Invoice ka editor ---------- */
 
   function nextSvcNo() {
@@ -3339,7 +3748,8 @@
           sb.from('services').select('*').is('deleted_at', null).order('name'),
           sb.from('service_invoices').select('*').is('deleted_at', null)
             .order('sidate', { ascending:false }).limit(300),
-          sb.from('service_invoice_lines').select('*')
+          sb.from('service_invoice_lines').select('*'),
+          sb.from('recurring_service_templates').select('*').is('deleted_at', null).order('next_date')
         ]).then(function (r) {
           r.slice(0, 4).forEach(function (x) { if (x.error) throw x.error; });
           parties = r[0].data || [];
@@ -3362,6 +3772,7 @@
           svcInvoices.forEach(function (v) {
             v.lines = (byS[v.id] || []).sort(function (a, c) { return (a.line_no || 0) - (c.line_no || 0); });
           });
+          recurTemplates = r[23] && !r[23].error ? (r[23].data || []) : [];
           var byTr = {};
           (r[18] && !r[18].error ? (r[18].data || []) : []).forEach(function (l) {
             (byTr[l.transfer_id] = byTr[l.transfer_id] || []).push(l);
@@ -3430,13 +3841,15 @@
       $('moTitle').textContent = vtype === 'purchase' ? 'Purchase' : vtype === 'sale' ? 'Sale'
                                 : vtype === 'quotation' ? 'Quotation' : vtype === 'po' ? 'Purchase order'
                                 : vtype === 'transfer' ? 'Stock transfer'
-                                : vtype === 'service' ? 'Service invoice' : 'Sales return';
+                                : vtype === 'service' ? 'Service invoice'
+                                : vtype === 'recurring' ? 'Recurring services' : 'Sales return';
       closeSidebar();
       $('q').value = '';
       $('newBtn').textContent = vtype === 'purchase' ? '+ Purchase' : vtype === 'sale' ? '+ Sale'
                                : vtype === 'quotation' ? '+ Quotation' : vtype === 'po' ? '+ Purchase Order'
                                : vtype === 'transfer' ? '+ Transfer'
-                               : vtype === 'service' ? '+ Service Invoice' : '+ Return';
+                               : vtype === 'service' ? '+ Service Invoice'
+                               : vtype === 'recurring' ? '+ Recurring' : '+ Return';
       updateNewBtnPerm();
       render();
     });
@@ -3460,6 +3873,12 @@
         toast('Pehle Masters \u2192 Services mein koi service banayein', true); return;
       }
       openServiceInvoice(null); return;
+    }
+    if (vtype === 'recurring') {
+      if (!services.length) {
+        toast('Pehle Masters \u2192 Services mein koi service banayein', true); return;
+      }
+      openRecurring(null); return;
     }
     if (!items.length)   { toast('Add an item in Masters first', true); return; }
     if (vtype === 'quotation') { openDoc('quotation', null); return; }
@@ -3521,12 +3940,14 @@
     if (bill && bill.isReturn) { saveReturn(); return; }
     if (bill && bill.isTransfer) { saveTransfer(); return; }
     if (bill && bill.isService) { saveServiceInvoice(); return; }
+    if (bill && bill.isRecurring) { saveRecurring(); return; }
     (bill && bill.doc) ? saveDoc() : saveBill();
   });
   $('edDel').addEventListener('click', function () {
     if (bill && bill.isReturn) { deleteReturn(); return; }
     if (bill && bill.isTransfer) { deleteTransfer(); return; }
     if (bill && bill.isService) { deleteServiceInvoice(); return; }
+    if (bill && bill.isRecurring) { deleteRecurring(); return; }
     (bill && bill.doc) ? deleteDoc() : delBill();
   });
   $('edPrint').addEventListener('click', function () {
