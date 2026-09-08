@@ -3647,6 +3647,8 @@
     if (m) { wanted = m[1]; wantedType = 'bill'; tryOpenWanted(); return; }
     var m2 = String(arg || '').match(/return=([0-9a-fA-F-]+)/);
     if (m2) { wanted = m2[1]; wantedType = 'return'; tryOpenWanted(); return; }
+    var m3 = String(arg || '').match(/service=([0-9a-fA-F-]+)/);
+    if (m3) { wanted = m3[1]; wantedType = 'service'; tryOpenWanted(); return; }
   }
   /* loadAll ke baad, agar bill khula hai to sirf balance wali line taaza karo —
      poora editor dobara render karna zaroori nahi, sirf us chhoti si cheez ko */
@@ -3661,6 +3663,20 @@
 
   function tryOpenWanted() {
     if (!wanted) return;
+    if (wantedType === 'service') {
+      var iv = svcInvoices.filter(function (x) { return String(x.id) === wanted; })[0];
+      if (!iv) return;   // abhi load nahi hui \u2014 loadAll ke baad dobara
+      wanted = null; wantedType = null;
+      if (vtype !== 'service') {
+        vtype = 'service';
+        document.querySelectorAll('.sb-item[data-t]').forEach(function (x) {
+          x.classList.toggle('on', x.getAttribute('data-t') === 'service');
+        });
+        render();
+      }
+      openServiceInvoice(iv.id);
+      return;
+    }
     if (wantedType === 'return') {
       var rr = returns.filter(function (x) { return String(x.id) === wanted; })[0];
       if (!rr) return;   // abhi load nahi hui — loadAll ke baad dobara

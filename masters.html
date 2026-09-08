@@ -1655,7 +1655,7 @@
   /* ══════════ party ka khata ══════════ */
   var led = { loaded:false, loading:false, vouchers:[], lines:[], sheets:[], adjustments:[], returns:[],
               lockDate:null, snapshotActive:false, openingBalances:{}, forcedFull:false,
-              warehouses:[], transfers:[], transferLines:[] };
+              warehouses:[], transfers:[], transferLines:[], services:[] };
   var edView = 'details';
 
   /* Party ka balance "cutoff" tareekh tak — bilkul buildAccount() wala formula,
@@ -1762,12 +1762,17 @@
           voucherQuery,
           sheetQuery,
           sb.from('stock_adjustments').select('*'),
-          returnQuery
+          returnQuery,
+          /* Service invoice bhi party ke ledger mein aata hai \u2014 normal
+             receivable ki tarah. SQL na chali ho to bhi baqi sab chale. */
+          sb.from('service_invoices').select('*').is('deleted_at', null)
+            .neq('status', 'cancelled')
         ]).then(function (r) {
           r.slice(0, 2).forEach(function (x) { if (x.error) throw x.error; });
           var vouchers = r[0].data || [];
           var sheets   = r[1].data || [];
           var srets    = r[3].error ? [] : (r[3].data || []);
+          var svcs     = r[4] && !r[4].error ? (r[4].data || []) : [];
 
           var lineQuery, retLineQuery;
           if (snapshotActive) {
@@ -1799,6 +1804,7 @@
             led.sheets          = sheets;
             led.adjustments     = r[2].error ? [] : (r[2].data || []);   // SQL na chali ho to bhi chale
             led.returns         = srets;
+            led.services        = svcs;
             led.warehouses      = rr2[2].error ? [] : (rr2[2].data || []);
             led.transfers       = rr2[3].error ? [] : (rr2[3].data || []);
             led.transferLines   = rr2[4].error ? [] : (rr2[4].data || []);
@@ -2201,6 +2207,21 @@
                   delta:-n(rr.grand_total) });
       });
 
+    /* Service invoice \u2014 normal receivable ki tarah. Maal ka bill nahi,
+       magar paisa usi tarah aana hai, is liye ledger mein bilkul saath
+       chalta hai aur aging mein bhi khud shamil ho jata hai. */
+    (led.services || []).filter(function (v) { return String(v.party_id) === String(p.id); })
+      .forEach(function (v) {
+        var g = n(v.grand_total), paid = n(v.paid);
+        ev.push({ kind:'service', date:v.sidate, id:v.id,
+                  label:'Service Invoice ' + (v.sino || ''),
+                  sub:(v.billing_label ? v.billing_label : (v.narration || 'Service charges')),
+                  delta:g });
+        if (paid) ev.push({ kind:'servicepaid', date:v.sidate, id:v.id,
+                  label:'Received with ' + (v.sino || ''),
+                  sub:'', delta:-paid });
+      });
+
     led.sheets.forEach(function (s) {
       (s.rows || []).forEach(function (row, i) {
         if (String(row[6] || '') === String(p.id)) {          // credit taraf — paisa aaya
@@ -2316,6 +2337,7 @@
       if (isDr) totDr += e.delta; else totCr += -e.delta;
       var tap = (e.kind === 'bill' || e.kind === 'billpaid') ? ' data-bill="' + e.id + '"'
               : (e.kind === 'return') ? ' data-return="' + e.id + '"'
+              : (e.kind === 'service' || e.kind === 'servicepaid') ? ' data-svc="' + e.id + '"'
               : (e.kind === 'day' ? ' data-day="' + e.date + '"' : '');
       rows += '<tr class="' + (tap ? 'tap' : '') + '"' + tap +
         (tap ? ' tabindex="0" role="button"' : '') + '>' +
@@ -2480,9 +2502,11 @@
   });
 
   function openTapRow(row) {
-    var b = row.getAttribute('data-bill'), r = row.getAttribute('data-return'), d = row.getAttribute('data-day');
+    var b = row.getAttribute('data-bill'), r = row.getAttribute('data-return'),
+        v = row.getAttribute('data-svc'), d = row.getAttribute('data-day');
     if (b) jump('billing', 'bill=' + b);
     else if (r) jump('billing', 'return=' + r);
+    else if (v) jump('billing', 'service=' + v);   // service invoice kholo
     else if (d) jump('ledger', 'date=' + d);
   }
   document.addEventListener('click', function (e) {
@@ -3572,7 +3596,18 @@
                     .in('sale_line_id', lineIds).in('return_id', activeReturnIds)
                 : Promise.resolve({ data:[] });
 
-            return allTimeReturnsQ.then(function (atr) {
+            /* Service Revenue \u2014 maal ki bikri se BILKUL alag category.
+               Service par COGS nahi hoti, is liye Gross Profit ke hisaab
+               mein bilkul nahi aati. Wo apni jagah alag dikhti hai. */
+            var svcQ = sb.from('service_invoices')
+              .select('sub_total,discount,grand_total,sidate,status')
+              .is('deleted_at', null).neq('status', 'cancelled')
+              .gte('sidate', range.from).lte('sidate', range.to);
+
+            return Promise.all([allTimeReturnsQ, svcQ]).then(function (both) {
+            var atr = both[0];
+            var serviceRevenue = r2((both[1].error ? [] : (both[1].data || []))
+              .reduce(function (t, v) { return t + n(v.sub_total) - n(v.discount); }, 0));
             var returnsBySaleLine = {};
             (atr.error ? [] : (atr.data || [])).forEach(function (rl) {
               (returnsBySaleLine[rl.sale_line_id] = returnsBySaleLine[rl.sale_line_id] || []).push(rl);
@@ -3607,12 +3642,17 @@
             });
           });
           opEx = r2(opEx); finance = r2(finance);
-          var operatingProfit = r2(grossProfit + otherIncome - opEx);
+          /* Total Revenue = maal ki bikri + service. Operating profit
+             mein service revenue poori ki poori jati hai, kyunki us par
+             koi COGS nahi hoti. */
+          var totalRevenue = r2(netSales + serviceRevenue);
+          var operatingProfit = r2(grossProfit + serviceRevenue + otherIncome - opEx);
           var netProfit = r2(operatingProfit - finance);
 
           return {
             grossSales:r2(grossSales), salesReturns:salesReturns, discounts:r2(discounts), netSales:netSales, cogs:cogs,
             grossProfit:grossProfit, grossMarginPct: netSales ? r2(grossProfit / netSales * 100) : 0,
+            serviceRevenue:serviceRevenue, totalRevenue:totalRevenue,
             otherIncome:otherIncome, opEx:opEx, operatingProfit:operatingProfit,
             finance:finance, netProfit:netProfit,
             netMarginPct: netSales ? r2(netProfit / netSales * 100) : 0,
@@ -3641,6 +3681,10 @@
     h += row('Cost of Goods Sold', '\u2212 ' + fmt(pl.cogs));
     h += row('Gross Profit', fmt(pl.grossProfit) + '  (' + fmt(pl.grossMarginPct) + '%)', { bold:true, top:true,
       color: pl.grossProfit >= 0 ? 'var(--credit)' : 'var(--debit)' });
+    /* Service Revenue apni alag line. Us par COGS nahi hoti, is liye
+       Gross Profit ke hisaab se bahar rakhi jati hai. */
+    h += row('Service Revenue', pl.serviceRevenue ? '+ ' + fmt(pl.serviceRevenue) : '\u2014');
+    h += row('Total Revenue', fmt(pl.totalRevenue), { bold:true, top:true });
     h += row('Other Income', pl.otherIncome ? '+ ' + fmt(pl.otherIncome) : '\u2014');
     h += row('Operating Expenses', pl.opEx ? '\u2212 ' + fmt(pl.opEx) : '\u2014');
     h += row('Operating Profit', fmt(pl.operatingProfit), { bold:true, top:true });
