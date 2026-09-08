@@ -400,6 +400,27 @@
   .ag-seg { font-family:'IBM Plex Mono',monospace; color:var(--slate); }
   .ag-seg.warn { color:var(--debit); font-weight:600; }
 
+  .agp { border-bottom:1px solid var(--hair); padding:8px 0; }
+  .agphead { display:flex; align-items:center; justify-content:space-between; gap:10px; cursor:pointer; }
+  .agphead .nm { font-weight:600; }
+  .agphead .amt { font-family:ui-monospace,Menlo,monospace; font-weight:700; }
+  .agpsub { font-size:12px; color:var(--mute); margin-top:2px; }
+  .urow { display:flex; gap:6px; align-items:center; margin-bottom:6px; }
+  .urow input { flex:1; min-width:0; padding:8px 9px; border:1px solid var(--line);
+                border-radius:7px; font-size:14px; }
+  .urow .udef, .urow .urm { flex:none; width:34px; height:34px; border-radius:7px;
+                            border:1px solid var(--hair); background:none; color:var(--mute); }
+  .urow .udef.on { background:var(--ink); color:#fff; border-color:var(--ink); }
+
+  .sum { border:1px solid var(--hair); border-radius:9px; padding:9px 11px; background:var(--panel); }
+  .sum .sline { display:flex; align-items:baseline; justify-content:space-between; gap:12px;
+                padding:3px 0; font-size:13.5px; }
+  .sum .sline .k { color:var(--slate); }
+  .sum .sline .v { font-family:ui-monospace,Menlo,monospace; font-weight:600; text-align:right; }
+  .sum .sline.big { font-size:15px; font-weight:700; border-top:1px solid var(--hair);
+                    margin-top:5px; padding-top:8px; }
+  .sum .sline .v.neg { color:var(--debit); }
+
   .lowbar { display:none; align-items:center; gap:8px; width:100%; text-align:left;
             padding:9px 12px; background:#FDF6F6; border:none; border-bottom:1px solid #F0D9D9;
             font-size:12.5px; color:var(--debit); cursor:pointer; }
@@ -550,7 +571,8 @@
       <button class="sb-item" id="recycleBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0l1 12a1 1 0 001 1h6a1 1 0 001-1l1-12"/></svg>Recycle Bin</button>
       <button class="sb-item" id="tbBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3M5 8l3-2 3 2-3 5a3 3 0 01-6 0zM16 8l3-2 3 2-3 5a3 3 0 01-6 0zM12 21h-4M12 21h4M12 6v15"/></svg>Trial Balance</button>
       <button class="sb-item" id="lockBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="1.5"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>Period Lock</button>
-      <button class="sb-item" id="agingBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>Aging Report</button>
+      <button class="sb-item" id="agingBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Receivable Aging</button>
+      <button class="sb-item" id="restoreBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>Restore from backup</button>
       <button class="sb-item" id="plBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5M4 19h16M8 15l3-4 3 2.5L18 8"/></svg>Profit &amp; Loss</button>
     </div>
 
@@ -589,7 +611,7 @@
       <div class="seg cr"><div class="k">To pay</div><div class="v" id="totCr">—</div></div>
     </div>
     <div class="agingbar" id="agingbar" style="display:none">
-      <span class="ag-lbl">Receivables age</span>
+      <span class="ag-lbl">Alag se</span>
       <span class="ag-seg" id="ag0"></span>
       <span class="ag-seg" id="ag30"></span>
       <span class="ag-seg" id="ag60"></span>
@@ -662,6 +684,73 @@
       <button class="btn" id="askNo">Cancel</button>
       <button class="btn dgr" id="askYes">Delete</button>
     </div>
+  </div>
+</div>
+
+<div class="ask" id="restoreModal">
+  <div class="box" style="max-width:96vw;width:620px;max-height:92vh;overflow:auto">
+    <h4>Restore from backup</h4>
+    <p style="font-size:12.5px;color:var(--mute);margin:0 0 12px">
+      Roz jo email aati hai us mein <b>OHT-Restore-&lt;date&gt;.json</b> file hoti hai. Wohi
+      yahan daalein. Excel wali file se system wapas nahi aata — wo sirf padhne ke liye hai.
+    </p>
+
+    <div class="f"><label>Backup file</label>
+      <input id="rsFile" type="file" accept=".json,application/json"></div>
+
+    <div class="f"><label>Tareeqa</label>
+      <select id="rsMode">
+        <option value="missing">Sirf ghaayab records wapas laao</option>
+        <option value="replace">Poora replace — database bilkul file jaisa ban jaye</option>
+      </select>
+      <div class="hint" id="rsModeHint"></div></div>
+
+    <div id="rsPlan"></div>
+
+    <div class="f" id="rsConfirmBox" style="display:none">
+      <label>Confirm karne ke liye <b>RESTORE</b> likhein</label>
+      <input id="rsConfirm" type="text" placeholder="RESTORE" autocomplete="off"></div>
+
+    <div class="acts">
+      <button class="btn" id="rsClose">Close</button>
+      <button class="btn" id="rsCheck" style="flex:none">Check karein</button>
+      <button class="btn danger" id="rsGo" style="flex:none;display:none">Restore</button>
+    </div>
+  </div>
+</div>
+
+<div class="ask" id="agingModal">
+  <div class="box" style="max-width:96vw;width:840px;max-height:92vh;overflow:auto">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px">
+      <h4 style="margin:0">Receivable Aging</h4>
+      <button class="btn" id="agingClose" style="flex:none">Close</button>
+    </div>
+    <p style="font-size:12.5px;color:var(--mute);margin:0 0 12px">
+      Har bill ki apni umar. Party ki aakhri transaction se koi farq nahi padta.
+    </p>
+
+    <div class="f2">
+      <div class="f"><label>As of date</label><input id="agAsof" type="date"></div>
+      <div class="f"><label>Dikhaein</label>
+        <select id="agScope">
+          <option value="cust">Customer receivables</option>
+          <option value="supadv">Advance to suppliers</option>
+          <option value="custadv">Customer advances</option>
+          <option value="payable">Payable to suppliers</option>
+        </select></div>
+    </div>
+    <div class="f2">
+      <div class="f"><label>Party</label><select id="agParty"></select></div>
+      <div class="f"><label>Kya dikhaein</label>
+        <select id="agOnly">
+          <option value="all">Sab</option>
+          <option value="due">Sirf overdue</option>
+        </select></div>
+    </div>
+
+    <div id="agCards"></div>
+    <div id="agBody" style="margin-top:12px"></div>
+    <div id="agRecon" style="margin-top:12px"></div>
   </div>
 </div>
 
@@ -856,17 +945,6 @@
   </div>
 </div>
 
-<div class="ask" id="agingModal">
-  <div class="box" style="max-width:520px">
-    <h4>Aging Report</h4>
-    <p style="margin-bottom:10px">Har party ka pending amount, aur wo kitne din se pending hai — sabse zyada purana upar.</p>
-    <div id="agingFilter" style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap"></div>
-    <div id="agingList" style="max-height:50vh;overflow:auto"></div>
-    <div class="acts">
-      <button class="btn" id="agingClose">Close</button>
-    </div>
-  </div>
-</div>
 
 <div class="ask" id="importModal">
   <div class="box" style="max-width:520px">
@@ -1229,35 +1307,37 @@
     if (tab !== 'parties' || !db.parties.length || !led.loaded) {
       bar.style.display = 'none'; abar.style.display = 'none'; return;
     }
-    var dr = 0, cr = 0;
-    var buckets = { b0:0, b30:0, b60:0, b90:0 };
-    var today = new Date();
+    /* Customer ka receivable aur supplier ka advance ek number mein mila
+       dena gumrah karta hai \u2014 dono bilkul alag cheezein hain. Ab teenon
+       alag: customer se kitna aana hai, supplier ko kitna advance diya,
+       aur hum ne kitna dena hai.
+
+       Umar (aging) yahan bilkul nahi ginte. Purana tareeqa party ki
+       AAKHRI transaction dekh kar POORA balance ek khane mein daal deta
+       tha \u2014 yani January ka bakaya bhi "0-30 din" mein aa jata agar
+       customer ne kal kuch khareed liya ho. Aur opening balance ki koi
+       tareekh nahi hoti, usay seedha 90d+ mein daal diya jata tha, jo
+       andaza tha haqeeqat nahi. Ab us ke liye alag report hai jo har
+       bill ki apni tareekh dekhti hai. */
+    var dr = 0, cr = 0, supAdv = 0;
     db.parties.forEach(function (p) {
-      var acc = buildAccount(p);
-      var v = acc.balance;
-      // Bank/Expense head ka balance asal cash-position ya kharcha hai — customer/supplier
-      // jaisa "receivable/payable" nahi, is liye To Collect/To Pay mein shamil nahi karte
-      if (p.kind !== 'bank' && p.kind !== 'expense') { if (v > 0) dr += v; else cr += -v; }
-      // Aging sirf Customer receivables ke liye maayne rakhti hai — Bank/Expense
-      // head jaisi parties ka koi "kitne din se bakaya hai" nahi hota, sirf balance hota hai
-      if (v > 0 && p.kind === 'customer') {
-        var lastDate = '';
-        acc.events.forEach(function (e) { if (e.date && e.date > lastDate) lastDate = e.date; });
-        var days = lastDate ? Math.floor((today - new Date(lastDate + 'T00:00:00')) / 86400000) : 9999;
-        var key = days <= 30 ? 'b0' : days <= 60 ? 'b30' : days <= 90 ? 'b60' : 'b90';
-        buckets[key] += v;
+      var v = buildAccount(p).balance;
+      // Bank/Expense head ka balance cash-position ya kharcha hai, receivable nahi
+      if (p.kind === 'bank' || p.kind === 'expense') return;
+      if (v > 0) {
+        if (p.kind === 'supplier') supAdv += v; else dr += v;
+      } else {
+        cr += -v;
       }
     });
     $('totDr').textContent = dr ? money(dr) : '\u2014';
     $('totCr').textContent = cr ? money(cr) : '\u2014';
     bar.style.display = 'flex';
 
-    if (!dr) { abar.style.display = 'none'; }
+    if (!supAdv) { abar.style.display = 'none'; }
     else {
-      $('ag0').textContent  = '0\u201330d: '  + (buckets.b0  ? money(buckets.b0)  : '\u2014');
-      $('ag30').textContent = '31\u201360d: ' + (buckets.b30 ? money(buckets.b30) : '\u2014');
-      $('ag60').textContent = '61\u201390d: ' + (buckets.b60 ? money(buckets.b60) : '\u2014');
-      $('ag90').textContent = '90d+: '        + (buckets.b90 ? money(buckets.b90) : '\u2014');
+      $('ag0').textContent  = 'Advance to suppliers: ' + money(supAdv);
+      $('ag30').textContent = ''; $('ag60').textContent = ''; $('ag90').textContent = '';
       abar.style.display = 'flex';
     }
   }
@@ -1297,6 +1377,9 @@
   function itemSub(i) {
     var bits = ['per ' + esc(i.unit || 'pcs')];
     if (Number(i.sale_rate)) bits.push('Rs ' + fmt(i.sale_rate));
+    /* Avg cost costing engine se aata hai — har purchase par khud badalta
+       hai (loading/cartage samet). Yeh wo bhaao hai jis par maal pada hai. */
+    if (Number(i.avg_cost)) bits.push('cost Rs ' + fmt(i.avg_cost));
     if (Number(i.tax_pct)) bits.push(fmt(i.tax_pct) + '% tax');
     return bits.join(' · ');
   }
@@ -1455,6 +1538,20 @@
     '<div class="f"><label>HS code</label><input id="eHs" type="text" value="' + esc(r.hs_code) + '" autocomplete="off">' +
       '<div class="hint">Only needed on a sales tax invoice.</div></div>' +
 
+    (Number(r.avg_cost) || Number(r.stock_qty)
+      ? '<div class="grp">Current stock</div>' +
+        '<div class="sum" style="margin-bottom:14px">' +
+          '<div class="sline"><span class="k">Stock</span><span class="v">' +
+            fmt(r.stock_qty || 0) + ' ' + esc(r.unit || '') + '</span></div>' +
+          '<div class="sline"><span class="k">Average cost</span><span class="v">Rs ' +
+            fmt(r.avg_cost || 0) + '</span></div>' +
+          '<div class="sline big"><span class="k">Stock value</span><span class="v">Rs ' +
+            fmt((Number(r.stock_qty) || 0) * (Number(r.avg_cost) || 0)) + '</span></div>' +
+        '</div>' +
+        '<div class="f"><div class="hint">The system keeps these three up to date on every ' +
+        'purchase, sale, return and adjustment. They are not edited directly. Average cost ' +
+        'includes loading and cartage charges.</div></div>'
+      : '') +
     '<div class="grp">Opening stock</div>' +
     '<div class="f2">' +
       '<div class="f num"><label>Quantity</label><input id="eOQty" type="text" inputmode="decimal" value="' +
@@ -1556,9 +1653,15 @@
   }
 
   function loadLedgerData() {
-    if (led.loading) return Promise.resolve();   // ek waqt me ek hi request, magar hamesha taaza mangwao
+    /* Ek waqt mein ek hi request. Pehle yahan KHALI jawab de diya jata tha,
+       aur bulane wala foran render() chala deta tha — us waqt led.loaded
+       abhi false hota tha, is liye save ke baad poori Items list ek jhatke
+       mein "RATE" par chali jati thi. Ab chalta hua kaam hi wapas dete
+       hain, taake bulane wala us ke poora hone ka intezaar kare. Database
+       se request phir bhi ek hi jati hai. */
+    if (led.loading && led.promise) return led.promise;
     led.loading = true;
-    return sb.from('period_lock').select('locked_before').eq('id', 1).single().then(function (lockRes) {
+    led.promise = sb.from('period_lock').select('locked_before').eq('id', 1).single().then(function (lockRes) {
       var lockDate = (!lockRes.error && lockRes.data) ? lockRes.data.locked_before : null;
       return sb.from('party_opening_balances').select('party_id,as_of_date,balance,last_txn_date').then(function (obRes) {
         var obRows = (!obRes.error && obRes.data) ? obRes.data : [];
@@ -1629,7 +1732,7 @@
             led.snapshotActive  = snapshotActive;
             led.openingBalances = openingBalances;
             led.forcedFull      = false;
-            led.loaded = true; led.loading = false;
+            led.loaded = true; led.loading = false; led.promise = null;
 
             // lock set hai lekin snapshot missing/stale mila — background mein
             // khud theek kar lo (is dafa poora/safe data already load ho chuka hai)
@@ -1642,12 +1745,13 @@
         });
       });
     }).catch(function (e) {
-      led.loading = false;
+      led.loading = false; led.promise = null;
       if (isNetErr(e)) toast('No internet — could not load the account', true);
       else if (isClockErr(e)) toast('Your phone\u2019s clock looks slightly off \u2014 try again in a moment', true);
       else { console.error(e); toast('Could not load the account', true); }
       throw e;
     });
+    return led.promise;
   }
 
   /* Statement of Account screen par "Load full history" \u2014 sirf is party ki
@@ -2336,6 +2440,7 @@
     document.querySelectorAll('.et').forEach(function (x) {
       x.classList.toggle('on', x.getAttribute('data-v') === 'details');
     });
+    if (tab === 'items') loadUnitRows(rec ? rec.id : null);
     $('edBody').innerHTML = fieldset(editing);
     $('edDel').style.display = (rec && can('masters_delete')) ? '' : 'none';
     $('edBody').scrollTop = 0;
@@ -2359,6 +2464,7 @@
       };
     }
     wireLogo();
+    if (tab === 'items') wireUnits();
     $('edBody').addEventListener('input', function () { dirty = true; });
     $('eName').addEventListener('input', checkName);
     checkName();
@@ -2816,7 +2922,9 @@
       sb.from('companies').select('*').is('deleted_at', null),
       sb.from('party_kinds').select('*'),
       sb.from('parties').select('id,name'),
-      sb.from('items').select('id,name')
+      sb.from('items').select('id,name'),
+      // aakhir mein — beech mein daalne se baqi ke index khisak jate hain
+      sb.from('item_units').select('*').order('line_no')
     ]).then(function (r) {
       if (r[0].error) throw r[0].error;
       if (r[1].error) throw r[1].error;
@@ -2826,6 +2934,7 @@
       customKinds  = r[3].error ? [] : (r[3].data || []);   // custom party categories, SQL na chali ho to bhi app chale
       dbAll.parties = r[4].error ? db.parties : (r[4].data || []);
       dbAll.items   = r[5].error ? db.items   : (r[5].data || []);
+      db.itemUnits  = r[6] && !r[6].error ? (r[6].data || []) : [];   // SQL na chali ho to bhi app chale
       cacheSave('parties', db.parties); cacheSave('items', db.items); cacheSave('companies', db.companies);
       syncNote('');
       render();
@@ -2931,6 +3040,16 @@
         others.forEach(function (c) {
           sb.from('companies').update({ is_default:false }).eq('id', c.id).then(function () {});
         });
+      }
+      // Sale units item ke saath save hote hain (alag table mein rehte hain)
+      if (tab === 'items') {
+        saveUnitRows(recId).then(function () {
+          return sb.from('item_units').select('*').order('line_no');
+        }).then(function (ur) {
+          if (ur && !ur.error) db.itemUnits = ur.data || [];
+          try { window.parent.postMessage({ oht:'refresh', kind:'items' }, '*'); } catch (err) {}
+          render();
+        }).catch(function (e2) { sayErr(e2, 'save sale units'); });
       }
       syncNote('Saved', '#7DC9A9');
       render();
@@ -3173,59 +3292,6 @@
 
   /* ---------- Aging Report — party-wise, buildAccount() ki wahi calc reuse karta hai ---------- */
   var agingBucket = 'all';
-  function computeAging() {
-    var today = new Date();
-    var rows = [];
-    db.parties.forEach(function (p) {
-      var acc = buildAccount(p);
-      var v = acc.balance;
-      if (v <= 0) return;   // sirf receivable (Dr) — jo humein lena hai
-      var lastDate = '';
-      acc.events.forEach(function (e) { if (e.date && e.date > lastDate) lastDate = e.date; });
-      var days = lastDate ? Math.floor((today - new Date(lastDate + 'T00:00:00')) / 86400000) : null;
-      var bucket = days == null ? 'b0' : days <= 30 ? 'b0' : days <= 60 ? 'b30' : days <= 90 ? 'b60' : 'b90';
-      rows.push({ party: p, amount: v, days: days, bucket: bucket, lastDate: lastDate });
-    });
-    rows.sort(function (a, b) { return (b.days || 0) - (a.days || 0); });
-    return rows;
-  }
-  var BUCKET_LABEL = { all:'All', b0:'0\u201330d', b30:'31\u201360d', b60:'61\u201390d', b90:'90d+' };
-  function openAgingReport() {
-    $('agingModal').classList.add('on');
-    if (!led.loaded) {
-      $('agingList').innerHTML = '<p style="color:var(--mute);font-size:13px">Data load ho rahi hai\u2026</p>';
-      loadLedgerData().then(renderAgingReport).catch(function () {
-        $('agingList').innerHTML = '<p style="color:var(--mute);font-size:13px">Load nahi ho saka \u2014 dobara try karein.</p>';
-      });
-    } else {
-      renderAgingReport();
-    }
-  }
-  function renderAgingReport() {
-    var all = computeAging();
-    var fbar = $('agingFilter');
-    fbar.innerHTML = ['all','b0','b30','b60','b90'].map(function (k) {
-      var n = k === 'all' ? all.length : all.filter(function (r) { return r.bucket === k; }).length;
-      if (k !== 'all' && !n) return '';
-      return '<button class="catchip' + (agingBucket === k ? ' active' : '') + '" data-b="' + k + '">' +
-             BUCKET_LABEL[k] + (k !== 'all' ? ' (' + n + ')' : '') + '</button>';
-    }).join('');
-    fbar.querySelectorAll('.catchip').forEach(function (b) {
-      b.addEventListener('click', function () { agingBucket = b.getAttribute('data-b'); renderAgingReport(); });
-    });
-    var rows = agingBucket === 'all' ? all : all.filter(function (r) { return r.bucket === agingBucket; });
-    var box = $('agingList');
-    if (!rows.length) { box.innerHTML = '<p style="color:var(--mute);font-size:13px">Is bucket mein koi pending amount nahi.</p>'; return; }
-    box.innerHTML = rows.map(function (r) {
-      var dayTxt = r.days == null ? 'no transactions' : r.days + ' din se';
-      var color = r.bucket === 'b90' ? '#9B2C2C' : r.bucket === 'b60' ? '#C9622A' : r.bucket === 'b30' ? '#B08A3E' : 'var(--mute)';
-      return '<div class="catrow"><div><span class="nm">' + esc(r.party.name) + '</span>' +
-             '<span class="cnt" style="color:' + color + '">' + esc(dayTxt) + '</span></div>' +
-             '<span style="font-weight:600;color:#0B6E99">' + fmt(r.amount) + '</span></div>';
-    }).join('');
-  }
-  $('agingClose').addEventListener('click', function () { $('agingModal').classList.remove('on'); });
-  $('agingBtn').addEventListener('click', openAgingReport);
 
   /* ---------- Profit & Loss ---------- */
   var plRangeKey = 'month', plGroupBy = 'invoice';
@@ -3663,6 +3729,565 @@
   $('warehouseClose').addEventListener('click', function () { $('warehouseModal').classList.remove('on'); });
   $('warehousesBtn').addEventListener('click', openWarehouseModal);
 
+  /* ---------- Restore from backup ----------
+     Roz ki email mein jo JSON file aati hai, us se poora system wapas
+     laaya ja sakta hai. Do tareeqe hain, aur dono se PEHLE system khud
+     ek taaza backup utaar deta hai — taake ghalti ho jaye to wapas
+     laut sakein. Yehi sab se ahem hifazat hai. */
+  var rsData = null, rsPlan = null;
+
+  var RS_HINT = {
+    missing: 'Jo record file mein hai magar database mein nahi, sirf wo daala jayega. ' +
+             'Jo pehle se mojood hai usay haath nahi lagta.',
+    replace: 'Database bilkul wohi ban jayega jo file mein hai. Jo file mein nahi, ' +
+             'wo urh jayega. Yeh us waqt ke liye hai jab poori halat wapas leni ho.'
+  };
+
+  function openRestore() {
+    $('restoreModal').classList.add('on');
+    rsData = null; rsPlan = null;
+    $('rsFile').value = ''; $('rsConfirm').value = '';
+    $('rsPlan').innerHTML = '';
+    $('rsConfirmBox').style.display = 'none';
+    $('rsGo').style.display = 'none';
+    $('rsModeHint').textContent = RS_HINT[$('rsMode').value];
+  }
+
+  function readBackupFile() {
+    var f = $('rsFile').files[0];
+    if (!f) return Promise.reject(new Error('Pehle backup file chunein'));
+    return new Promise(function (res, rej) {
+      var fr = new FileReader();
+      fr.onload = function () {
+        try {
+          var j = JSON.parse(fr.result);
+          if (j.format !== 'oht-restore') throw new Error('Yeh restore wali file nahi lagti');
+          if (!j.tables || !j.order) throw new Error('File adhoori lagti hai');
+          res(j);
+        } catch (e) { rej(new Error('File padhi nahi ja saki \u2014 ' + e.message)); }
+      };
+      fr.onerror = function () { rej(new Error('File padhi nahi ja saki')); };
+      fr.readAsText(f);
+    });
+  }
+
+  /* Kya hoga, wo pehle dikhao — commit se pehle */
+  function buildRestorePlan(j) {
+    var mode = $('rsMode').value;
+    return Promise.all(j.order.map(function (t) {
+      return sb.from(t).select('id').then(function (r) {
+        var have = {};
+        (r.error ? [] : (r.data || [])).forEach(function (x) { have[x.id] = true; });
+        var rows = j.tables[t] || [];
+        var add = 0, upd = 0;
+        rows.forEach(function (x) { if (have[x.id]) upd++; else add++; });
+        var del = mode === 'replace'
+          ? Object.keys(have).filter(function (id) {
+              return !rows.some(function (x) { return String(x.id) === String(id); });
+            }).length
+          : 0;
+        return { table:t, add:add, upd:mode === 'replace' ? upd : 0, del:del,
+                 total:rows.length, err:!!r.error };
+      });
+    }));
+  }
+
+  function drawRestorePlan(plan) {
+    var any = plan.filter(function (p) { return p.add || p.upd || p.del; });
+    $('rsPlan').innerHTML = '<div class="grp">Kya hoga</div>' +
+      (any.length
+        ? '<table class="ltab"><thead><tr><th>Table</th>' +
+          '<th style="text-align:right">Nayi</th><th style="text-align:right">Badlengi</th>' +
+          '<th style="text-align:right">Urhengi</th></tr></thead><tbody>' +
+          any.map(function (p) {
+            return '<tr><td>' + esc(p.table) + '</td>' +
+              '<td class="r">' + (p.add || '\u2014') + '</td>' +
+              '<td class="r">' + (p.upd || '\u2014') + '</td>' +
+              '<td class="r' + (p.del ? ' neg' : '') + '">' + (p.del || '\u2014') + '</td></tr>';
+          }).join('') + '</tbody></table>'
+        : '<div class="hint">Koi tabdeeli nahi \u2014 database pehle se file jaisa hai.</div>') +
+      '<div class="f"><div class="hint">Restore se pehle system khud ek taaza backup file ' +
+      'utaar dega. Ghalti ho jaye to usi se wapas laut sakte hain.</div></div>';
+  }
+
+  $('restoreBtn').addEventListener('click', openRestore);
+  $('rsClose').addEventListener('click', function () { $('restoreModal').classList.remove('on'); });
+  $('rsMode').addEventListener('change', function () {
+    $('rsModeHint').textContent = RS_HINT[this.value];
+    if (rsData) { $('rsCheck').click(); }
+  });
+
+  $('rsCheck').addEventListener('click', function () {
+    var btn = this; btn.disabled = true; btn.textContent = 'Dekh rahe hain\u2026';
+    readBackupFile().then(function (j) {
+      rsData = j;
+      return buildRestorePlan(j);
+    }).then(function (plan) {
+      rsPlan = plan;
+      drawRestorePlan(plan);
+      var any = plan.some(function (p) { return p.add || p.upd || p.del; });
+      $('rsConfirmBox').style.display = any ? '' : 'none';
+      $('rsGo').style.display = any ? '' : 'none';
+      btn.disabled = false; btn.textContent = 'Check karein';
+    }).catch(function (e) {
+      btn.disabled = false; btn.textContent = 'Check karein';
+      toast(e.message, true);
+    });
+  });
+
+  $('rsGo').addEventListener('click', function () {
+    if (!rsData) { toast('Pehle file check karein', true); return; }
+    if ($('rsConfirm').value.trim().toUpperCase() !== 'RESTORE') {
+      toast('Confirm karne ke liye RESTORE likhein', true); return;
+    }
+    var btn = this; btn.disabled = true; btn.textContent = 'Restore ho raha hai\u2026';
+    // Pehle abhi ka data utaar lo — wapas laut'ne ka raasta khula rahe
+    downloadSafetyBackup().then(function () {
+      return runRestore(rsData, $('rsMode').value);
+    }).then(function (done) {
+      btn.disabled = false; btn.textContent = 'Restore';
+      $('restoreModal').classList.remove('on');
+      toast('Restore mukammal \u2014 ' + done + ' rows. Costing dobara chal rahi hai\u2026');
+      return sb.rpc('recompute_all_item_costs', { lock_date:null });
+    }).then(function () {
+      loadAll();
+      toast('Sab kuch wapas aa gaya');
+    }).catch(function (e) {
+      btn.disabled = false; btn.textContent = 'Restore';
+      sayErr(e, 'restore');
+    });
+  });
+
+  /* Restore se pehle abhi ka poora data utaar do */
+  function downloadSafetyBackup() {
+    var order = (rsData && rsData.order) || [];
+    return Promise.all(order.map(function (t) {
+      return sb.from(t).select('*').then(function (r) {
+        return { t:t, rows:r.error ? [] : (r.data || []) };
+      });
+    })).then(function (all) {
+      var tables = {};
+      all.forEach(function (x) { tables[x.t] = x.rows; });
+      var blob = new Blob([JSON.stringify({
+        format:'oht-restore', version:1, taken_at:new Date().toISOString(),
+        order:order, tables:tables
+      })], { type:'application/json' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'OHT-Before-Restore-' + today() + '.json';
+      a.click();
+      setTimeout(function () { URL.revokeObjectURL(a.href); }, 4000);
+    });
+  }
+
+  /* Asal kaam. Tarteeb ahem hai — pehle wo cheezein jin par baqi khadi
+     hain. Urhana ulti tarteeb mein, warna foreign key rok deti hai. */
+  function runRestore(j, mode) {
+    var order = j.order, done = 0;
+    var chain = Promise.resolve();
+
+    if (mode === 'replace') {
+      order.slice().reverse().forEach(function (t) {
+        chain = chain.then(function () {
+          var rows = j.tables[t] || [];
+          var keep = rows.map(function (x) { return x.id; }).filter(Boolean);
+          var q = sb.from(t).delete();
+          q = keep.length ? q.not('id', 'in', '(' + keep.join(',') + ')')
+                          : q.gte('id', '00000000-0000-0000-0000-000000000000');
+          return q.then(function () {});
+        });
+      });
+    }
+
+    order.forEach(function (t) {
+      chain = chain.then(function () {
+        var rows = j.tables[t] || [];
+        if (!rows.length) return;
+        // 200 ki qist mein — ek saath bhejne par request bohat bari ho jati hai
+        var parts = [];
+        for (var i = 0; i < rows.length; i += 200) parts.push(rows.slice(i, i + 200));
+        var p = Promise.resolve();
+        parts.forEach(function (part) {
+          p = p.then(function () {
+            var q = mode === 'replace'
+              ? sb.from(t).upsert(part)
+              : sb.from(t).upsert(part, { ignoreDuplicates:true });
+            return q.then(function (r) {
+              if (r.error) throw new Error(t + ': ' + r.error.message);
+              done += part.length;
+            });
+          });
+        });
+        return p;
+      });
+    });
+
+    return chain.then(function () { return done; });
+  }
+
+  /* ---------- Receivable Aging ----------
+     Poora hisaab database mein hota hai (receivable_aging RPC). Yahan sirf
+     dikhana hai. Wajah: aging aur ledger dono ek hi jagah se number lein,
+     warna dono apna apna hisaab lagate hain aur numbers nahi milte. */
+  var agRows = [], agLoading = false, agOpen = {};
+
+  var AG_BUCKETS = [['notdue','Not due'], ['b0','0\u201330 din'], ['b30','31\u201360 din'],
+                    ['b60','61\u201390 din'], ['b90','90+ din'], ['unknown','Age unknown']];
+
+  function openAgingModal() {
+    $('agingModal').classList.add('on');
+    if (!$('agAsof').value) $('agAsof').value = today();
+    agOpen = {};
+    loadAging();
+  }
+  function loadAging() {
+    agLoading = true; drawAging();
+    sb.rpc('receivable_aging', { p_asof: $('agAsof').value || today() }).then(function (r) {
+      agLoading = false;
+      if (r.error) { agRows = []; sayErr(r.error, 'load aging'); drawAging(); return; }
+      agRows = r.data || [];
+      var seen = {};
+      agRows.forEach(function (x) { seen[x.party_id] = x.party_name; });
+      var cur = $('agParty').value;
+      $('agParty').innerHTML = '<option value="">Sab parties</option>' +
+        Object.keys(seen).sort(function (a, b) { return seen[a].localeCompare(seen[b]); })
+          .map(function (id) {
+            return '<option value="' + esc(id) + '"' + (cur === id ? ' selected' : '') + '>' +
+                   esc(seen[id]) + '</option>';
+          }).join('');
+      drawAging();
+    });
+  }
+
+  /* Kaun si rows dikhani hain — scope, party aur overdue ke filter ke baad */
+  function agVisible() {
+    var scope = $('agScope').value, pid = $('agParty').value, only = $('agOnly').value;
+    /* Chaar bilkul alag cheezein, jinhein mila dena gumrah karta hai:
+         cust     — customer se kitna aana hai (yehi asal receivable hai)
+         supadv   — supplier ko jo zyada de diya (debit taraf)
+         custadv  — customer ne jo zyada de diya
+         payable  — supplier ka jo hum ne dena hai (bilkul normal) */
+    var isAdv = function (x) { return x.bucket === 'advance'; };
+    var isPay = function (x) { return x.bucket === 'payable'; };
+    return agRows.filter(function (x) {
+      if (pid && x.party_id !== pid) return false;
+      if (scope === 'cust')        { if (isAdv(x) || isPay(x) || x.party_kind === 'supplier') return false; }
+      else if (scope === 'supadv') { if (isAdv(x) || isPay(x) || x.party_kind !== 'supplier') return false; }
+      else if (scope === 'custadv'){ if (!isAdv(x)) return false; }
+      else                         { if (!isPay(x)) return false; }
+      if (only === 'due' && (x.bucket === 'notdue' || x.bucket === 'unknown')) return false;
+      return true;
+    });
+  }
+
+  function drawAging() {
+    if (agLoading) { $('agCards').innerHTML = '<div class="hint">Load ho raha hai\u2026</div>';
+                     $('agBody').innerHTML = ''; $('agRecon').innerHTML = ''; return; }
+    var rows = agVisible(), scope = $('agScope').value;
+    var total = rows.reduce(function (t, x) { return t + n(x.outstanding); }, 0);
+
+    if (scope !== 'cust') {
+      var TITLE = { supadv:'Advance to suppliers', custadv:'Customer advances',
+                    payable:'Payable to suppliers' };
+      $('agCards').innerHTML = '<div class="sum"><div class="sline big"><span class="k">' +
+        (TITLE[scope] || '') + '</span><span class="v">' + fmt(total) + '</span></div></div>';
+      $('agBody').innerHTML = rows.length
+        ? '<table class="ltab"><thead><tr><th>Party</th><th>Doc</th><th>Date</th>' +
+          '<th style="text-align:right">Amount</th></tr></thead><tbody>' +
+          rows.sort(function (a, b) { return n(b.outstanding) - n(a.outstanding); }).map(function (x) {
+            return '<tr><td>' + esc(x.party_name) + '</td>' +
+                   '<td>' + esc(x.doc_no || '') + '</td>' +
+                   '<td>' + esc(x.doc_date || '\u2014') + '</td>' +
+                   '<td class="r">' + fmt(x.outstanding) + '</td></tr>';
+          }).join('') + '</tbody></table>'
+        : '<div class="hint">Koi record nahi.</div>';
+      $('agRecon').innerHTML = '';
+      return;
+    }
+
+    // khanon ka jama
+    var bk = {}; AG_BUCKETS.forEach(function (b) { bk[b[0]] = 0; });
+    rows.forEach(function (x) { bk[x.bucket] = (bk[x.bucket] || 0) + n(x.outstanding); });
+
+    $('agCards').innerHTML = '<div class="sum">' +
+      '<div class="sline big"><span class="k">Total receivables</span><span class="v">' + fmt(total) + '</span></div>' +
+      AG_BUCKETS.map(function (b) {
+        if (!bk[b[0]]) return '';
+        return '<div class="sline"><span class="k">' + b[1] + '</span><span class="v' +
+               (b[0] === 'b90' ? ' neg' : '') + '">' + fmt(bk[b[0]]) + '</span></div>';
+      }).join('') + '</div>';
+
+    // party-wise, andar bill ki tafseel
+    var byP = {};
+    rows.forEach(function (x) { (byP[x.party_id] = byP[x.party_id] || []).push(x); });
+    var pids = Object.keys(byP).sort(function (a, b) {
+      return byP[b].reduce(function (t, x) { return t + n(x.outstanding); }, 0) -
+             byP[a].reduce(function (t, x) { return t + n(x.outstanding); }, 0);
+    });
+
+    $('agBody').innerHTML = pids.length ? pids.map(function (pid) {
+      var list = byP[pid], nm = list[0].party_name;
+      var t = list.reduce(function (a, x) { return a + n(x.outstanding); }, 0);
+      var pb = {}; list.forEach(function (x) { pb[x.bucket] = (pb[x.bucket] || 0) + n(x.outstanding); });
+      var open = !!agOpen[pid];
+      return '<div class="agp">' +
+        '<div class="agphead" data-agp="' + esc(pid) + '">' +
+          '<span class="nm">' + (open ? '\u25be ' : '\u25b8 ') + esc(nm) + '</span>' +
+          '<span class="amt">' + fmt(t) + '</span></div>' +
+        '<div class="agpsub">' + AG_BUCKETS.filter(function (b) { return pb[b[0]]; })
+          .map(function (b) { return b[1] + ' ' + fmt(pb[b[0]]); }).join('  \u00b7  ') + '</div>' +
+        (open ? '<table class="ltab" style="margin:6px 0 12px"><thead><tr>' +
+          '<th>Doc</th><th>Date</th><th>Due</th><th style="text-align:right">Original</th>' +
+          '<th style="text-align:right">Applied</th><th style="text-align:right">Outstanding</th>' +
+          '<th style="text-align:right">Days</th><th>Bucket</th></tr></thead><tbody>' +
+          list.sort(function (a, b) { return String(a.doc_date || '').localeCompare(String(b.doc_date || '')); })
+            .map(function (x) {
+              var lbl = (AG_BUCKETS.filter(function (b) { return b[0] === x.bucket; })[0] || ['', x.bucket])[1];
+              return '<tr><td>' + esc(x.doc_no || '') + '</td>' +
+                '<td>' + esc(x.doc_date || '\u2014') + '</td>' +
+                '<td>' + esc(x.due_date || '\u2014') + '</td>' +
+                '<td class="r">' + fmt(x.original) + '</td>' +
+                '<td class="r">' + (n(x.applied) ? fmt(x.applied) : '\u2014') + '</td>' +
+                '<td class="r"><b>' + fmt(x.outstanding) + '</b></td>' +
+                '<td class="r">' + (x.days_overdue == null ? '\u2014' : x.days_overdue) + '</td>' +
+                '<td>' + esc(lbl) + '</td></tr>';
+            }).join('') + '</tbody></table>' : '') +
+        '</div>';
+    }).join('') : '<div class="hint">Koi bakaya nahi.</div>';
+
+    $('agBody').querySelectorAll('[data-agp]').forEach(function (el) {
+      el.addEventListener('click', function () {
+        var id = el.getAttribute('data-agp');
+        agOpen[id] = !agOpen[id]; drawAging();
+      });
+    });
+
+    drawAgingRecon();
+  }
+
+  /* Reconciliation: aging ka jama aur party ka asal balance barabar hone
+     chahiyen. Farq ho to chhupate nahi — saaf dikhate hain. */
+  function drawAgingRecon() {
+    sb.rpc('aging_reconcile', { p_asof: $('agAsof').value || today() }).then(function (r) {
+      if (r.error || !$('agRecon')) return;
+      var bad = (r.data || []).filter(function (x) { return Math.abs(n(x.diff)) > 0.01; });
+      $('agRecon').innerHTML = bad.length
+        ? '<div class="sum" style="border-color:var(--debit)"><div class="sline">' +
+          '<span class="k neg"><b>Reconciliation mein farq</b></span></div>' +
+          bad.slice(0, 10).map(function (x) {
+            return '<div class="sline"><span class="k">' + esc(x.party_name) + '</span>' +
+                   '<span class="v neg">' + fmt(x.diff) + '</span></div>';
+          }).join('') +
+          '<div class="hint">Aging aur party ke ledger ka number nahi mil raha. ' +
+          'Yeh chhupaya nahi ja raha \u2014 bata dein, dekh lenge.</div></div>'
+        : '<div class="hint">\u2713 Reconciliation theek: har party ka aging total ' +
+          'us ke ledger balance ke barabar hai.</div>';
+    });
+  }
+
+  /* ---------- Restore from backup ----------
+     Roz ki email mein jo JSON file aati hai, us se poora system wapas
+     laaya ja sakta hai. Do tareeqe hain, aur dono se PEHLE system khud
+     ek taaza backup utaar deta hai — taake ghalti ho jaye to wapas
+     laut sakein. Yehi sab se ahem hifazat hai. */
+  var rsData = null, rsPlan = null;
+
+  var RS_HINT = {
+    missing: 'Jo record file mein hai magar database mein nahi, sirf wo daala jayega. ' +
+             'Jo pehle se mojood hai usay haath nahi lagta.',
+    replace: 'Database bilkul wohi ban jayega jo file mein hai. Jo file mein nahi, ' +
+             'wo urh jayega. Yeh us waqt ke liye hai jab poori halat wapas leni ho.'
+  };
+
+  function openRestore() {
+    $('restoreModal').classList.add('on');
+    rsData = null; rsPlan = null;
+    $('rsFile').value = ''; $('rsConfirm').value = '';
+    $('rsPlan').innerHTML = '';
+    $('rsConfirmBox').style.display = 'none';
+    $('rsGo').style.display = 'none';
+    $('rsModeHint').textContent = RS_HINT[$('rsMode').value];
+  }
+
+  function readBackupFile() {
+    var f = $('rsFile').files[0];
+    if (!f) return Promise.reject(new Error('Pehle backup file chunein'));
+    return new Promise(function (res, rej) {
+      var fr = new FileReader();
+      fr.onload = function () {
+        try {
+          var j = JSON.parse(fr.result);
+          if (j.format !== 'qtc-restore') throw new Error('Yeh restore wali file nahi lagti');
+          if (!j.tables || !j.order) throw new Error('File adhoori lagti hai');
+          res(j);
+        } catch (e) { rej(new Error('File padhi nahi ja saki \u2014 ' + e.message)); }
+      };
+      fr.onerror = function () { rej(new Error('File padhi nahi ja saki')); };
+      fr.readAsText(f);
+    });
+  }
+
+  /* Kya hoga, wo pehle dikhao — commit se pehle */
+  function buildRestorePlan(j) {
+    var mode = $('rsMode').value;
+    return Promise.all(j.order.map(function (t) {
+      return sb.from(t).select('id').then(function (r) {
+        var have = {};
+        (r.error ? [] : (r.data || [])).forEach(function (x) { have[x.id] = true; });
+        var rows = j.tables[t] || [];
+        var add = 0, upd = 0;
+        rows.forEach(function (x) { if (have[x.id]) upd++; else add++; });
+        var del = mode === 'replace'
+          ? Object.keys(have).filter(function (id) {
+              return !rows.some(function (x) { return String(x.id) === String(id); });
+            }).length
+          : 0;
+        return { table:t, add:add, upd:mode === 'replace' ? upd : 0, del:del,
+                 total:rows.length, err:!!r.error };
+      });
+    }));
+  }
+
+  function drawRestorePlan(plan) {
+    var any = plan.filter(function (p) { return p.add || p.upd || p.del; });
+    $('rsPlan').innerHTML = '<div class="grp">Kya hoga</div>' +
+      (any.length
+        ? '<table class="ltab"><thead><tr><th>Table</th>' +
+          '<th style="text-align:right">Nayi</th><th style="text-align:right">Badlengi</th>' +
+          '<th style="text-align:right">Urhengi</th></tr></thead><tbody>' +
+          any.map(function (p) {
+            return '<tr><td>' + esc(p.table) + '</td>' +
+              '<td class="r">' + (p.add || '\u2014') + '</td>' +
+              '<td class="r">' + (p.upd || '\u2014') + '</td>' +
+              '<td class="r' + (p.del ? ' neg' : '') + '">' + (p.del || '\u2014') + '</td></tr>';
+          }).join('') + '</tbody></table>'
+        : '<div class="hint">Koi tabdeeli nahi \u2014 database pehle se file jaisa hai.</div>') +
+      '<div class="f"><div class="hint">Restore se pehle system khud ek taaza backup file ' +
+      'utaar dega. Ghalti ho jaye to usi se wapas laut sakte hain.</div></div>';
+  }
+
+  $('restoreBtn').addEventListener('click', openRestore);
+  $('rsClose').addEventListener('click', function () { $('restoreModal').classList.remove('on'); });
+  $('rsMode').addEventListener('change', function () {
+    $('rsModeHint').textContent = RS_HINT[this.value];
+    if (rsData) { $('rsCheck').click(); }
+  });
+
+  $('rsCheck').addEventListener('click', function () {
+    var btn = this; btn.disabled = true; btn.textContent = 'Dekh rahe hain\u2026';
+    readBackupFile().then(function (j) {
+      rsData = j;
+      return buildRestorePlan(j);
+    }).then(function (plan) {
+      rsPlan = plan;
+      drawRestorePlan(plan);
+      var any = plan.some(function (p) { return p.add || p.upd || p.del; });
+      $('rsConfirmBox').style.display = any ? '' : 'none';
+      $('rsGo').style.display = any ? '' : 'none';
+      btn.disabled = false; btn.textContent = 'Check karein';
+    }).catch(function (e) {
+      btn.disabled = false; btn.textContent = 'Check karein';
+      toast(e.message, true);
+    });
+  });
+
+  $('rsGo').addEventListener('click', function () {
+    if (!rsData) { toast('Pehle file check karein', true); return; }
+    if ($('rsConfirm').value.trim().toUpperCase() !== 'RESTORE') {
+      toast('Confirm karne ke liye RESTORE likhein', true); return;
+    }
+    var btn = this; btn.disabled = true; btn.textContent = 'Restore ho raha hai\u2026';
+    // Pehle abhi ka data utaar lo — wapas laut'ne ka raasta khula rahe
+    downloadSafetyBackup().then(function () {
+      return runRestore(rsData, $('rsMode').value);
+    }).then(function (done) {
+      btn.disabled = false; btn.textContent = 'Restore';
+      $('restoreModal').classList.remove('on');
+      toast('Restore mukammal \u2014 ' + done + ' rows. Costing dobara chal rahi hai\u2026');
+      return sb.rpc('recompute_all_item_costs', { lock_date:null });
+    }).then(function () {
+      loadAll();
+      toast('Sab kuch wapas aa gaya');
+    }).catch(function (e) {
+      btn.disabled = false; btn.textContent = 'Restore';
+      sayErr(e, 'restore');
+    });
+  });
+
+  /* Restore se pehle abhi ka poora data utaar do */
+  function downloadSafetyBackup() {
+    var order = (rsData && rsData.order) || [];
+    return Promise.all(order.map(function (t) {
+      return sb.from(t).select('*').then(function (r) {
+        return { t:t, rows:r.error ? [] : (r.data || []) };
+      });
+    })).then(function (all) {
+      var tables = {};
+      all.forEach(function (x) { tables[x.t] = x.rows; });
+      var blob = new Blob([JSON.stringify({
+        format:'qtc-restore', version:1, taken_at:new Date().toISOString(),
+        order:order, tables:tables
+      })], { type:'application/json' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'QTC-Before-Restore-' + today() + '.json';
+      a.click();
+      setTimeout(function () { URL.revokeObjectURL(a.href); }, 4000);
+    });
+  }
+
+  /* Asal kaam. Tarteeb ahem hai — pehle wo cheezein jin par baqi khadi
+     hain. Urhana ulti tarteeb mein, warna foreign key rok deti hai. */
+  function runRestore(j, mode) {
+    var order = j.order, done = 0;
+    var chain = Promise.resolve();
+
+    if (mode === 'replace') {
+      order.slice().reverse().forEach(function (t) {
+        chain = chain.then(function () {
+          var rows = j.tables[t] || [];
+          var keep = rows.map(function (x) { return x.id; }).filter(Boolean);
+          var q = sb.from(t).delete();
+          q = keep.length ? q.not('id', 'in', '(' + keep.join(',') + ')')
+                          : q.gte('id', '00000000-0000-0000-0000-000000000000');
+          return q.then(function () {});
+        });
+      });
+    }
+
+    order.forEach(function (t) {
+      chain = chain.then(function () {
+        var rows = j.tables[t] || [];
+        if (!rows.length) return;
+        // 200 ki qist mein — ek saath bhejne par request bohat bari ho jati hai
+        var parts = [];
+        for (var i = 0; i < rows.length; i += 200) parts.push(rows.slice(i, i + 200));
+        var p = Promise.resolve();
+        parts.forEach(function (part) {
+          p = p.then(function () {
+            var q = mode === 'replace'
+              ? sb.from(t).upsert(part)
+              : sb.from(t).upsert(part, { ignoreDuplicates:true });
+            return q.then(function (r) {
+              if (r.error) throw new Error(t + ': ' + r.error.message);
+              done += part.length;
+            });
+          });
+        });
+        return p;
+      });
+    });
+
+    return chain.then(function () { return done; });
+  }
+
+  $('agingBtn').addEventListener('click', openAgingModal);
+  $('agingClose').addEventListener('click', function () { $('agingModal').classList.remove('on'); });
+  $('agAsof').addEventListener('change', loadAging);
+  ['agScope','agParty','agOnly'].forEach(function (id) {
+    $(id).addEventListener('change', function () { agOpen = {}; drawAging(); });
+  });
+
   $('plBtn').addEventListener('click', openProfitLoss);
 
   /* ---------- Bulk Import (Excel/CSV) — parties aur items ke liye ---------- */
@@ -3883,9 +4508,33 @@
   }
   function makeClient(url, key) {
     return window.supabase.createClient(url, key, {
-      auth: { persistSession: true, autoRefreshToken: true }
+      auth: { persistSession: true, autoRefreshToken: false }
     });
   }
+
+  /* ---------- Session ka refresh ----------
+     Teenon apps ek hi waqt mein khuli rehti hain aur teenon ka apna
+     Supabase client hai. Agar teenon token refresh karein to ek doosre
+     ka session tor deti hain — user achanak sign out ho jata hai.
+     Is liye refresh sirf WOHI app karti hai jo abhi saamne hai; shell
+     batata hai ke kaun saamne hai. */
+  var autoRefreshOn = false;
+
+  function setAutoRefresh(on) {
+    if (!sb || !sb.auth || autoRefreshOn === on) return;
+    autoRefreshOn = on;
+    try {
+      if (on) { sb.auth.getSession().then(function () { sb.auth.startAutoRefresh(); }); }
+      else { sb.auth.stopAutoRefresh(); }
+    } catch (e) {}
+  }
+
+  window.addEventListener('message', function (e) {
+    if (e.data && e.data.oht === 'active') setAutoRefresh(!!e.data.on);
+  });
+  /* Shell ke baghair (seedha URL se) khuli ho to refresh chalta rahe */
+  if (window.self === window.top) setTimeout(function () { setAutoRefresh(true); }, 0);
+
   $('cGo').addEventListener('click', function () {
     var url = $('cUrl').value.trim().replace(/\/+$/, '');
     var key = $('cKey').value.trim();
@@ -4385,8 +5034,10 @@
     $('lockBtn').style.display    = can('period_lock')     ? '' : 'none';
     $('bkBtn').style.display      = can('backup_restore')  ? '' : 'none';
     $('recycleBtn').style.display = can('recycle_bin')     ? '' : 'none';
-    $('agingBtn').style.display   = can('reports_view')    ? '' : 'none';
     $('plBtn').style.display      = can('reports_view')    ? '' : 'none';
+    $('agingBtn').style.display   = can('reports_view')    ? '' : 'none';
+    // Restore poore system ko badal deta hai — sirf admin
+    $('restoreBtn').style.display = !!(me && me.isAdmin) ? '' : 'none';
     $('tbBtn').style.display      = can('reports_view')    ? '' : 'none';
     $('usersBtn').style.display   = (me && me.isAdmin) ? '' : 'none';
     $('activityBtn').style.display = (me && me.isAdmin) ? '' : 'none';

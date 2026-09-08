@@ -125,6 +125,10 @@
   .brow .amt .tag { display:block; font-family:'IBM Plex Sans',sans-serif; font-size:9.5px;
                     font-weight:600; letter-spacing:.7px; margin-top:1px; }
   .amt.due .tag { color:var(--debit); } .amt.clr .tag { color:var(--credit); }
+  .loadmore { display:block; width:100%; padding:13px; margin:10px 0 4px; border:1px solid var(--line);
+              border-radius:10px; background:none; font-size:14px; font-weight:600; color:var(--ink); }
+  .loadmore span { display:block; font-size:12px; font-weight:400; color:var(--mute); margin-top:2px; }
+
   .datehead { position:sticky; top:0; z-index:2; background:var(--panel); color:var(--mute);
               font-size:10.5px; font-weight:700; letter-spacing:1.1px; padding:5px 12px;
               border-top:1px solid var(--hair); border-bottom:1px solid var(--hair); }
@@ -448,7 +452,14 @@
   var allVnos = [];   // sab vouchers ke numbers (deleted bhi shamil) — takraav se bachne ke liye
   var quotes = [], pos = [];   // Quotations aur Purchase Orders — alag arrays, vouchers/balance se koi taluq nahi
   var returns = [];   // Sales Returns — asal financial impact hai, is liye alag nahi (ledger/stock mein shamil)
-  var parties = [], items = [], bills = [], firms = [], warehouses = [], transfers = [], lineSeq = 0;
+  var parties = [], items = [], bills = [], firms = [], warehouses = [], transfers = [],
+      itemUnits = [], lineSeq = 0;
+
+  /* Ek dafa mein kitne bill. Har qism ka apna hissa — warna jis qism ke
+     bill naye hote wohi poori hadd bhar leta aur doosri tab khali lagti. */
+  var PAGE = 300;
+  var more = { sale:false, purchase:false };
+  var loadingMore = false;
   var firmName = 'Osman Haji Tayyab';
 
   /* ---------- helpers ---------- */
@@ -562,10 +573,52 @@
   function itemById(id)  { return items.filter(function (i) { return i.id === id; })[0] || null; }
 
   /* ---------- totals ---------- */
+  /* Unit ka option sirf SALE par — purchase par item ka apna unit hi */
+  function isSale() { return !!(bill && bill.vtype === 'sale'); }
+
+
+  function unitsOf(itemId) {
+    var it = itemById(itemId);
+    var base = { unit:(it && it.unit) || 'pcs', factor:1, rate:null, base:true };
+    var extra = itemUnits.filter(function (u) { return String(u.item_id) === String(itemId); })
+      .sort(function (a, b) { return (a.line_no || 0) - (b.line_no || 0); })
+      .map(function (u) {
+        return { unit:u.unit, factor:num(u.factor) || 1, rate:u.rate, base:false,
+                 is_default:!!u.is_default };
+      });
+    return [base].concat(extra);
+  }
+  function defaultUnitOf(itemId) {
+    var list = unitsOf(itemId);
+    return list.filter(function (u) { return u.is_default; })[0] || list[0];
+  }
+  function lineUnit(l) {
+    var list = unitsOf(l.item_id);
+    return list.filter(function (u) { return u.unit === l.sale_unit; })[0] || list[0];
+  }
+  function baseQty(l) {
+    var f = (l.sale_unit ? num(l.unit_factor) : 1);
+    return round2(num(l.sale_qty) * f);
+  }
+  function unitError(lines) {
+    var bad = (lines || []).filter(function (l) {
+      return l.item_id && num(l.sale_qty) > 0 && l.sale_unit && !(num(l.unit_factor) > 0);
+    });
+    if (!bad.length) return null;
+    var it = itemById(bad[0].item_id);
+    return '"' + (it ? it.name : 'Item') + '" par ' + bad[0].sale_unit +
+           ' chuna hai \u2014 conversion likhna zaroori hai (1 ' + bad[0].sale_unit +
+           ' = kitne ' + (it ? it.unit : '') + ').';
+  }
+  function lineAmount(l) {
+    var q = (l.sale_qty == null || l.sale_qty === '') ? num(l.qty) : num(l.sale_qty);
+    return round2(q * num(l.rate));
+  }
+
   function totals(b) {
     var sub = 0, tax = 0;
     (b.lines || []).forEach(function (l) {
-      var amt = round2(num(l.qty) * num(l.rate));
+      var amt = lineAmount(l);
       l.amount = amt; sub += amt;
       if (b.tax_on) tax += round2(amt * num(l.tax_pct) / 100);
     });
@@ -683,7 +736,63 @@
         '<div class="amt ' + (t.due > 0 ? 'due' : 'clr') + '">' + money(t.grand) +
         '<span class="tag">' + (t.due > 0 ? money(t.due) + ' DUE' : 'PAID') + '</span></div></div>';
     });
+    /* Aur bhi bill hain to unhein mangwane ka rasta \u2014 warna user ko
+       lagta hai ke bas itne hi hain. Search chal raha ho to nahi, kyunki
+       wo sirf mangaye hue bills mein dhoondta hai. */
+    if (!q && more[vtype]) {
+      html += '<button class="loadmore" id="loadMore">Aur bill dikhayein' +
+              '<span>' + list.length + ' dikh rahe hain</span></button>';
+    }
     box.innerHTML = html;
+
+    if ($('loadMore')) {
+      $('loadMore').addEventListener('click', function () {
+        if (loadingMore) return;
+        loadingMore = true;
+        this.textContent = 'Load ho rahe hain\u2026';
+        loadMoreBills(vtype);
+      });
+    }
+  }
+
+  /* Lines ko un ke bills se jodo */
+  function attachLines(rows) {
+    var byV = {};
+    rows.forEach(function (l) { (byV[l.voucher_id] = byV[l.voucher_id] || []).push(l); });
+    bills.forEach(function (b) {
+      if (byV[b.id]) {
+        b.lines = byV[b.id].sort(function (a, c) { return (a.line_no || 0) - (c.line_no || 0); });
+      } else if (!b.lines) {
+        b.lines = [];
+      }
+    });
+  }
+
+  /* Agle PAGE bills mangwao \u2014 jo abhi hain un se purane */
+  function loadMoreBills(kind) {
+    var have = bills.filter(function (b) { return b.vtype === kind; });
+    var oldest = have.reduce(function (d, b) {
+      return (!d || (b.vdate && b.vdate < d)) ? b.vdate : d;
+    }, null);
+    var q = sb.from('vouchers').select('*').is('deleted_at', null).eq('vtype', kind);
+    if (oldest) q = q.lte('vdate', oldest);
+    q.order('vdate', { ascending:false }).limit(PAGE + 50).then(function (r) {
+      if (r.error) { loadingMore = false; sayErr(r.error, 'load bills'); render(); return; }
+      var seen = {};
+      bills.forEach(function (b) { seen[b.id] = true; });
+      var fresh = (r.data || []).filter(function (b) { return !seen[b.id]; });
+      more[kind] = fresh.length > 0 && (r.data || []).length >= PAGE + 50;
+      if (!fresh.length) { more[kind] = false; loadingMore = false; render(); return; }
+      bills = bills.concat(fresh);
+      // in naye bills ki lines bhi chahiye
+      return sb.from('voucher_lines').select('*')
+        .in('voucher_id', fresh.map(function (b) { return b.id; }))
+        .then(function (lr) {
+          if (!lr.error) attachLines(lr.data || []);
+          loadingMore = false;
+          render();
+        });
+    }).catch(function (e) { loadingMore = false; sayErr(e, 'load bills'); render(); });
   }
 
   /* ---------- Quotations / Purchase Orders list — bilkul alag, koi due/paid concept nahi ---------- */
@@ -745,9 +854,26 @@
     return '<div class="docav doc-' + esc(type) + '"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" ' +
       'stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + path + '</svg></div>';
   }
+  /* Tab par jo ginti dikhti hai wo POORE database ki hai, sirf laaye hue
+     bills ki nahi \u2014 warna 20,000 bills par bhi "(300)" likha aata aur
+     user ko lagta ke bas itne hi hain. */
+  var totalCount = { sale:null, purchase:null };
+
   function countOf(t) {
-    var n = bills.filter(function (b) { return b.vtype === t; }).length;
+    var n = totalCount[t];
+    if (n == null) n = bills.filter(function (b) { return b.vtype === t; }).length;
     return n ? '(' + n + ')' : '';
+  }
+
+  function loadCounts() {
+    if (!sb) return;
+    ['sale', 'purchase'].forEach(function (t) {
+      sb.from('vouchers').select('id', { count:'exact', head:true })
+        .is('deleted_at', null).eq('vtype', t)
+        .then(function (r) {
+          if (!r.error) { totalCount[t] = r.count || 0; render(); }
+        }).catch(function () {});
+    });
   }
   function normalise(b) { b.lines = b.lines || []; return b; }
 
@@ -771,7 +897,9 @@
              company_id:d ? d.id : null, tax_on:false, discount:0, paid:0, lines:[newLine()],
              loading_on:false, loading_amt:0, cartage_on:false, cartage_amt:0, cutting_on:false, cutting_amt:0 };
   }
-  function newLine() { return { key:'L' + (++lineSeq), item_id:null, qty:'', rate:'', tax_pct:0, amount:0, pcs_on:false, pcs:null, warehouse_id:defaultWarehouseId() }; }
+  function newLine() { return { key:'L' + (++lineSeq), item_id:null, qty:'', sale_qty:'', sale_unit:null,
+                                unit_factor:1, rate:'', tax_pct:0, amount:0, pcs_on:false, pcs:null,
+                                warehouse_id:defaultWarehouseId() }; }
 
   var originalLineSnapshot = null;   // audit-diff ke liye — sirf existing bill edit karte waqt
   var originalHeadSnapshot = null;   // smart-merge ke liye — bill/doc/return ke header fields ka pehla version
@@ -782,8 +910,15 @@
     });
     if (!bill.lines.length) bill.lines.push(newLine());
     originalLineSnapshot = rec ? bill.lines.map(function (l) {
-      return { id:l.id, item_id:l.item_id, qty:num(l.qty), rate:num(l.rate),
-               tax_pct:num(l.tax_pct), amount:num(l.amount), pcs_on:!!l.pcs_on, pcs:l.pcs };
+      return { id:l.id, item_id:l.item_id, qty:num(l.qty),
+               sale_qty:l.sale_qty == null ? null : num(l.sale_qty),
+               sale_unit:l.sale_unit || null, unit_factor:num(l.unit_factor) || 1,
+               rate:num(l.rate),
+               tax_pct:num(l.tax_pct), amount:num(l.amount), pcs_on:!!l.pcs_on, pcs:l.pcs,
+               /* purani lines par yeh khaane khali hote hain \u2014 us surat mein
+                  item ka apna unit hi maana jata hai */
+               sale_unit:l.sale_unit || null, unit_factor:num(l.unit_factor) || 1,
+               sale_qty:(l.sale_qty == null || l.sale_qty === '') ? num(l.qty) : num(l.sale_qty) };
     }) : null;
     originalHeadSnapshot = rec ? JSON.parse(JSON.stringify(rec)) : null;
     dirty = false;
@@ -902,19 +1037,40 @@
   }
   function lineHtml(l, i) {
     var it = itemById(l.item_id);
-    var amt = round2(num(l.qty) * num(l.rate));
+    var amt = lineAmount(l);
+    var list = unitsOf(l.item_id);
+    var cur  = lineUnit(l);
+    var base = list[0].unit;
+    var showUnits = isSale() && list.length > 1;   // unit ka option sirf sale par
     return '<div class="ln" data-k="' + l.key + '">' +
       '<div class="top">' + pickBox('it_' + l.key, it ? it.name : '', 'Which item?') +
         '<button class="rm" data-rm="' + l.key + '" aria-label="Remove line">×</button></div>' +
+      (showUnits
+        ? '<div class="f" style="margin-bottom:6px"><label>Sale unit</label>' +
+            '<select class="lu" data-k="' + l.key + '">' +
+              list.map(function (u) {
+                return '<option value="' + esc(u.unit) + '"' +
+                       (u.unit === cur.unit ? ' selected' : '') + '>' + esc(u.unit) + '</option>';
+              }).join('') + '</select></div>'
+        : '') +
       '<div class="qr">' +
-        '<div class="f num"><label>Qty' + (it ? ' (' + esc(it.unit) + ')' : '') + '</label>' +
+        '<div class="f num"><label>Qty' + (cur ? ' (' + esc(cur.unit) + ')' : '') + '</label>' +
           '<input class="lq" data-k="' + l.key + '" type="text" inputmode="decimal" value="' +
-          (num(l.qty) ? fmt(l.qty) : '') + '" placeholder="0"></div>' +
-        '<div class="f num"><label>Rate</label>' +
+          (num(l.sale_qty) ? fmt(l.sale_qty) : '') + '" placeholder="0"></div>' +
+        '<div class="f num"><label>Rate' + (cur && !cur.base ? ' / ' + esc(cur.unit) : '') + '</label>' +
           '<input class="lr" data-k="' + l.key + '" type="text" inputmode="decimal" value="' +
           (num(l.rate) ? fmt(l.rate) : '') + '" placeholder="0"></div>' +
-        '<div class="tot" data-t="' + l.key + '">' + (amt ? money(amt) : '—') + '</div>' +
+        '<div class="tot" data-t="' + l.key + '">' + (amt ? money(amt) : '\u2014') + '</div>' +
       '</div>' +
+      (showUnits && cur && !cur.base
+        ? '<div class="f num" style="margin-top:6px"><label>1 ' + esc(cur.unit) + ' = kitne ' +
+            esc(base) + '</label>' +
+            '<input class="lf" data-k="' + l.key + '" type="text" inputmode="decimal" value="' +
+            (num(l.unit_factor) ? fmt(l.unit_factor) : '') + '" placeholder="0">' +
+            '<div class="hint" data-bq="' + l.key + '">' +
+              (baseQty(l) ? 'Stock se ' + fmt(baseQty(l)) + ' ' + esc(base) + ' minus hoga' : '') +
+            '</div></div>'
+        : '') +
       (warehouses.length > 1
         ? '<div class="f" style="margin-top:6px"><label>Warehouse</label><select class="lwh" data-k="' + l.key + '">' +
             warehouses.map(function (w) {
@@ -1025,19 +1181,60 @@
           l.tax_pct = num(it.tax_pct);
           if (!num(l.rate)) l.rate = b.vtype === 'purchase' ? num(it.buy_rate) : num(it.sale_rate);
         }
+        /* Sale par is item ka default unit khud lag jaye \u2014 us ka conversion
+           aur (agar rakha ho to) us ka rate bhi. User chahe to badal sakta hai. */
+        if (isSale()) {
+          var du = defaultUnitOf(r.id);
+          l.sale_unit   = du.base ? null : du.unit;
+          l.unit_factor = du.factor || 1;
+          if (!du.base && du.rate != null && du.rate !== '') l.rate = num(du.rate);
+        } else {
+          l.sale_unit = null; l.unit_factor = 1;
+        }
+        l.qty = baseQty(l);
         drawEditor();
       }, 'No item by that name. Add it in Masters first.');
     });
 
-    $('edBody').querySelectorAll('.lq, .lr').forEach(function (el) {
+    /* Qty ab CHUNE HUE unit mein likhi jati hai. Us se item ke apne unit ka
+       number khud nikal aata hai, aur wohi stock se ghatta hai. */
+    function syncLine(l) {
+      l.qty = baseQty(l);
+      var cell = $('edBody').querySelector('[data-t="' + l.key + '"]');
+      var amt = lineAmount(l);
+      l.amount = amt;
+      if (cell) cell.textContent = amt ? money(amt) : '\u2014';
+      var bq = $('edBody').querySelector('[data-bq="' + l.key + '"]');
+      if (bq) {
+        var base = unitsOf(l.item_id)[0].unit;
+        bq.textContent = l.qty ? 'Stock se ' + fmt(l.qty) + ' ' + base + ' minus hoga' : '';
+      }
+      refreshSum();
+    }
+
+    $('edBody').querySelectorAll('.lq, .lr, .lf').forEach(function (el) {
       el.addEventListener('input', function () {
         var l = lineByKey(this.getAttribute('data-k')); if (!l) return;
-        if (this.classList.contains('lq')) l.qty = num(this.value); else l.rate = num(this.value);
+        if (this.classList.contains('lq'))      l.sale_qty = num(this.value);
+        else if (this.classList.contains('lf')) l.unit_factor = num(this.value) || 1;
+        else                                    l.rate = num(this.value);
         dirty = true;
-        var cell = $('edBody').querySelector('[data-t="' + l.key + '"]');
-        var amt = round2(num(l.qty) * num(l.rate));
-        if (cell) cell.textContent = amt ? money(amt) : '—';
-        refreshSum();
+        syncLine(l);
+      });
+    });
+
+    /* Unit badla \u2014 us unit ka conversion aur rate khud aa jayein */
+    $('edBody').querySelectorAll('.lu').forEach(function (el) {
+      el.addEventListener('change', function () {
+        var l = lineByKey(this.getAttribute('data-k')); if (!l) return;
+        var v = this.value;
+        var u = unitsOf(l.item_id).filter(function (x) { return x.unit === v; })[0];
+        if (!u) return;
+        l.sale_unit   = u.base ? null : u.unit;
+        l.unit_factor = u.factor || 1;
+        if (u.rate != null && u.rate !== '') l.rate = num(u.rate);
+        l.qty = baseQty(l);
+        dirty = true; drawEditor();
       });
     });
     $('edBody').querySelectorAll('[data-rm]').forEach(function (btn) {
@@ -1131,7 +1328,7 @@
   function totalsFromLines(finalLines, b) {
     var sub = 0, tax = 0;
     finalLines.forEach(function (l) {
-      var amt = round2(num(l.qty) * num(l.rate));
+      var amt = lineAmount(l);
       sub += amt;
       if (b.tax_on) tax += round2(amt * num(l.tax_pct) / 100);
     });
@@ -1161,6 +1358,8 @@
     if (!b.party_id) { toast('Pick a party first', true); return; }
     var good = b.lines.filter(function (l) { return l.item_id && num(l.qty) > 0; });
     if (!good.length) { toast('Add at least one item with a quantity', true); return; }
+    var uErr = unitError(good);
+    if (uErr) { toast(uErr, true); return; }
     var t = totals(b);
     var isNew = !b.id;
     var recId = isNew ? uuid() : b.id;
@@ -1174,8 +1373,11 @@
       cutting_on:!!b.cutting_on, cutting_amt:num(b.cutting_amt)
     };
     var linesForMerge = good.map(function (l) {
-      return { id:l.id || null, item_id:l.item_id, qty:num(l.qty), rate:num(l.rate),
-               tax_pct:num(l.tax_pct), amount:round2(num(l.qty) * num(l.rate)),
+      return { id:l.id || null, item_id:l.item_id, qty:num(l.qty),
+               sale_qty:l.sale_qty == null ? null : num(l.sale_qty),
+               sale_unit:l.sale_unit || null, unit_factor:num(l.unit_factor) || 1,
+               rate:num(l.rate),
+               tax_pct:num(l.tax_pct), amount:lineAmount(l),
                pcs_on:!!l.pcs_on, pcs:l.pcs_on ? num(l.pcs) : null,
                warehouse_id:l.warehouse_id || defaultWarehouseId() };
     });
@@ -1317,8 +1519,15 @@
     if (!bill.lines.length) bill.lines.push(newLine());
     originalHeadSnapshot = rec ? JSON.parse(JSON.stringify(rec)) : null;
     originalLineSnapshot = rec ? bill.lines.map(function (l) {
-      return { id:l.id, item_id:l.item_id, qty:num(l.qty), rate:num(l.rate),
-               tax_pct:num(l.tax_pct), amount:num(l.amount), pcs_on:!!l.pcs_on, pcs:l.pcs };
+      return { id:l.id, item_id:l.item_id, qty:num(l.qty),
+               sale_qty:l.sale_qty == null ? null : num(l.sale_qty),
+               sale_unit:l.sale_unit || null, unit_factor:num(l.unit_factor) || 1,
+               rate:num(l.rate),
+               tax_pct:num(l.tax_pct), amount:num(l.amount), pcs_on:!!l.pcs_on, pcs:l.pcs,
+               /* purani lines par yeh khaane khali hote hain \u2014 us surat mein
+                  item ka apna unit hi maana jata hai */
+               sale_unit:l.sale_unit || null, unit_factor:num(l.unit_factor) || 1,
+               sale_qty:(l.sale_qty == null || l.sale_qty === '') ? num(l.qty) : num(l.sale_qty) };
     }) : null;
     dirty = false;
     $('edTitle').textContent = (rec ? 'Edit ' : 'New ') + (isQ ? 'quotation' : 'purchase order');
@@ -1347,6 +1556,8 @@
     if (!b.party_id) { toast('Pick a party first', true); return; }
     var good = b.lines.filter(function (l) { return l.item_id && num(l.qty) > 0; });
     if (!good.length) { toast('Add at least one item with a quantity', true); return; }
+    var uErr = unitError(good);
+    if (uErr) { toast(uErr, true); return; }
     var t = totals(b);
     var table = isQ ? 'quotations' : 'purchase_orders';
     var lineTable = isQ ? 'quotation_lines' : 'po_lines';
@@ -1368,8 +1579,11 @@
       head.cutting_on = !!b.cutting_on; head.cutting_amt = num(b.cutting_amt);
     }
     var linesForMerge = good.map(function (l) {
-      return { id:l.id || null, item_id:l.item_id, qty:num(l.qty), rate:num(l.rate),
-               tax_pct:num(l.tax_pct), amount:round2(num(l.qty) * num(l.rate)),
+      return { id:l.id || null, item_id:l.item_id, qty:num(l.qty),
+               sale_qty:l.sale_qty == null ? null : num(l.sale_qty),
+               sale_unit:l.sale_unit || null, unit_factor:num(l.unit_factor) || 1,
+               rate:num(l.rate),
+               tax_pct:num(l.tax_pct), amount:lineAmount(l),
                pcs_on:!!l.pcs_on, pcs:l.pcs_on ? num(l.pcs) : null };
     });
     var linesPayload = linesForMerge.map(function (l) { var o = Object.assign({}, l); delete o.id; return o; });
@@ -1507,7 +1721,9 @@
       cutting_on:!!b.cutting_on, cutting_amt:num(b.cutting_amt),
       lines:(b.lines || []).filter(function (l) { return l.item_id && num(l.qty) > 0; }).map(function (l) {
         return { key:'L' + (++lineSeq), item_id:l.item_id, qty:l.qty, rate:l.rate, tax_pct:num(l.tax_pct), amount:l.amount,
-                 pcs_on:!!l.pcs_on, pcs:l.pcs };
+                 pcs_on:!!l.pcs_on, pcs:l.pcs,
+                 sale_unit:l.sale_unit || null, unit_factor:num(l.unit_factor) || 1,
+                 sale_qty:(l.sale_qty == null || l.sale_qty === '') ? num(l.qty) : num(l.sale_qty) };
       })
     };
     if (!newBill.lines.length) newBill.lines.push(newLine());
@@ -1658,10 +1874,18 @@
       var avail = returnableQtyFor(sl.id, num(sl.qty));
       var exLine = existingLineByLine[sl.id];
       if (exLine) avail = round2(avail + num(exLine.qty));   // apni hi purani qty wapas jodo (edit ke liye)
+      /* Wapsi usi unit mein hoti hai jis mein bikka tha — aur usi
+         conversion se. Rate bhi usi unit ka hai. */
+      var f = num(sl.unit_factor) || 1;
       return {
         id:exLine ? exLine.id : null, sale_line_id:sl.id, item_id:sl.item_id,
-        item_name:it ? it.name : '', unit:it ? it.unit : '',
-        rate:num(sl.rate), max:avail, qty:exLine ? num(exLine.qty) : 0,
+        item_name:it ? it.name : '',
+        unit:sl.sale_unit || (it ? it.unit : ''),
+        base_unit:it ? it.unit : '',
+        sale_unit:sl.sale_unit || null, unit_factor:f,
+        rate:num(sl.rate),
+        max:round2(avail / f),
+        qty:exLine ? round2(num(exLine.qty) / f) : 0,
         warehouse_id:exLine ? (exLine.warehouse_id || sl.warehouse_id) : sl.warehouse_id
       };
     });
@@ -1787,8 +2011,13 @@
       updated_at:new Date().toISOString()
     };
     var linesForMerge = good.map(function (l) {
-      return { id:l.id || null, sale_line_id:l.sale_line_id, item_id:l.item_id, qty:num(l.qty), rate:l.rate,
-               amount:round2(num(l.qty) * l.rate), warehouse_id:l.warehouse_id || defaultWarehouseId() };
+      var f = num(l.unit_factor) || 1;
+      return { id:l.id || null, sale_line_id:l.sale_line_id, item_id:l.item_id,
+               // qty hamesha item ke apne unit mein — stock aur costing isi par chalte hain
+               qty:round2(num(l.qty) * f),
+               sale_qty:num(l.qty), sale_unit:l.sale_unit || null, unit_factor:f,
+               rate:l.rate, amount:round2(num(l.qty) * l.rate),
+               warehouse_id:l.warehouse_id || defaultWarehouseId() };
     });
     var linesPayload = linesForMerge.map(function (l) { var o = Object.assign({}, l); delete o.id; return o; });
     var priorRow = isNew ? null : returns.filter(function (x) { return x.id === recId; })[0];
@@ -1852,7 +2081,7 @@
         }).then(function (ar) {
           if (ar.error) throw ar.error;
           return fetch_lines('sales_return_lines', 'return_id', recId).then(function (finalLines) {
-            var sum = 0; finalLines.forEach(function (l) { sum += round2(num(l.qty) * num(l.rate)); });
+            var sum = 0; finalLines.forEach(function (l) { sum += lineAmount(l); });
             sum = round2(sum);
             return finishReturnSave(row, finalLines, recId, head, { total:sum });
           });
@@ -2225,12 +2454,21 @@
 
     var rows = good.map(function (l, i) {
       var it = itemById(l.item_id);
+      /* Bill par wohi unit aur qty chapti hai jo user ne likhi. Agar wo item
+         ke apne unit se alag ho, to neeche chhote harfon mein asal unit ka
+         wazan bhi \u2014 taake party ko dono nazar aayen. */
+      var alt = l.sale_unit && String(l.sale_unit) !== String(it ? it.unit : '');
+      var shownQty  = alt ? num(l.sale_qty) : num(l.qty);
+      var shownUnit = alt ? l.sale_unit : (it ? it.unit : '');
       return '<tr><td class="c">' + (i + 1) + '</td><td>' + esc(it ? it.name : '') +
+             (alt ? '<div style="font-size:8.5pt;color:#9C9384">' + fmt(l.unit_factor) + ' ' +
+                    esc(it ? it.unit : '') + ' per ' + esc(l.sale_unit) + '  \u00b7  ' +
+                    fmt(l.qty) + ' ' + esc(it ? it.unit : '') + '</div>' : '') +
              (l.pcs_on && num(l.pcs) ? '<div style="font-size:8.5pt;color:#9C9384">' + fmt(l.pcs) + ' pcs</div>' : '') + '</td>' +
-             '<td class="c">' + esc(it ? it.unit : '') + '</td>' +
-             '<td class="r">' + fmt(l.qty) + '</td><td class="r">' + money(l.rate) + '</td>' +
+             '<td class="c">' + esc(shownUnit) + '</td>' +
+             '<td class="r">' + fmt(shownQty) + '</td><td class="r">' + money(l.rate) + '</td>' +
              (b.tax_on ? '<td class="r">' + fmt(l.tax_pct) + '%</td>' : '') +
-             '<td class="r">' + money(round2(num(l.qty) * num(l.rate))) + '</td></tr>';
+             '<td class="r">' + money(lineAmount(l)) + '</td></tr>';
     }).join('');
 
     var cols = b.tax_on ? 7 : 6;
@@ -2586,7 +2824,14 @@
         return Promise.all([
           sb.from('parties').select('*'),
           sb.from('items').select('*'),
-          sb.from('vouchers').select('*').is('deleted_at', null).order('vdate', { ascending:false }).limit(600),
+          /* Sale aur purchase ki ALAG query. Pehle ek hi query 600 laati
+             thi aur tab ke mutabiq chhaanti thi \u2014 magar jis qism ke bill
+             naye hote, wohi 600 bhar leta aur doosri tab tقریban khali
+             nazar aati thi. Ab dono ko apna poora hissa milta hai. */
+          sb.from('vouchers').select('*').is('deleted_at', null).eq('vtype', 'sale')
+            .order('vdate', { ascending:false }).limit(PAGE),
+          sb.from('vouchers').select('*').is('deleted_at', null).eq('vtype', 'purchase')
+            .order('vdate', { ascending:false }).limit(PAGE),
           sb.from('voucher_lines').select('*'),
           sb.from('companies').select('*'),
           ledgerVoucherQuery,
@@ -2601,49 +2846,51 @@
           ledgerReturnQuery,
           sb.from('warehouses').select('*').is('deleted_at', null).order('name'),
           sb.from('stock_transfers').select('*').is('deleted_at', null).order('tdate', { ascending:false }).limit(300),
-          sb.from('stock_transfer_lines').select('*')
+          sb.from('stock_transfer_lines').select('*'),
+          // aakhir mein — beech mein daalne se baqi ke index khisak jate hain
+          sb.from('item_units').select('*').order('line_no')
         ]).then(function (r) {
           r.slice(0, 4).forEach(function (x) { if (x.error) throw x.error; });
           parties = r[0].data || [];
           items   = r[1].data || [];
-          bills   = r[2].data || [];
-          firms   = r[4].error ? [] : (r[4].data || []);        // SQL na chali ho to bhi bill bane
-          warehouses = r[15] && !r[15].error ? (r[15].data || []) : [];
-          transfers = r[16] && !r[16].error ? (r[16].data || []) : [];
+          // Sale aur purchase alag alag aate hain, phir mila diye jate hain
+          bills   = (r[2].data || []).concat(r[3].data || []);
+          more.sale     = (r[2].data || []).length >= PAGE;
+          more.purchase = (r[3].data || []).length >= PAGE;
+          firms   = r[5].error ? [] : (r[5].data || []);        // SQL na chali ho to bhi bill bane
+          warehouses = r[16] && !r[16].error ? (r[16].data || []) : [];
+          transfers = r[17] && !r[17].error ? (r[17].data || []) : [];
+          itemUnits = r[19] && !r[19].error ? (r[19].data || []) : [];   // SQL na chali ho to bhi bill bane
           var byTr = {};
-          (r[17] && !r[17].error ? (r[17].data || []) : []).forEach(function (l) {
+          (r[18] && !r[18].error ? (r[18].data || []) : []).forEach(function (l) {
             (byTr[l.transfer_id] = byTr[l.transfer_id] || []).push(l);
           });
           transfers.forEach(function (t) { t.lines = (byTr[t.id] || []).sort(function (a, b) { return (a.line_no || 0) - (b.line_no || 0); }); });
-          ledgerVouchers = r[5].error ? [] : (r[5].data || []); // party balance ke liye poora/lock-ke-baad set
-          sheets  = r[6].error ? [] : (r[6].data || []);        // ledger sheets
+          ledgerVouchers = r[6].error ? [] : (r[6].data || []); // party balance ke liye poora/lock-ke-baad set
+          sheets  = r[7].error ? [] : (r[7].data || []);        // ledger sheets
           lockDate = ld; snapshotActive = active; openingBalances = ob;
-          allVnos = r[11].error ? bills : (r[11].data || []);   // fail ho to kam se kam active bills se hi kaam chale
+          allVnos = r[12].error ? bills : (r[12].data || []);   // fail ho to kam se kam active bills se hi kaam chale
 
           // Quotations aur Purchase Orders — bilkul alag, koi balance/stock impact nahi
-          quotes = r[7].error ? [] : (r[7].data || []);
-          pos    = r[9].error ? [] : (r[9].data || []);
-          var byQ = {}; (r[8].error ? [] : (r[8].data || [])).forEach(function (l) { (byQ[l.quotation_id] = byQ[l.quotation_id] || []).push(l); });
+          quotes = r[8].error ? [] : (r[8].data || []);
+          pos    = r[10].error ? [] : (r[10].data || []);
+          var byQ = {}; (r[9].error ? [] : (r[9].data || [])).forEach(function (l) { (byQ[l.quotation_id] = byQ[l.quotation_id] || []).push(l); });
           quotes.forEach(function (q) { q.lines = (byQ[q.id] || []).sort(function (a, c) { return (a.line_no || 0) - (c.line_no || 0); }); });
-          var byP = {}; (r[10].error ? [] : (r[10].data || [])).forEach(function (l) { (byP[l.po_id] = byP[l.po_id] || []).push(l); });
+          var byP = {}; (r[11].error ? [] : (r[11].data || [])).forEach(function (l) { (byP[l.po_id] = byP[l.po_id] || []).push(l); });
           pos.forEach(function (p) { p.lines = (byP[p.id] || []).sort(function (a, c) { return (a.line_no || 0) - (c.line_no || 0); }); });
 
           // Sales Returns — asal financial impact hai (party balance/stock), is liye
           // ledgerReturns ledgerVouchers jaisa hi scope follow karta hai (lock-ke-baad ya poora)
-          returns = r[12].error ? [] : (r[12].data || []);
-          var byR = {}; (r[13].error ? [] : (r[13].data || [])).forEach(function (l) { (byR[l.return_id] = byR[l.return_id] || []).push(l); });
+          returns = r[13].error ? [] : (r[13].data || []);
+          var byR = {}; (r[14].error ? [] : (r[14].data || [])).forEach(function (l) { (byR[l.return_id] = byR[l.return_id] || []).push(l); });
           returns.forEach(function (rr) { rr.lines = (byR[rr.id] || []).sort(function (a, c) { return (a.line_no || 0) - (c.line_no || 0); }); });
-          ledgerReturns = r[14].error ? [] : (r[14].data || []);
+          ledgerReturns = r[15].error ? [] : (r[15].data || []);
 
           // lock set hai lekin snapshot missing/stale mile — masters.html khud theek kar lega
           // agli baar wahan se khula jaye; yahan billing.html mein sirf safe fallback kaafi hai
 
-          var byV = {};
-          (r[3].data || []).forEach(function (l) { (byV[l.voucher_id] = byV[l.voucher_id] || []).push(l); });
-          bills.forEach(function (b) {
-            b.lines = (byV[b.id] || []).sort(function (a, c) { return (a.line_no || 0) - (c.line_no || 0); });
-          });
-          syncNote(''); render(); tryOpenWanted();
+          attachLines(r[4].data || []);
+          syncNote(''); render(); loadCounts(); tryOpenWanted();
           // agar bill khula hua hai aur sheets ab aa gayi hain to balance dobara theek karo
           refreshOpenBillBalance();
           cacheSave('parties', parties); cacheSave('items', items); cacheSave('bills', bills);
@@ -2811,9 +3058,33 @@
   function showErr(id, msg) { var el = $(id); el.textContent = msg; el.classList.toggle('on', !!msg); }
   function makeClient(url, key) {
     return window.supabase.createClient(url, key, {
-      auth: { persistSession:true, autoRefreshToken:true }
+      auth: { persistSession:true, autoRefreshToken:false }
     });
   }
+
+  /* ---------- Session ka refresh ----------
+     Teenon apps ek hi waqt mein khuli rehti hain aur teenon ka apna
+     Supabase client hai. Agar teenon token refresh karein to ek doosre
+     ka session tor deti hain — user achanak sign out ho jata hai.
+     Is liye refresh sirf WOHI app karti hai jo abhi saamne hai; shell
+     batata hai ke kaun saamne hai. */
+  var autoRefreshOn = false;
+
+  function setAutoRefresh(on) {
+    if (!sb || !sb.auth || autoRefreshOn === on) return;
+    autoRefreshOn = on;
+    try {
+      if (on) { sb.auth.getSession().then(function () { sb.auth.startAutoRefresh(); }); }
+      else { sb.auth.stopAutoRefresh(); }
+    } catch (e) {}
+  }
+
+  window.addEventListener('message', function (e) {
+    if (e.data && e.data.oht === 'active') setAutoRefresh(!!e.data.on);
+  });
+  /* Shell ke baghair (seedha URL se) khuli ho to refresh chalta rahe */
+  if (window.self === window.top) setTimeout(function () { setAutoRefresh(true); }, 0);
+
   $('cGo').addEventListener('click', function () {
     var url = $('cUrl').value.trim().replace(/\/+$/, ''), key = $('cKey').value.trim();
     showErr('cErr', '');

@@ -718,9 +718,33 @@
   function makeClient(cfg) {
     if (!window.supabase || !cfg) return null;
     return window.supabase.createClient(cfg.url, cfg.key, {
-      auth: { persistSession: true, autoRefreshToken: true }
+      auth: { persistSession: true, autoRefreshToken: false }
     });
   }
+
+  /* ---------- Session ka refresh ----------
+     Teenon apps ek hi waqt mein khuli rehti hain aur teenon ka apna
+     Supabase client hai. Agar teenon token refresh karein to ek doosre
+     ka session tor deti hain — user achanak sign out ho jata hai.
+     Is liye refresh sirf WOHI app karti hai jo abhi saamne hai; shell
+     batata hai ke kaun saamne hai. */
+  var autoRefreshOn = false;
+
+  function setAutoRefresh(on) {
+    if (!sb || !sb.auth || autoRefreshOn === on) return;
+    autoRefreshOn = on;
+    try {
+      if (on) { sb.auth.getSession().then(function () { sb.auth.startAutoRefresh(); }); }
+      else { sb.auth.stopAutoRefresh(); }
+    } catch (e) {}
+  }
+
+  window.addEventListener('message', function (e) {
+    if (e.data && e.data.oht === 'active') setAutoRefresh(!!e.data.on);
+  });
+  /* Shell ke baghair (seedha URL se) khuli ho to refresh chalta rahe */
+  if (window.self === window.top) setTimeout(function () { setAutoRefresh(true); }, 0);
+
 
   /* pull every sheet from the cloud into the local copy */
   // net band hone ki ghalti aur asli cloud ghalti me farq

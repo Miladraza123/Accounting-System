@@ -278,6 +278,7 @@
       f.title = app.label;
       f.addEventListener('load', function () {
         $('boot').style.display = 'none';
+        try { f.contentWindow.postMessage({ oht:'active', on:(current === key) }, '*'); } catch (e) {}
         if (pending[key]) { deliver(key, pending[key]); delete pending[key]; }
       });
       $('stage').appendChild(f);
@@ -287,7 +288,13 @@
       $('boot').style.display = 'none';
     }
 
-    Object.keys(frames).forEach(function (k) { frames[k].classList.toggle('on', k === key); });
+    Object.keys(frames).forEach(function (k) {
+      frames[k].classList.toggle('on', k === key);
+      /* Session ka refresh sirf khuli hui app kare. Warna teenon apps ek
+         saath token refresh karti hain aur ek doosre ka session tor deti
+         hain — user achanak sign out ho jata hai. */
+      try { frames[k].contentWindow.postMessage({ oht:'active', on:(k === key) }, '*'); } catch (e) {}
+    });
     document.querySelectorAll('.nb').forEach(function (b) {
       b.classList.toggle('on', b.getAttribute('data-k') === key);
     });
