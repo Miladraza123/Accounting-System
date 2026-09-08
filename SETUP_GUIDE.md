@@ -53,15 +53,21 @@ hain — code mein kahin nahi likhi jatin.
 
 1. Apni repo GitHub par kholein
 2. **Settings** tab → left menu mein **Secrets and variables → Actions**
-3. **"New repository secret"** dabayein, ye 5 secrets ek-ek kar ke banayein:
+3. **"New repository secret"** dabayein, ye 7 secrets ek-ek kar ke banayein:
 
    | Name | Value |
    |---|---|
    | `SUPABASE_URL` | wahi jo masters.html mein use hoti hai |
    | `SUPABASE_ANON_KEY` | wahi jo masters.html mein use hoti hai |
+   | `BACKUP_EMAIL` | wahi email jis se aap Masters mein "Sign in" karte hain |
+   | `BACKUP_PASSWORD` | usi account ka password |
    | `GMAIL_USER` | aapka Gmail address (jaise `milad@gmail.com`) |
    | `GMAIL_APP_PASSWORD` | Step 2 wala 16-character password (spaces hata dein) |
    | `BACKUP_TO_EMAIL` | jahan backup email jani hai (aapka apna email bhi ho sakta hai) |
+
+   `BACKUP_EMAIL` aur `BACKUP_PASSWORD` ke bina script Supabase mein sign-in
+   nahi kar sakti, aur backup khali ya nakaam aayega. Behtar hai is ke liye
+   ek alag admin account banayein, taake password badalne par backup na ruke.
 
 ---
 
