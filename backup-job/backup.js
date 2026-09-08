@@ -114,6 +114,11 @@ async function buildExcel(data) {
   const S = (data.sheets || []).filter(notDeleted).sort(function (a, b) { return (a.sheet_date || '') < (b.sheet_date || '') ? -1 : 1; });
   const R = (data.sales_returns || []).filter(notDeleted);
 
+  /* Service invoices \u2014 party ke ledger mein normal receivable ki tarah
+     aate hain, is liye statement mein bhi saath chalte hain. */
+  const SI = (data.service_invoices || []).filter(notDeleted)
+    .filter(function (x) { return x.status !== 'cancelled'; });
+
   const partyName = {}; P.forEach(function (p) { partyName[p.id] = p.name; });
   const itemName = {}; I.forEach(function (i) { itemName[i.id] = i.name; });
   const firmName = {}; C.forEach(function (c) { firmName[c.id] = c.name; });
@@ -166,7 +171,8 @@ async function buildExcel(data) {
   P.forEach(function (p) {
     var pB = V.filter(function (v) { return v.party_id === p.id; });
     var pR = R.filter(function (rr) { return rr.party_id === p.id; });
-    if (!pB.length && !pR.length && !Number(p.opening)) return;
+    var pS = SI.filter(function (x) { return x.party_id === p.id; });
+    if (!pB.length && !pR.length && !pS.length && !Number(p.opening)) return;
     setCell(wsA, rowA, 1, p.name + (p.city ? '  \u2014  ' + p.city : ''), { title: true }); rowA++;
     ['Date', 'Particulars', 'Debit', 'Credit', 'Balance'].forEach(function (h, i) {
       setCell(wsA, rowA, i + 1, h, { header: true, color: MUTE, align: i >= 2 ? 'right' : 'left' });
@@ -179,7 +185,8 @@ async function buildExcel(data) {
     }
     // Bills aur Returns dono ko ek hi timeline mein, tareekh ke hisaab se jama karte hain
     var timeline = pB.map(function (v) { return { kind: 'voucher', date: v.vdate, rec: v }; })
-      .concat(pR.map(function (rr) { return { kind: 'return', date: rr.rdate, rec: rr }; }));
+      .concat(pR.map(function (rr) { return { kind: 'return', date: rr.rdate, rec: rr }; }))
+      .concat(pS.map(function (iv) { return { kind: 'service', date: iv.sidate, rec: iv }; }));
     timeline.sort(function (a, b) { return (a.date || '') < (b.date || '') ? -1 : 1; });
     timeline.forEach(function (item) {
       if (item.kind === 'voucher') {
@@ -192,6 +199,17 @@ async function buildExcel(data) {
         setCell(wsA, rowA, 2, (v.vtype === 'sale' ? 'Sale ' : 'Purchase ') + v.vno + ' \u2014 ' + (partyName[v.party_id] || '') + ' (' + lns + ' item' + (lns !== 1 ? 's' : '') + ')', { border: true });
         setCell(wsA, rowA, 3, dr || '', { bold: !!dr, color: DR_C, align: 'right', border: true, numFmt: dr ? INT_FMT : undefined });
         setCell(wsA, rowA, 4, cr || '', { bold: !!cr, color: CR_C, align: 'right', border: true, numFmt: cr ? INT_FMT : undefined });
+      } else if (item.kind === 'service') {
+        /* Service Invoice: maal ka bill nahi, magar paisa usi tarah aana
+           hai \u2014 is liye ledger mein normal receivable ki tarah chalta hai. */
+        var iv = item.rec;
+        var sg = Number(iv.grand_total) || 0, sp = Number(iv.paid) || 0;
+        bal += sg - sp;
+        setCell(wsA, rowA, 1, iv.sidate || '', { border: true });
+        setCell(wsA, rowA, 2, 'Service Invoice ' + (iv.sino || '') +
+          (iv.billing_label ? ' \u2014 ' + iv.billing_label : ''), { border: true });
+        setCell(wsA, rowA, 3, sg, { bold: true, color: DR_C, align: 'right', border: true, numFmt: INT_FMT });
+        setCell(wsA, rowA, 4, sp || '', { bold: !!sp, color: CR_C, align: 'right', border: true, numFmt: sp ? INT_FMT : undefined });
       } else {
         // Sales Return: customer jitna wapas kare utna kam owe karta hai
         var rr = item.rec, ramt = Number(rr.grand_total) || 0;
@@ -307,8 +325,11 @@ function buildRestoreJson(data) {
 const RESTORE_ORDER = [
   'app_settings', 'period_lock',
   'warehouses', 'companies', 'parties', 'party_kinds', 'items',
+  'services',
   'vouchers', 'voucher_lines',
   'sales_returns', 'sales_return_lines',
+  'service_invoices', 'service_invoice_lines',
+  'recurring_service_templates',
   'quotations', 'quotation_lines',
   'purchase_orders', 'po_lines',
   'stock_transfers', 'stock_transfer_lines', 'stock_adjustments',
