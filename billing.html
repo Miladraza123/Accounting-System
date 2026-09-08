@@ -364,6 +364,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1h11"/></svg>
         Purchase order<span class="n" id="nPo"></span>
       </button>
+      <button class="sb-item" data-t="service">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3.2"/><path d="M12 4v2M12 18v2M4 12h2M18 12h2M6.3 6.3l1.5 1.5M16.2 16.2l1.5 1.5M6.3 17.7l1.5-1.5M16.2 7.8l1.5-1.5"/></svg>
+        Service invoice<span class="n" id="nSvc"></span>
+      </button>
       <button class="sb-item" data-t="return">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 15l-4-4 4-4"/><path d="M5 11h9a5 5 0 015 5v1"/></svg>
         Sales return<span class="n" id="nRet"></span>
@@ -453,7 +457,7 @@
   var quotes = [], pos = [];   // Quotations aur Purchase Orders — alag arrays, vouchers/balance se koi taluq nahi
   var returns = [];   // Sales Returns — asal financial impact hai, is liye alag nahi (ledger/stock mein shamil)
   var parties = [], items = [], bills = [], firms = [], warehouses = [], transfers = [],
-      itemUnits = [], lineSeq = 0;
+      itemUnits = [], services = [], svcInvoices = [], lineSeq = 0;
 
   /* Ek dafa mein kitne bill. Har qism ka apna hissa — warna jis qism ke
      bill naye hote wohi poori hadd bhar leta aur doosri tab khali lagti. */
@@ -692,6 +696,7 @@
     if (vtype === 'quotation' || vtype === 'po') { renderDocs(); return; }
     if (vtype === 'return') { renderReturns(); return; }
     if (vtype === 'transfer') { renderTransfers(); return; }
+    if (vtype === 'service')  { renderServiceInvoices(); return; }
     var q = norm($('q').value);
     var list = bills.filter(function (b) { return b.vtype === vtype; });
     if (q) list = list.filter(function (b) {
@@ -2146,6 +2151,113 @@
     return 'T-' + String(max + 1).padStart(4, '0');
   }
 
+  /* ============================================================
+     SERVICE INVOICE
+
+     Yeh maal ka bill NAHI hai. Na stock, na COGS, na inventory. Is liye
+     screen bhi saada hai \u2014 na warehouse, na unit, na pcs. Bas service,
+     tafseel, qty, rate.
+
+     Rate hamesha editable hai. Service master ka rate sirf shuruati hai;
+     har customer ko alag rate diya ja sakta hai.
+     ============================================================ */
+
+  function serviceById(id) { return services.filter(function (x) { return x.id === id; })[0] || null; }
+
+  /* Due date ki tarteeb (bills jaisi):
+       1. Invoice par apni due date likhi ho to wohi
+       2. Warna party ke credit_days se
+       3. Warna invoice ki tareekh hi */
+  function svcDueDate(inv) {
+    if (inv.due_date) return inv.due_date;
+    var p = partyById(inv.party_id);
+    var days = p ? (Number(p.credit_days) || 0) : 0;
+    if (!inv.sidate) return null;
+    var d = new Date(inv.sidate + 'T00:00:00');
+    d.setDate(d.getDate() + days);
+    return d.toISOString().slice(0, 10);
+  }
+
+  /* Status kahin mehfooz nahi karte \u2014 paid aur due date se khud nikalta
+     hai. Do jagah rakhne se dono kabhi na kabhi alag ho jate hain. */
+  function svcStatus(inv) {
+    if (inv.status === 'cancelled') return { k:'cancelled', label:'CANCELLED' };
+    if (inv.status === 'draft')     return { k:'draft',     label:'DRAFT' };
+    var g = num(inv.grand_total), p = num(inv.paid);
+    if (p >= g && g > 0)  return { k:'paid',    label:'PAID' };
+    var due = svcDueDate(inv);
+    var late = due && due < today();
+    if (p > 0)  return { k:late ? 'overdue' : 'partial',
+                         label:(late ? 'OVERDUE \u00b7 ' : '') + 'PART PAID' };
+    return late ? { k:'overdue', label:'OVERDUE' } : { k:'unpaid', label:'UNPAID' };
+  }
+
+  function svcLineAmount(l) {
+    return round2(num(l.qty) * num(l.rate) - num(l.discount));
+  }
+  function svcTotals(inv) {
+    var lines = inv.lines || [];
+    var sub = lines.reduce(function (t, l) { return t + svcLineAmount(l); }, 0);
+    var tax = inv.tax_on
+      ? lines.reduce(function (t, l) { return t + round2(svcLineAmount(l) * num(l.tax_pct) / 100); }, 0)
+      : 0;
+    var grand = round2(sub - num(inv.discount) + tax);
+    return { sub:round2(sub), tax:round2(tax), grand:grand,
+             due:round2(grand - num(inv.paid)) };
+  }
+
+  function renderServiceInvoices() {
+    var q = norm($('q').value);
+    var list = svcInvoices.slice();
+    if (q) list = list.filter(function (v) {
+      var p = partyById(v.party_id);
+      return (norm(v.sino) + ' ' + norm(p && p.name) + ' ' +
+              norm(v.narration) + ' ' + norm(v.billing_label)).indexOf(q) !== -1;
+    });
+    list.sort(function (a, b) {
+      if (a.sidate !== b.sidate) return a.sidate < b.sidate ? 1 : -1;
+      return (a.created_at || '') < (b.created_at || '') ? 1 : -1;
+    });
+
+    $('nSvc').textContent = svcInvoices.length ? '(' + svcInvoices.length + ')' : '';
+    $('searchWrap').classList.toggle('has', !!$('q').value);
+
+    var box = $('rows');
+    if (!list.length) {
+      box.innerHTML = '<div class="empty">' + (q
+        ? '<div class="big">Nothing matched \u201c' + esc($('q').value) + '\u201d</div>'
+        : '<div class="big">Koi service invoice nahi</div><div class="sm">Subscription, ' +
+          'maintenance, consultancy \u2014 jo bhi charge karte hain aur us ka maal se koi ' +
+          'taluq nahi. Stock par is ka koi asar nahi padta.</div>') + '</div>';
+      return;
+    }
+
+    var html = '', day = '';
+    list.forEach(function (v) {
+      if (v.sidate !== day) { day = v.sidate; html += '<div class="datehead">' + esc(human(day)) + '</div>'; }
+      var p = partyById(v.party_id);
+      var st = svcStatus(v);
+      var t = svcTotals(v);
+      var cnt = (v.lines || []).length;
+      html += '<div class="brow" data-svc="' + v.id + '" tabindex="0" role="button">' +
+        '<div class="dicon svc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+          'stroke-width="1.8"><circle cx="12" cy="12" r="3.2"/><path d="M12 5v2M12 17v2M5 12h2' +
+          'M17 12h2"/></svg></div>' +
+        '<div class="no">' + esc(v.sino || '\u2014') + '</div><div class="mid">' +
+        '<div class="nm">' + esc(p ? p.name : 'No party') + '</div>' +
+        '<div class="sub">' + cnt + (cnt === 1 ? ' service' : ' services') +
+          (v.billing_label ? ' \u00b7 ' + esc(v.billing_label) : '') +
+          (v.tax_on ? ' \u00b7 with tax' : '') + '</div></div>' +
+        '<div class="amt ' + (t.due > 0 ? 'due' : 'clr') + '">' + money(t.grand) +
+        '<span class="tag">' + esc(st.label) + '</span></div></div>';
+    });
+    box.innerHTML = html;
+
+    box.querySelectorAll('[data-svc]').forEach(function (row) {
+      row.addEventListener('click', function () { openServiceInvoice(row.getAttribute('data-svc')); });
+    });
+  }
+
   function renderTransfers() {
     var q = norm($('q').value);
     var list = transfers.slice();
@@ -2179,6 +2291,364 @@
         '<div class="sub">' + cnt + (cnt === 1 ? ' item' : ' items') + '</div></div></div>';
     });
     box.innerHTML = html;
+  }
+
+  /* ---------- Service Invoice ka editor ---------- */
+
+  function nextSvcNo() {
+    var mx = 0;
+    svcInvoices.forEach(function (v) {
+      var m = /^SV-(\d+)$/.exec(String(v.sino || ''));
+      if (m) mx = Math.max(mx, parseInt(m[1], 10));
+    });
+    return 'SV-' + String(mx + 1).padStart(4, '0');
+  }
+
+  function blankSvcLine() {
+    return { key:'L' + (++lineSeq), id:null, service_id:null, description:'',
+             qty:1, rate:'', discount:0, tax_pct:0 };
+  }
+
+  function openServiceInvoice(id) {
+    var rec = id ? svcInvoices.filter(function (v) { return v.id === id; })[0] : null;
+    bill = rec ? JSON.parse(JSON.stringify(rec)) : {
+      isService:true, id:null, sino:nextSvcNo(), sidate:today(), due_date:'',
+      party_id:null, company_id:(firms.filter(function (f) { return f.is_default; })[0] ||
+                                 firms[0] || {}).id || null,
+      billing_from:'', billing_to:'', billing_label:'', narration:'', notes:'',
+      tax_on:false, discount:0, paid:0, status:'active', version:1,
+      lines:[blankSvcLine()]
+    };
+    bill.isService = true;
+    if (rec) {
+      bill.lines = (rec.lines || []).map(function (l) {
+        return { key:'L' + (++lineSeq), id:l.id, service_id:l.service_id,
+                 description:l.description || '', qty:num(l.qty), rate:num(l.rate),
+                 discount:num(l.discount), tax_pct:num(l.tax_pct) };
+      });
+    }
+    if (!bill.lines.length) bill.lines.push(blankSvcLine());
+
+    originalHeadSnapshot = rec ? JSON.parse(JSON.stringify(rec)) : null;
+    originalLineSnapshot = rec ? bill.lines.map(function (l) {
+      return { id:l.id, service_id:l.service_id, description:l.description,
+               qty:num(l.qty), rate:num(l.rate), discount:num(l.discount), tax_pct:num(l.tax_pct) };
+    }) : null;
+    dirty = false;
+
+    $('edTitle').textContent = (rec ? 'Edit ' : 'New ') + 'Service Invoice';
+    $('edDel').style.display  = (rec && can('bill_delete')) ? '' : 'none';
+    $('edSave').style.display = can(rec ? 'bill_edit' : 'bill_create') ? '' : 'none';
+    $('edSave').textContent = 'Save Invoice';
+    drawSvcEditor();
+    $('edBody').scrollTop = 0;
+    $('ed').classList.add('on');
+  }
+
+  function drawSvcEditor() {
+    var b = bill, p = partyById(b.party_id);
+    var t = svcTotals(b);
+    var due = svcDueDate(b);
+
+    var h = '<div class="card"><div class="ttl">Service Invoice</div>' +
+      '<div class="f2">' +
+        '<div class="f"><label>Invoice no</label><input value="' + esc(b.sino) +
+          '" readonly style="background:var(--panel)"></div>' +
+        '<div class="f"><label>Date</label><input id="svDate" type="date" value="' +
+          esc(b.sidate) + '"></div>' +
+      '</div>' +
+      (firms.length > 1
+        ? '<div class="f"><label>Firm</label><select id="svFirm">' +
+          firms.map(function (f) {
+            return '<option value="' + esc(f.id) + '"' +
+                   (f.id === b.company_id ? ' selected' : '') + '>' + esc(f.name) + '</option>';
+          }).join('') + '</select></div>'
+        : '') +
+      '<div class="f"><label>Billed to</label>' + pickBox('svParty', p ? p.name : '', 'Customer ka naam') +
+        (p ? '<div class="hint">' + balText(b.party_id) + '</div>' : '') + '</div>' +
+      '<div class="f2">' +
+        '<div class="f"><label>Due date</label><input id="svDue" type="date" value="' +
+          esc(b.due_date || '') + '">' +
+          (!b.due_date && due ? '<div class="hint">Khali chhorein to party ke credit days se: ' +
+            esc(due) + '</div>' : '') + '</div>' +
+        '<div class="f"><label>Billing period</label><input id="svLabel" type="text" value="' +
+          esc(b.billing_label || '') + '" placeholder="September 2026"></div>' +
+      '</div>' +
+      '<div class="f2">' +
+        '<div class="f"><label>Period se</label><input id="svFrom" type="date" value="' +
+          esc(b.billing_from || '') + '"></div>' +
+        '<div class="f"><label>Period tak</label><input id="svTo" type="date" value="' +
+          esc(b.billing_to || '') + '"></div>' +
+      '</div></div>';
+
+    h += '<div class="card"><div class="ttl">Services</div>';
+    b.lines.forEach(function (l) {
+      var sv = serviceById(l.service_id);
+      var amt = svcLineAmount(l);
+      h += '<div class="ln" data-k="' + l.key + '">' +
+        '<div class="top">' + pickBox('sv_' + l.key, sv ? sv.name : '', 'Kaun si service?') +
+          '<button class="rm" data-svrm="' + l.key + '" aria-label="Remove">\u00d7</button></div>' +
+        '<div class="f" style="margin-bottom:6px"><label>Description</label>' +
+          '<input class="svd" data-k="' + l.key + '" type="text" value="' + esc(l.description) +
+          '" placeholder="Bill par yeh chapega"></div>' +
+        '<div class="qr">' +
+          '<div class="f num"><label>Qty</label><input class="svq" data-k="' + l.key +
+            '" type="text" inputmode="decimal" value="' + (num(l.qty) ? fmt(l.qty) : '') +
+            '" placeholder="1"></div>' +
+          '<div class="f num"><label>Rate</label><input class="svr" data-k="' + l.key +
+            '" type="text" inputmode="decimal" value="' + (num(l.rate) ? fmt(l.rate) : '') +
+            '" placeholder="0"></div>' +
+          '<div class="tot" data-svt="' + l.key + '">' + (amt ? money(amt) : '\u2014') + '</div>' +
+        '</div>' +
+        '<div class="f2">' +
+          '<div class="f num"><label>Discount</label><input class="svdisc" data-k="' + l.key +
+            '" type="text" inputmode="decimal" value="' + (num(l.discount) ? fmt(l.discount) : '') +
+            '" placeholder="0"></div>' +
+          (b.tax_on
+            ? '<div class="f num"><label>Tax %</label><input class="svtax" data-k="' + l.key +
+              '" type="text" inputmode="decimal" value="' + (num(l.tax_pct) ? fmt(l.tax_pct) : '') +
+              '" placeholder="0"></div>'
+            : '<div class="f"></div>') +
+        '</div></div>';
+    });
+    h += '<button class="addln" id="svAddLn" type="button">+ Add another service</button></div>';
+
+    h += '<div class="card"><div class="ttl">Tax</div>' +
+      '<div class="swrow"><div class="lbl">Charge sales tax</div>' +
+        '<button class="sw' + (b.tax_on ? ' on' : '') + '" id="svTaxOn" role="switch" ' +
+        'aria-checked="' + (b.tax_on ? 'true' : 'false') + '"></button></div></div>';
+
+    h += '<div class="card"><div class="ttl">Total</div>' +
+      '<div class="f2">' +
+        '<div class="f num"><label>Invoice discount</label><input id="svDisc" type="text" ' +
+          'inputmode="decimal" value="' + (num(b.discount) ? fmt(b.discount) : '') +
+          '" placeholder="0"></div>' +
+        '<div class="f num"><label>Received now</label><input id="svPaid" type="text" ' +
+          'inputmode="decimal" value="' + (num(b.paid) ? fmt(b.paid) : '') +
+          '" placeholder="0"></div>' +
+      '</div>' +
+      '<div class="sum" id="svSum">' + svcSumHtml(t) + '</div></div>';
+
+    h += '<div class="card"><div class="ttl">Notes</div>' +
+      '<div class="f"><textarea id="svNotes" rows="2" placeholder="Sirf record ke liye">' +
+      esc(b.notes || '') + '</textarea></div></div>';
+
+    $('edBody').innerHTML = h;
+    wireSvcEditor();
+  }
+
+  function svcSumHtml(t) {
+    return '<div class="sline"><span class="k">Services total</span><span class="v">' +
+             money(t.sub) + '</span></div>' +
+           (t.tax ? '<div class="sline"><span class="k">Tax</span><span class="v">' +
+             money(t.tax) + '</span></div>' : '') +
+           '<div class="sline big"><span class="k">Total</span><span class="v">' +
+             money(t.grand) + '</span></div>' +
+           (t.due !== t.grand
+             ? '<div class="sline"><span class="k">Balance due</span><span class="v">' +
+               money(t.due) + '</span></div>' : '');
+  }
+
+  function wireSvcEditor() {
+    var b = bill;
+    function refresh() {
+      var t = svcTotals(b);
+      if ($('svSum')) $('svSum').innerHTML = svcSumHtml(t);
+      b.lines.forEach(function (l) {
+        var c = $('edBody').querySelector('[data-svt="' + l.key + '"]');
+        var a = svcLineAmount(l);
+        if (c) c.textContent = a ? money(a) : '\u2014';
+      });
+    }
+
+    ['svDate','svDue','svLabel','svFrom','svTo','svNotes','svFirm'].forEach(function (id) {
+      if (!$(id)) return;
+      $(id).addEventListener('input', function () {
+        var map = { svDate:'sidate', svDue:'due_date', svLabel:'billing_label',
+                    svFrom:'billing_from', svTo:'billing_to', svNotes:'notes', svFirm:'company_id' };
+        b[map[id]] = this.value; dirty = true;
+      });
+    });
+
+    attachPick('svParty', function () {
+      return parties.filter(function (x) { return x.active !== false; })
+        .map(function (x) { return { id:x.id, name:x.name, sub:x.city || '' }; });
+    }, function (id) { b.party_id = id; dirty = true; drawSvcEditor(); },
+       'No party by that name. Add it in Masters first.');
+
+    b.lines.forEach(function (l) {
+      attachPick('sv_' + l.key, function () {
+        return services.filter(function (x) { return x.active !== false; })
+          .map(function (x) { return { id:x.id, name:x.name,
+                 sub:Number(x.default_rate) ? 'Rs ' + fmt(x.default_rate) : '' }; });
+      }, function (id) {
+        var sv = serviceById(id);
+        l.service_id = id;
+        /* Service master ki values sirf SHURUATI hain \u2014 user inhein
+           badal sakta hai, aur har customer ko alag rate de sakta hai. */
+        if (sv) {
+          if (!num(l.rate)) l.rate = num(sv.default_rate);
+          if (!num(l.tax_pct)) l.tax_pct = num(sv.default_tax);
+          if (!String(l.description || '').trim()) l.description = sv.description || '';
+        }
+        dirty = true; drawSvcEditor();
+      }, 'Koi aisi service nahi. Masters \u2192 Services mein pehle banayein.');
+    });
+
+    $('edBody').querySelectorAll('.svq, .svr, .svdisc, .svtax, .svd').forEach(function (el) {
+      el.addEventListener('input', function () {
+        var key = this.getAttribute('data-k');
+        var l = b.lines.filter(function (x) { return x.key === key; })[0];
+        if (!l) return;
+        if (this.classList.contains('svq'))          l.qty = num(this.value);
+        else if (this.classList.contains('svr'))     l.rate = num(this.value);
+        else if (this.classList.contains('svdisc'))  l.discount = num(this.value);
+        else if (this.classList.contains('svtax'))   l.tax_pct = num(this.value);
+        else                                          l.description = this.value;
+        dirty = true; refresh();
+      });
+    });
+
+    $('edBody').querySelectorAll('[data-svrm]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var key = btn.getAttribute('data-svrm');
+        if (b.lines.length <= 1) b.lines = [blankSvcLine()];
+        else b.lines = b.lines.filter(function (l) { return l.key !== key; });
+        dirty = true; drawSvcEditor();
+      });
+    });
+
+    if ($('svAddLn')) $('svAddLn').addEventListener('click', function () {
+      b.lines.push(blankSvcLine()); dirty = true; drawSvcEditor();
+    });
+
+    if ($('svTaxOn')) $('svTaxOn').addEventListener('click', function () {
+      b.tax_on = !b.tax_on; dirty = true; drawSvcEditor();
+    });
+
+    ['svDisc','svPaid'].forEach(function (id) {
+      if (!$(id)) return;
+      $(id).addEventListener('input', function () {
+        b[id === 'svDisc' ? 'discount' : 'paid'] = num(this.value);
+        dirty = true; refresh();
+      });
+    });
+  }
+
+  /* ---------- Service Invoice: save aur delete ----------
+
+     Totals database mein bante hain (trigger se), is liye yahan sirf
+     woh cheezein bhejte hain jo user ne likhi hain. Do jagah hisaab
+     karne se dono kabhi na kabhi alag ho jate hain. */
+
+  function saveServiceInvoice() {
+    var b = bill;
+    if (!b.party_id) { toast('Party chunein', true); return; }
+    var good = b.lines.filter(function (l) {
+      return l.service_id && (num(l.qty) > 0 || num(l.rate) > 0);
+    });
+    if (!good.length) { toast('Kam se kam ek service daalein', true); return; }
+
+    var isNew = !b.id;
+    var recId = b.id || uuid();
+    var head = {
+      sino:b.sino, party_id:b.party_id, company_id:b.company_id || null,
+      sidate:b.sidate, due_date:b.due_date || null,
+      billing_from:b.billing_from || null, billing_to:b.billing_to || null,
+      billing_label:b.billing_label || null,
+      narration:b.narration || null, notes:b.notes || null,
+      tax_on:!!b.tax_on, discount:num(b.discount), paid:num(b.paid),
+      status:b.status || 'active'
+    };
+    var lines = good.map(function (l, ix) {
+      return { id:l.id || null, invoice_id:recId, service_id:l.service_id,
+               description:l.description || null,
+               qty:num(l.qty), rate:num(l.rate), discount:num(l.discount),
+               tax_pct:num(l.tax_pct),
+               amount:round2(num(l.qty) * num(l.rate) - num(l.discount)),
+               line_no:ix };
+    });
+
+    syncNote('Saving\u2026');
+    closeBill(); render();
+
+    var step = isNew
+      ? sb.from('service_invoices').insert(Object.assign({ id:recId }, head)).select()
+      : sb.rpc('smart_merge_update', { p_table:'service_invoices', p_id:recId,
+                                       p_original:originalHeadSnapshot, p_new:head });
+
+    step.then(function (res) {
+      if (res.error) throw res.error;
+      if (!isNew) {
+        var r = res.data;
+        if (r && r.status === 'conflict') {
+          toast('"' + head.sino + '" kisi aur ne bhi isi waqt badla \u2014 taaza dekh kar dobara karein', true);
+          return loadServiceInvoices();
+        }
+        if (r && r.status === 'missing') {
+          toast('"' + head.sino + '" kisi aur ne delete kar diya hai', true);
+          return loadServiceInvoices();
+        }
+      }
+      /* Lines: purani hata kar nayi daalte hain. Yeh service invoice par
+         mehfooz hai kyunki in par koi stock ya cost nahi tikti \u2014 maal
+         wale bill jaisa smart merge yahan zaroori nahi. */
+      return sb.from('service_invoice_lines').delete().eq('invoice_id', recId)
+        .then(function (dr) {
+          if (dr && dr.error) throw dr.error;
+          if (!lines.length) return { error:null };
+          return sb.from('service_invoice_lines').insert(lines);
+        })
+        .then(function (ir) {
+          if (ir && ir.error) throw ir.error;
+          syncNote('Saved', '#7DC9A9');
+          return loadServiceInvoices();
+        });
+    }).catch(function (e) {
+      syncNote('');
+      // Adhoora header reh na jaye — nayi invoice thi to usay hata do
+      if (isNew) sb.from('service_invoices').delete().eq('id', recId).then(function () {});
+      sayErr(e, 'service invoice save');
+    });
+  }
+
+  function deleteServiceInvoice() {
+    var b = bill;
+    if (!b || !b.id) { closeBill(); render(); return; }
+    var no = b.sino;
+    confirmBox('Delete ' + no + '?', 'Recycle Bin mein chala jayega — wapas laya ja sakta hai.')
+      .then(function (yes) {
+        if (!yes) return;
+        syncNote('Deleting\u2026');
+        closeBill(); render();
+        sb.from('service_invoices').update({ deleted_at:new Date().toISOString() })
+          .eq('id', b.id).then(function (res) {
+            if (res.error) throw res.error;
+            syncNote('');
+            return loadServiceInvoices();
+          }).catch(function (e) { syncNote(''); sayErr(e, 'delete'); });
+      });
+  }
+
+  /* Invoices aur un ki lines dobara mangwao */
+  function loadServiceInvoices() {
+    if (!sb) return Promise.resolve();
+    return Promise.all([
+      sb.from('service_invoices').select('*').is('deleted_at', null)
+        .order('sidate', { ascending:false }).limit(300),
+      sb.from('service_invoice_lines').select('*')
+    ]).then(function (r) {
+      if (r[0].error) return;
+      svcInvoices = r[0].data || [];
+      var byI = {};
+      (r[1].error ? [] : (r[1].data || [])).forEach(function (l) {
+        (byI[l.invoice_id] = byI[l.invoice_id] || []).push(l);
+      });
+      svcInvoices.forEach(function (v) {
+        v.lines = (byI[v.id] || []).sort(function (a, c) { return (a.line_no || 0) - (c.line_no || 0); });
+      });
+      render();
+    }).catch(function () {});
   }
 
   function openTransfer(rec) {
@@ -2848,7 +3318,11 @@
           sb.from('stock_transfers').select('*').is('deleted_at', null).order('tdate', { ascending:false }).limit(300),
           sb.from('stock_transfer_lines').select('*'),
           // aakhir mein — beech mein daalne se baqi ke index khisak jate hain
-          sb.from('item_units').select('*').order('line_no')
+          sb.from('item_units').select('*').order('line_no'),
+          sb.from('services').select('*').is('deleted_at', null).order('name'),
+          sb.from('service_invoices').select('*').is('deleted_at', null)
+            .order('sidate', { ascending:false }).limit(300),
+          sb.from('service_invoice_lines').select('*')
         ]).then(function (r) {
           r.slice(0, 4).forEach(function (x) { if (x.error) throw x.error; });
           parties = r[0].data || [];
@@ -2861,6 +3335,16 @@
           warehouses = r[16] && !r[16].error ? (r[16].data || []) : [];
           transfers = r[17] && !r[17].error ? (r[17].data || []) : [];
           itemUnits = r[19] && !r[19].error ? (r[19].data || []) : [];   // SQL na chali ho to bhi bill bane
+          // Service invoice ka data \u2014 SQL na chali ho to bhi baqi sab chale
+          services    = r[20] && !r[20].error ? (r[20].data || []) : [];
+          svcInvoices = r[21] && !r[21].error ? (r[21].data || []) : [];
+          var byS = {};
+          (r[22] && !r[22].error ? (r[22].data || []) : []).forEach(function (l) {
+            (byS[l.invoice_id] = byS[l.invoice_id] || []).push(l);
+          });
+          svcInvoices.forEach(function (v) {
+            v.lines = (byS[v.id] || []).sort(function (a, c) { return (a.line_no || 0) - (c.line_no || 0); });
+          });
           var byTr = {};
           (r[18] && !r[18].error ? (r[18].data || []) : []).forEach(function (l) {
             (byTr[l.transfer_id] = byTr[l.transfer_id] || []).push(l);
@@ -2928,12 +3412,14 @@
       vtype = btn.getAttribute('data-t');
       $('moTitle').textContent = vtype === 'purchase' ? 'Purchase' : vtype === 'sale' ? 'Sale'
                                 : vtype === 'quotation' ? 'Quotation' : vtype === 'po' ? 'Purchase order'
-                                : vtype === 'transfer' ? 'Stock transfer' : 'Sales return';
+                                : vtype === 'transfer' ? 'Stock transfer'
+                                : vtype === 'service' ? 'Service invoice' : 'Sales return';
       closeSidebar();
       $('q').value = '';
       $('newBtn').textContent = vtype === 'purchase' ? '+ Purchase' : vtype === 'sale' ? '+ Sale'
                                : vtype === 'quotation' ? '+ Quotation' : vtype === 'po' ? '+ Purchase Order'
-                               : vtype === 'transfer' ? '+ Transfer' : '+ Return';
+                               : vtype === 'transfer' ? '+ Transfer'
+                               : vtype === 'service' ? '+ Service Invoice' : '+ Return';
       updateNewBtnPerm();
       render();
     });
@@ -3009,11 +3495,13 @@
   $('edSave').addEventListener('click', function () {
     if (bill && bill.isReturn) { saveReturn(); return; }
     if (bill && bill.isTransfer) { saveTransfer(); return; }
+    if (bill && bill.isService) { saveServiceInvoice(); return; }
     (bill && bill.doc) ? saveDoc() : saveBill();
   });
   $('edDel').addEventListener('click', function () {
     if (bill && bill.isReturn) { deleteReturn(); return; }
     if (bill && bill.isTransfer) { deleteTransfer(); return; }
+    if (bill && bill.isService) { deleteServiceInvoice(); return; }
     (bill && bill.doc) ? deleteDoc() : delBill();
   });
   $('edPrint').addEventListener('click', function () {
