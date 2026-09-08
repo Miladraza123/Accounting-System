@@ -3341,6 +3341,99 @@
 
   function openReturnRec(rr) { startReturn(rr.sale_id, rr); }
 
+  /* Service invoice ka apna print. Maal wale bill se alag: na unit, na
+     warehouse \u2014 kyunki yahan maal hai hi nahi. Us ki jagah billing
+     period aur due date, jo service ke bill par asal maayne rakhte hain. */
+  function printServiceInvoice() {
+    var b = bill; if (!b) return;
+    if (!b.party_id) { toast('Pehle party chunein', true); return; }
+    var good = (b.lines || []).filter(function (l) {
+      return l.service_id && (num(l.qty) > 0 || num(l.rate) > 0);
+    });
+    if (!good.length) { toast('Pehle koi service daalein', true); return; }
+
+    var p = partyById(b.party_id), t = svcTotals(b);
+    var due = svcDueDate(b);
+    var cols = b.tax_on ? 6 : 5;
+
+    var rows = good.map(function (l, i) {
+      var sv = serviceById(l.service_id);
+      var amt = svcLineAmount(l);
+      return '<tr><td class="c">' + (i + 1) + '</td>' +
+        '<td>' + esc(sv ? sv.name : '') +
+        (l.description ? '<div style="font-size:8.5pt;color:#9C9384">' + esc(l.description) + '</div>' : '') +
+        '</td>' +
+        '<td class="r">' + fmt(l.qty) + '</td>' +
+        '<td class="r">' + money(l.rate) + '</td>' +
+        (b.tax_on ? '<td class="r">' + fmt(l.tax_pct) + '%</td>' : '') +
+        '<td class="r">' + money(amt) + '</td></tr>';
+    }).join('');
+
+    function frow(k, v, cls) {
+      return '<tr' + (cls ? ' class="' + cls + '"' : '') + '><td colspan="' + (cols - 1) +
+             '" class="k">' + k + '</td><td class="v">' + v + '</td></tr>';
+    }
+    var foot = frow('Services total', money(t.sub));
+    if (num(b.discount)) foot += frow('Discount', '\u2212 ' + money(b.discount));
+    if (b.tax_on && t.tax) foot += frow('Sales tax', '+ ' + money(t.tax));
+    foot += frow('Total', money(t.grand), 'grand');
+    if (num(b.paid)) {
+      foot += frow('Received', '\u2212 ' + money(b.paid));
+      foot += frow('Balance receivable', money(t.due));
+    }
+
+    var co = firmById(b.company_id) || defFirm();
+    var coAdr = co ? [co.address, co.city, co.phone, co.email,
+                      co.ntn ? 'NTN ' + co.ntn : '',
+                      (b.tax_on && co.strn) ? 'STRN ' + co.strn : '']
+                     .filter(Boolean).map(esc).join('<br>') : '';
+
+    // Billing period: label ho to wohi, warna se/tak ki tareekhein
+    var period = b.billing_label
+      || ((b.billing_from || b.billing_to)
+            ? [b.billing_from ? human(b.billing_from) : '', b.billing_to ? human(b.billing_to) : '']
+                .filter(Boolean).join(' \u2014 ')
+            : '');
+
+    $('sheet').innerHTML =
+      '<div class="hd">' +
+      (co && co.logo ? '<img class="logo" src="' + esc(co.logo) + '" alt="">' : '') +
+      '<div><div class="firm">' + esc(co ? co.name : firmName) + '</div>' +
+      (coAdr ? '<div class="adr">' + coAdr + '</div>' : '') +
+      '<div class="kind">Service Invoice' + (b.tax_on ? ' \u00b7 Sales Tax' : '') + '</div></div>' +
+      '<div class="rt"><div class="no">' + esc(b.sino || '') + '</div>' +
+      '<div>' + esc(human(b.sidate)) + '</div>' +
+      (due ? '<div>Due ' + esc(human(due)) + '</div>' : '') + '</div></div>' +
+
+      '<div class="who"><div><div class="lb">Billed to</div>' +
+      '<div class="nm">' + esc(p ? p.name : '') + '</div>' +
+      (p && p.address ? '<div>' + esc(p.address) + '</div>' : '') +
+      (p && p.city ? '<div>' + esc(p.city) + '</div>' : '') +
+      (p && p.phone ? '<div>' + esc(p.phone) + '</div>' : '') +
+      (b.tax_on && p && p.ntn ? '<div>NTN ' + esc(p.ntn) + '</div>' : '') + '</div>' +
+      (period ? '<div><div class="lb">Billing period</div><div class="nm">' +
+                esc(period) + '</div></div>' : '') + '</div>' +
+
+      '<table><thead><tr><th class="c" style="width:8mm">#</th><th>Service</th>' +
+      '<th class="r" style="width:20mm">Qty</th><th class="r" style="width:28mm">Rate</th>' +
+      (b.tax_on ? '<th class="r" style="width:16mm">Tax</th>' : '') +
+      '<th class="r" style="width:32mm">Amount</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody><tfoot>' + foot + '</tfoot></table>' +
+
+      ((b.narration || b.notes) ? '<div class="note">' +
+        esc(b.narration || b.notes) + '</div>' : '') +
+      '<div class="foot"><div class="sign">Prepared by</div><div class="sign">Received by</div></div>';
+
+    var oldTitle = document.title;
+    var oldTopTitle = (function () { try { return window.top && window.top !== window ? window.top.document.title : oldTitle; } catch (e) { return oldTitle; } })();
+    setPrintTitle(fileSafe(b.sino) + '-' + fileSafe(p ? p.name : 'Party') + '-' + fileDate(b.sidate));
+    window.addEventListener('afterprint', function restore() {
+      restorePrintTitle(oldTitle, oldTopTitle);
+      window.removeEventListener('afterprint', restore);
+    });
+    printWhenReady($('sheet'));
+  }
+
   function printBill() {
     var b = bill; if (!b) return;
     if (!b.party_id) { toast('Pick a party before printing', true); return; }
@@ -3952,6 +4045,8 @@
   });
   $('edPrint').addEventListener('click', function () {
     if (bill && bill.isReturn) { printReturn(); return; }
+    if (bill && bill.isService) { printServiceInvoice(); return; }
+    if (bill && bill.isRecurring) { toast('Khaka chhapne ki cheez nahi \u2014 is se jo invoice bane wo chhapti hai'); return; }
     if (bill && bill.isTransfer) { toast('Print filhaal is document ke liye nahi bana'); return; }
     printBill();
   });
