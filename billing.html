@@ -915,10 +915,7 @@
     });
     if (!bill.lines.length) bill.lines.push(newLine());
     originalLineSnapshot = rec ? bill.lines.map(function (l) {
-      return { id:l.id, item_id:l.item_id, qty:num(l.qty),
-               sale_qty:l.sale_qty == null ? null : num(l.sale_qty),
-               sale_unit:l.sale_unit || null, unit_factor:num(l.unit_factor) || 1,
-               rate:num(l.rate),
+      return { id:l.id, item_id:l.item_id, qty:num(l.qty), rate:num(l.rate),
                tax_pct:num(l.tax_pct), amount:num(l.amount), pcs_on:!!l.pcs_on, pcs:l.pcs,
                /* purani lines par yeh khaane khali hote hain \u2014 us surat mein
                   item ka apna unit hi maana jata hai */
@@ -1524,15 +1521,9 @@
     if (!bill.lines.length) bill.lines.push(newLine());
     originalHeadSnapshot = rec ? JSON.parse(JSON.stringify(rec)) : null;
     originalLineSnapshot = rec ? bill.lines.map(function (l) {
-      return { id:l.id, item_id:l.item_id, qty:num(l.qty),
-               sale_qty:l.sale_qty == null ? null : num(l.sale_qty),
-               sale_unit:l.sale_unit || null, unit_factor:num(l.unit_factor) || 1,
-               rate:num(l.rate),
-               tax_pct:num(l.tax_pct), amount:num(l.amount), pcs_on:!!l.pcs_on, pcs:l.pcs,
-               /* purani lines par yeh khaane khali hote hain \u2014 us surat mein
-                  item ka apna unit hi maana jata hai */
-               sale_unit:l.sale_unit || null, unit_factor:num(l.unit_factor) || 1,
-               sale_qty:(l.sale_qty == null || l.sale_qty === '') ? num(l.qty) : num(l.sale_qty) };
+      return { id:l.id, item_id:l.item_id, qty:num(l.qty), rate:num(l.rate),
+               tax_pct:num(l.tax_pct), amount:num(l.amount),
+               pcs_on:!!l.pcs_on, pcs:l.pcs };
     }) : null;
     dirty = false;
     $('edTitle').textContent = (rec ? 'Edit ' : 'New ') + (isQ ? 'quotation' : 'purchase order');
@@ -1583,12 +1574,13 @@
       head.cartage_on = !!b.cartage_on; head.cartage_amt = num(b.cartage_amt);
       head.cutting_on = !!b.cutting_on; head.cutting_amt = num(b.cutting_amt);
     }
+    /* Quotation aur PO ki lines par sale_unit/sale_qty/unit_factor NAHI
+       hote — wo khaane sirf voucher_lines aur sales_return_lines par
+       banaye gaye thay. Yahan bhejne se "column nahi mila" wali error
+       aati hai. */
     var linesForMerge = good.map(function (l) {
-      return { id:l.id || null, item_id:l.item_id, qty:num(l.qty),
-               sale_qty:l.sale_qty == null ? null : num(l.sale_qty),
-               sale_unit:l.sale_unit || null, unit_factor:num(l.unit_factor) || 1,
-               rate:num(l.rate),
-               tax_pct:num(l.tax_pct), amount:lineAmount(l),
+      return { id:l.id || null, item_id:l.item_id, qty:num(l.qty), rate:num(l.rate),
+               tax_pct:num(l.tax_pct), amount:round2(num(l.qty) * num(l.rate)),
                pcs_on:!!l.pcs_on, pcs:l.pcs_on ? num(l.pcs) : null };
     });
     var linesPayload = linesForMerge.map(function (l) { var o = Object.assign({}, l); delete o.id; return o; });
@@ -2470,20 +2462,26 @@
       });
     });
 
+    /* attachPick chunne par POORA record deta hai (r), sirf id nahi \u2014
+       aur likhte waqt (typing) sach hota hai. */
     attachPick('svParty', function () {
-      return parties.filter(function (x) { return x.active !== false; })
-        .map(function (x) { return { id:x.id, name:x.name, sub:x.city || '' }; });
-    }, function (id) { b.party_id = id; dirty = true; drawSvcEditor(); },
-       'No party by that name. Add it in Masters first.');
+      return parties.filter(function (x) { return !x.deleted_at; })
+        .map(function (x) { return { id:x.id, name:x.name, active:x.active,
+                 sub:[x.city, x.phone].filter(Boolean).join(' \u00b7 ') }; });
+    }, function (r, typing) {
+      if (typing) { b.party_id = null; return; }
+      b.party_id = r.id; dirty = true; drawSvcEditor();
+    }, 'No party by that name. Add it in Masters first.');
 
     b.lines.forEach(function (l) {
       attachPick('sv_' + l.key, function () {
-        return services.filter(function (x) { return x.active !== false; })
-          .map(function (x) { return { id:x.id, name:x.name,
+        return services.filter(function (x) { return !x.deleted_at; })
+          .map(function (x) { return { id:x.id, name:x.name, active:x.active,
                  sub:Number(x.default_rate) ? 'Rs ' + fmt(x.default_rate) : '' }; });
-      }, function (id) {
-        var sv = serviceById(id);
-        l.service_id = id;
+      }, function (r, typing) {
+        if (typing) { l.service_id = null; return; }
+        var sv = serviceById(r.id);
+        l.service_id = r.id;
         /* Service master ki values sirf SHURUATI hain \u2014 user inhein
            badal sakta hai, aur har customer ko alag rate de sakta hai. */
         if (sv) {
@@ -2716,7 +2714,13 @@
         return items.filter(function (i) { return i.active !== false && !i.deleted_at; }).map(function (i) {
           return { id:i.id, name:i.name, sub:i.unit };
         });
-      }, function (id) { l.item_id = id; dirty = true; drawTransferEditor(); });
+      }, function (r, typing) {
+        /* attachPick POORA record deta hai, sirf id nahi. Yahan pehle se
+           `id` samjha gaya tha \u2014 is liye transfer par item chunna kaam
+           hi nahi karta tha, aur koi error bhi nazar nahi aata tha. */
+        if (typing) { l.item_id = null; return; }
+        l.item_id = r.id; dirty = true; drawTransferEditor();
+      });
     });
     $('edBody').querySelectorAll('.trq').forEach(function (el) {
       el.addEventListener('input', function () {
