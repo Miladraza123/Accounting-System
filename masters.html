@@ -558,6 +558,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 8l9-5 9 5-9 5-9-5z"/><path d="M3 8v9l9 5 9-5V8"/><path d="M12 13v9"/></svg>
         Items<span class="n" id="nItems"></span>
       </button>
+      <button class="sb-item" id="tabServices" data-t="services">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/><circle cx="12" cy="12" r="3.2"/></svg>
+        Services<span class="n" id="nServices"></span>
+      </button>
       <button class="sb-item" id="tabCompanies" data-t="companies">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="3" width="16" height="18" rx="1"/><path d="M8 7h2M14 7h2M8 11h2M14 11h2M8 15h2M14 15h2"/></svg>
         Firms<span class="n" id="nCompanies"></span>
@@ -983,7 +987,7 @@
   };
 
   var sb = null, tab = 'parties', editing = null, dirty = false;
-  var db = { parties: [], items: [], companies: [], itemUnits: [] };
+  var db = { parties: [], items: [], companies: [], services: [], itemUnits: [] };
 
   /* ---------- helpers ---------- */
   function fmt(n) {
@@ -1154,6 +1158,9 @@
     return { name:'', address:'', city:'', phone:'', email:'', ntn:'', strn:'',
              logo:'', is_default:false, notes:'', active:true };
   }
+  function blankService() {
+    return { name:'', description:'', default_rate:0, default_tax:0, notes:'', active:true };
+  }
   function blankItem() {
     return { name:'', unit:'pcs', sale_rate:0, buy_rate:0, tax_pct:0,
              opening_qty:0, opening_rate:0, reorder_level:0, hs_code:'', notes:'', active:true };
@@ -1234,6 +1241,7 @@
     $('nParties').textContent = db.parties.length ? '(' + db.parties.length + ')' : '';
     $('nItems').textContent   = db.items.length   ? '(' + db.items.length   + ')' : '';
     $('nCompanies').textContent = db.companies.length ? '(' + db.companies.length + ')' : '';
+    if ($('nServices')) $('nServices').textContent = db.services.length ? '(' + db.services.length + ')' : '';
     $('searchWrap').classList.toggle('has', !!$('q').value);
 
     var box = $('rows');
@@ -1252,6 +1260,10 @@
              : tab === 'companies'
              ? '<div class="big">No firms yet</div><div class="sm">Add the firm whose name should ' +
                'print at the top of a bill. Add its logo too, if you have one.</div>'
+             : tab === 'services'
+             ? '<div class="big">No services yet</div><div class="sm">Subscription, maintenance, ' +
+               'consultancy \u2014 jo bhi charge karte hain aur us ka maal se koi taluq nahi. ' +
+               'Default rate rakh dein; har customer ko alag rate invoice par diya ja sakta hai.</div>'
              : '<div class="big">No items yet</div><div class="sm">Add what you buy and sell. ' +
                'Name and unit are enough to start; rates can come later.</div>') + '</div>';
       return;
@@ -1266,13 +1278,16 @@
                '" alt="" style="width:100%;height:100%;object-fit:contain"></div>'
              : tab === 'parties' ? '<div class="av kind-' + esc(r.kind || 'both') + '">' + kindIcon(r.kind) + '</div>'
              : tab === 'items'   ? '<div class="av">' + itemIconSvg() + '</div>'
+             : tab === 'services' ? '<div class="av">' + serviceIconSvg() + '</div>'
              : '<div class="av">' + firmIconSvg() + '</div>';
       html += '<div class="row' + (r.active ? '' : ' off') + '" data-id="' + r.id + '" tabindex="0" role="button">' +
               av + '<div class="mid">' +
               '<div class="nm">' + esc(r.name) + '</div><div class="sub">' +
-              (tab === 'parties' ? partySub(r) : tab === 'companies' ? firmSub(r) : itemSub(r)) +
+              (tab === 'parties' ? partySub(r) : tab === 'companies' ? firmSub(r)
+                : tab === 'services' ? serviceSub(r) : itemSub(r)) +
               '</div></div>' +
-              (tab === 'parties' ? partyAmt(r) : tab === 'companies' ? firmAmt(r) : itemAmt(r)) + '</div>';
+              (tab === 'parties' ? partyAmt(r) : tab === 'companies' ? firmAmt(r)
+                : tab === 'services' ? serviceAmt(r) : itemAmt(r)) + '</div>';
     });
     box.innerHTML = html;
     drawTotals();
@@ -1374,6 +1389,27 @@
     return '<div class="amt ' + (dr ? 'dr' : 'cr') + '">' + fmt(v) +
            '<span class="tag">' + (dr ? 'THEY OWE' : 'WE OWE') + '</span></div>';
   }
+  /* ---------- Services ----------
+     Service ka maal se koi taluq nahi \u2014 na stock, na cost. Is liye
+     row par sirf rate aur tax dikhate hain. */
+  function serviceIconSvg() {
+    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">' +
+      '<circle cx="12" cy="12" r="3.2"/><path d="M12 4v2M12 18v2M4 12h2M18 12h2' +
+      'M6.3 6.3l1.5 1.5M16.2 16.2l1.5 1.5M6.3 17.7l1.5-1.5M16.2 7.8l1.5-1.5"/></svg>';
+  }
+  function serviceSub(sv) {
+    var bits = [];
+    if (Number(sv.default_rate)) bits.push('Rs ' + fmt(sv.default_rate));
+    if (Number(sv.default_tax))  bits.push(fmt(sv.default_tax) + '% tax');
+    if (sv.description) bits.push(esc(String(sv.description).slice(0, 40)));
+    return bits.length ? bits.join(' \u00b7 ') : 'Rate invoice par likha jayega';
+  }
+  function serviceAmt(sv) {
+    var v = Number(sv.default_rate) || 0;
+    return v ? '<div class="amt zero">' + fmt(v) + '<span class="tag">DEFAULT</span></div>'
+             : '<div class="amt zero">\u2014</div>';
+  }
+
   function itemSub(i) {
     var bits = ['per ' + esc(i.unit || 'pcs')];
     if (Number(i.sale_rate)) bits.push('Rs ' + fmt(i.sale_rate));
@@ -1437,6 +1473,35 @@
     }).join('');
   }
   function fieldset(r) {
+    /* Service ka form jaan bujh kar saada hai — maal wale item jaisa
+       bhaari nahi. Yahan rate sirf DEFAULT hai; har customer ko alag
+       rate invoice par diya ja sakta hai. */
+    if (tab === 'services') {
+      return '' +
+      '<div class="f"><label>Service name</label>' +
+        '<input id="eName" type="text" value="' + esc(r.name) + '" placeholder="Monthly Subscription" ' +
+        'autocomplete="off"></div>' +
+      '<div class="f"><label>Description</label>' +
+        '<textarea id="eDesc" rows="2" placeholder="Bill par yeh matn khud aa jayega">' +
+        esc(r.description) + '</textarea></div>' +
+      '<div class="grp">Default</div>' +
+      '<div class="f2">' +
+        '<div class="f num"><label>Default rate</label>' +
+          '<input id="eRate" type="text" inputmode="decimal" value="' +
+          (Number(r.default_rate) ? fmt(r.default_rate) : '') + '" placeholder="0"></div>' +
+        '<div class="f num"><label>Default tax %</label>' +
+          '<input id="eTax" type="text" inputmode="decimal" value="' +
+          (Number(r.default_tax) ? fmt(r.default_tax) : '') + '" placeholder="0"></div>' +
+      '</div>' +
+      '<div class="f"><div class="hint">Yeh sirf shuruati values hain. Invoice banate waqt ' +
+        'rate, tax aur description \u2014 teenon badle ja sakte hain. Har customer ka apna ' +
+        'rate ho sakta hai.</div></div>' +
+      '<div class="f"><label>Notes</label>' +
+        '<textarea id="eNotes" rows="2">' + esc(r.notes) + '</textarea></div>' +
+      '<div class="swrow"><div class="lbl">Active</div>' +
+        '<button class="sw' + (r.active === false ? '' : ' on') + '" id="eActive" role="switch" ' +
+        'aria-checked="' + (r.active === false ? 'false' : 'true') + '"></button></div>';
+    }
     if (tab === 'companies') {
       return '' +
       '<div class="grp">Logo</div>' +
@@ -2542,10 +2607,12 @@
 
   function openEditor(rec) {
     editing = rec ? JSON.parse(JSON.stringify(rec))
-                  : (tab === 'parties' ? blankParty() : tab === 'companies' ? blankCompany() : blankItem());
+                  : (tab === 'parties' ? blankParty() : tab === 'companies' ? blankCompany()
+                     : tab === 'services' ? blankService() : blankItem());
     dirty = false;
     $('edTitle').textContent = (rec ? 'Edit ' : 'New ') +
-      (tab === 'parties' ? 'party' : tab === 'companies' ? 'firm' : 'item');
+      (tab === 'parties' ? 'party' : tab === 'companies' ? 'firm'
+       : tab === 'services' ? 'service' : 'item');
     edView = 'details';
     var showTabs = (tab === 'parties' || tab === 'items') && !!rec;
     $('edTabs').style.display = showTabs ? 'flex' : 'none';
@@ -2912,6 +2979,11 @@
 
   function collect() {
     var act = $('eActive').classList.contains('on');
+    if (tab === 'services') {
+      return { name:readVal('eName'), description:readVal('eDesc'),
+               default_rate:n(readVal('eRate')), default_tax:n(readVal('eTax')),
+               notes:readVal('eNotes'), active:act };
+    }
     if (tab === 'companies') {
       return { name:readVal('eName'), address:readVal('eAddr'), city:readVal('eCity'),
                phone:readVal('ePhone'), email:readVal('eMail'), ntn:readVal('eNtn'),
@@ -3038,7 +3110,8 @@
       sb.from('parties').select('id,name'),
       sb.from('items').select('id,name'),
       // aakhir mein — beech mein daalne se baqi ke index khisak jate hain
-      sb.from('item_units').select('*').order('line_no')
+      sb.from('item_units').select('*').order('line_no'),
+      sb.from('services').select('*').is('deleted_at', null).order('name')
     ]).then(function (r) {
       if (r[0].error) throw r[0].error;
       if (r[1].error) throw r[1].error;
@@ -3049,7 +3122,9 @@
       dbAll.parties = r[4].error ? db.parties : (r[4].data || []);
       dbAll.items   = r[5].error ? db.items   : (r[5].data || []);
       db.itemUnits  = r[6] && !r[6].error ? (r[6].data || []) : [];   // SQL na chali ho to bhi app chale
+      db.services   = r[7] && !r[7].error ? (r[7].data || []) : [];   // SQL na chali ho to bhi app chale
       cacheSave('parties', db.parties); cacheSave('items', db.items); cacheSave('companies', db.companies);
+      cacheSave('services', db.services);
       syncNote('');
       render();
       if (db.parties.length) loadLedgerData().then(render).catch(function () {});
@@ -4525,13 +4600,18 @@
       document.querySelectorAll('.sb-item[data-t]').forEach(function (x) { x.classList.remove('on'); });
       b.classList.add('on');
       tab = b.getAttribute('data-t');
-      $('moTitle').textContent = tab === 'parties' ? 'Parties' : tab === 'companies' ? 'Firms' : 'Items';
+      $('moTitle').textContent = tab === 'parties' ? 'Parties'
+                               : tab === 'companies' ? 'Firms'
+                               : tab === 'services' ? 'Services' : 'Items';
       closeSidebar();
       if (tab !== 'items') lowOnly = false;
       if (tab !== 'parties') catFilter = 'all';
       $('q').value = '';
-      $('q').placeholder = tab === 'items' ? 'Search by name…' : 'Search by name, phone or city…';
-      $('newBtn').textContent = tab === 'parties' ? '+ Party' : tab === 'companies' ? '+ Firm' : '+ Item';
+      $('q').placeholder = (tab === 'items' || tab === 'services')
+        ? 'Search by name…' : 'Search by name, phone or city…';
+      $('newBtn').textContent = tab === 'parties' ? '+ Party'
+                              : tab === 'companies' ? '+ Firm'
+                              : tab === 'services' ? '+ Service' : '+ Item';
       $('newBtn').style.display = can('masters_edit') ? '' : 'none';
       $('importBtn').style.display = (can('masters_import') && (tab === 'parties' || tab === 'items')) ? '' : 'none';
       partyPageLimit = PAGE_SIZE;
