@@ -17,6 +17,47 @@ const nodemailer = require('nodemailer');
 
 const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
 
+/* ============================================================
+   TAREEKH KA HISAAB
+
+   Pehle naam UTC se banta tha (toISOString). Karachi UTC se 5 ghante
+   aage hai, is liye jo backup subah 5 baje se pehle chalta wo PICHLE
+   din ke naam se aata, aur jo baad mein chalta wo usi din ke naam se.
+   Do system ek hi raat chal kar do alag tareekhein dikhate thay.
+
+   Ab naam us din ka hai JIS KA DATA hai — yani chalne se ek din pehle.
+   Backup raat ko chalta hai, to us waqt tak pichla din poora ho chuka
+   hota hai. Aur email mein upar likh dete hain ke asal mein kab liya
+   gaya, taake koi shak na rahe — chahe padhne wala dunya mein kahin
+   bhi ho.
+   ============================================================ */
+
+function karachiParts() {
+  const f = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Karachi',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false
+  }).formatToParts(new Date());
+  const g = t => (f.find(x => x.type === t) || {}).value;
+  return { y: g('year'), m: g('month'), d: g('day'), hh: g('hour'), mm: g('minute') };
+}
+
+/* Jis din ka data hai — chalne wale din se ek din pehle */
+function dataDate() {
+  const p = karachiParts();
+  const d = new Date(Date.UTC(+p.y, +p.m - 1, +p.d));
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/* Backup asal mein kab liya gaya — Karachi ke waqt se */
+function takenAtText() {
+  const p = karachiParts();
+  const MON = ['January','February','March','April','May','June',
+               'July','August','September','October','November','December'];
+  return (+p.d) + ' ' + MON[+p.m - 1] + ' ' + p.y + ', ' + p.hh + ':' + p.mm + ' (Karachi)';
+}
+
 async function signIn() {
   var res = await sb.auth.signInWithPassword({
     email: process.env.BACKUP_EMAIL,
@@ -248,8 +289,11 @@ async function sendEmail(buffer, filename) {
   await transporter.sendMail({
     from: process.env.GMAIL_USER,
     to: process.env.BACKUP_TO_EMAIL,
-    subject: 'OHT Daily Backup — ' + new Date().toISOString().slice(0, 10),
-    text: 'Aaj ka poora OHT accounting data attached hai (Excel file, saaf/formatted). Ye backup roz khud-b-khud banti hai.',
+    subject: 'OHT Daily Backup — ' + dataDate(),
+    text: 'Backup liya gaya: ' + takenAtText() + '\n' +
+          'Data is tareekh tak ka: ' + dataDate() + '\n\n' +
+          'Poora OHT accounting data attached hai (Excel file, saaf/formatted).\n' +
+          'Ye backup roz khud-b-khud banti hai.',
     attachments: [{ filename: filename, content: buffer }]
   });
 }
@@ -259,7 +303,7 @@ async function main() {
   await signIn();
   const data = await fetchAll();
   const buffer = await buildExcel(data);
-  const stamp = new Date().toISOString().slice(0, 10);
+  const stamp = dataDate();                    // jis din ka data hai
   const filename = 'OHT-Backup-' + stamp + '.xlsx';
   await sendEmail(buffer, filename);
   console.log('Backup emailed: ' + filename);
