@@ -983,7 +983,7 @@
   };
 
   var sb = null, tab = 'parties', editing = null, dirty = false;
-  var db = { parties: [], items: [], companies: [] };
+  var db = { parties: [], items: [], companies: [], itemUnits: [] };
 
   /* ---------- helpers ---------- */
   function fmt(n) {
@@ -1552,6 +1552,15 @@
         'purchase, sale, return and adjustment. They are not edited directly. Average cost ' +
         'includes loading and cartage charges.</div></div>'
       : '') +
+    '<div class="grp">Sale units</div>' +
+    '<div id="unitRows"></div>' +
+    '<button class="btn" id="addUnit" type="button" style="width:100%;margin:6px 0 4px">+ Sale unit</button>' +
+    '<div class="f"><div class="hint">Item is unit mein rakha jata hai: <b>' +
+      esc(r.unit || 'pcs') + '</b>. Agar isay kisi aur unit mein bhi bechte hain to yahan ' +
+      'daal dein \u2014 jaise <b>Pcs</b> aur uske saamne <b>47.5</b>, matlab ek piece ' +
+      esc(r.unit || 'pcs') + ' ke 47.5 ke barabar. Bill par wo unit chunte hi conversion ' +
+      'aur rate khud aa jayenge. Stock hamesha item ke apne unit mein hi ghatta hai.</div></div>' +
+
     '<div class="grp">Opening stock</div>' +
     '<div class="f2">' +
       '<div class="f num"><label>Quantity</label><input id="eOQty" type="text" inputmode="decimal" value="' +
@@ -2425,6 +2434,90 @@
     else if (e.key === 'Home') { e.preventDefault(); if (rows[0]) rows[0].focus(); }
     else if (e.key === 'End') { e.preventDefault(); if (rows[rows.length-1]) rows[rows.length-1].focus(); }
   });
+
+  /* ---------- Item ke sale units ----------
+     Ek item ke kai sale unit ho sakte hain. Bill par default khud aa jata
+     hai; user chahe to fehrist se koi aur chun le ya conversion badal de,
+     kyunki har piece ka wazan hamesha ek jaisa nahi hota. */
+  var unitRows = [], unitSeq = 0;
+
+  function loadUnitRows(itemId) {
+    unitRows = (db.itemUnits || [])
+      .filter(function (u) { return String(u.item_id) === String(itemId); })
+      .sort(function (a, b) { return (a.line_no || 0) - (b.line_no || 0); })
+      .map(function (u) {
+        return { _k:++unitSeq, id:u.id, unit:u.unit, factor:u.factor,
+                 rate:u.rate == null ? '' : u.rate, is_default:!!u.is_default };
+      });
+  }
+  function drawUnitRows() {
+    var box = $('unitRows'); if (!box) return;
+    var base = (editing && editing.unit) || 'pcs';
+    box.innerHTML = unitRows.length ? unitRows.map(function (u) {
+      return '<div class="urow" data-uk="' + u._k + '">' +
+        '<input data-uf="unit" type="text" value="' + esc(u.unit) + '" placeholder="Pcs">' +
+        '<input data-uf="factor" type="text" inputmode="decimal" value="' + esc(u.factor) +
+          '" placeholder="' + esc(base) + ' per 1">' +
+        '<input data-uf="rate" type="text" inputmode="decimal" value="' + esc(u.rate) +
+          '" placeholder="rate">' +
+        '<button type="button" data-udef="' + u._k + '" class="udef' + (u.is_default ? ' on' : '') +
+          '" title="Default unit">\u2713</button>' +
+        '<button type="button" data-urm="' + u._k + '" class="urm">\u00d7</button>' +
+        '</div>';
+    }).join('') : '<div class="hint" style="padding:2px 0 6px">Koi extra unit nahi \u2014 bill par ' +
+      esc(base) + ' hi aayega.</div>';
+
+    box.querySelectorAll('[data-urm]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var k = Number(b.getAttribute('data-urm'));
+        unitRows = unitRows.filter(function (u) { return u._k !== k; });
+        dirty = true; drawUnitRows();
+      });
+    });
+    box.querySelectorAll('[data-udef]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var k = Number(b.getAttribute('data-udef'));
+        unitRows.forEach(function (u) { u.is_default = (u._k === k) ? !u.is_default : false; });
+        dirty = true; drawUnitRows();
+      });
+    });
+  }
+  function wireUnits() {
+    if (!$('addUnit')) return;
+    drawUnitRows();
+    $('unitRows').addEventListener('input', function (e) {
+      var f = e.target.getAttribute('data-uf'); if (!f) return;
+      var host = e.target.closest('[data-uk]'); if (!host) return;
+      var k = Number(host.getAttribute('data-uk'));
+      var u = unitRows.filter(function (x) { return x._k === k; })[0];
+      if (u) { u[f] = e.target.value; dirty = true; }
+    });
+    $('addUnit').addEventListener('click', function () {
+      unitRows.push({ _k:++unitSeq, id:null, unit:'', factor:'', rate:'',
+                      is_default:!unitRows.length });
+      dirty = true; drawUnitRows();
+      var rows = $('unitRows').querySelectorAll('.urow');
+      if (rows.length) rows[rows.length - 1].querySelector('[data-uf="unit"]').focus();
+    });
+  }
+  function saveUnitRows(itemId) {
+    var good = unitRows.filter(function (u) {
+      return String(u.unit || '').trim() && n(u.factor) > 0;
+    });
+    var keep = good.filter(function (u) { return u.id; }).map(function (u) { return u.id; });
+    var del = sb.from('item_units').delete().eq('item_id', itemId);
+    if (keep.length) del = del.not('id', 'in', '(' + keep.join(',') + ')');
+    return del.then(function () {
+      if (!good.length) return;
+      return sb.from('item_units').upsert(good.map(function (u, i) {
+        var row = { item_id:itemId, unit:String(u.unit).trim(), factor:n(u.factor),
+                    rate:String(u.rate).trim() === '' ? null : n(u.rate),
+                    is_default:!!u.is_default, line_no:i };
+        if (u.id) row.id = u.id;
+        return row;
+      }));
+    });
+  }
 
   function openEditor(rec) {
     editing = rec ? JSON.parse(JSON.stringify(rec))
