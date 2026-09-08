@@ -564,7 +564,16 @@
       if (m.indexOf('qty_nonneg') !== -1)  { toast('Quantity can\u2019t be negative', true); return; }
       if (m.indexOf('rate_nonneg') !== -1) { toast('Rate can\u2019t be negative', true); return; }
       if (m.indexOf('vdate') !== -1)       { toast('Bill date is required', true); return; }
-      toast('Please check the values you entered', true); return;
+      /* Jo rok nahi pehchani ja saki, us ka ASAL naam bhi dikha do. Warna
+         "values check karein" se kuch pata hi nahi chalta ke kya ghalat
+         hai \u2014 aur wajah dhoondne mein waqt zaya hota hai. */
+      var cname = (e.message || '').match(/"([a-z_0-9]+)"/i);
+      var col   = (e.message || '').match(/column "([a-z_0-9]+)"/i);
+      toast('Please check the values you entered' +
+            (col ? ' \u2014 ' + col[1] + ' khali nahi ho sakta'
+                 : (cname ? ' \u2014 ' + cname[1] : '')), true);
+      console.error(e);
+      return;
     }
     console.error(e); toast((e && e.message) || ('Could not ' + what), true);
   }
@@ -2558,8 +2567,12 @@
       tax_on:!!b.tax_on, discount:num(b.discount), paid:num(b.paid),
       status:b.status || 'active'
     };
+    /* id BILKUL nahi bhejte. Nayi line par wo null hoti, aur saaf null
+       bhejne se database ka apna default (gen_random_uuid) lagta hi nahi
+       \u2014 wo "not null" ki rok par ruk jata hai. Purani lines waise bhi
+       neeche delete ho kar dobara banti hain. */
     var lines = good.map(function (l, ix) {
-      return { id:l.id || null, invoice_id:recId, service_id:l.service_id,
+      return { invoice_id:recId, service_id:l.service_id,
                description:l.description || null,
                qty:num(l.qty), rate:num(l.rate), discount:num(l.discount),
                tax_pct:num(l.tax_pct),
