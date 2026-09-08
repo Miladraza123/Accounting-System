@@ -3436,6 +3436,14 @@
   $('qClr').addEventListener('click', function () { $('q').value = ''; render(); $('q').focus(); });
   $('newBtn').addEventListener('click', function () {
     if (!parties.length) { toast('Add a party in Masters first', true); return; }
+    /* Service invoice ka maal se koi taluq nahi — is liye "koi item nahi"
+       wali rok us par nahi lagti. Us ke liye services ka master chahiye. */
+    if (vtype === 'service') {
+      if (!services.length) {
+        toast('Pehle Masters \u2192 Services mein koi service banayein', true); return;
+      }
+      openServiceInvoice(null); return;
+    }
     if (!items.length)   { toast('Add an item in Masters first', true); return; }
     if (vtype === 'quotation') { openDoc('quotation', null); return; }
     if (vtype === 'po')        { openDoc('po', null); return; }
