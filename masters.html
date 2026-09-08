@@ -2500,6 +2500,13 @@
       if (rows.length) rows[rows.length - 1].querySelector('[data-uf="unit"]').focus();
     });
   }
+  /* Sale units database mein likho \u2014 item save hone ke baad.
+
+     AHEM: har qadam ka natija dekhna zaroori hai. Supabase error THROW
+     nahi karta, wo {error} laut'ata hai \u2014 agar us ko na dekhein to
+     kaam CHUP CHAAP nakaam ho jata hai aur user ko lagta hai save ho
+     gaya. Yehi hua tha: unit daal kar save karne par kuch nahi hota tha
+     aur koi wajah bhi nazar nahi aati thi. */
   function saveUnitRows(itemId) {
     var good = unitRows.filter(function (u) {
       return String(u.unit || '').trim() && n(u.factor) > 0;
@@ -2507,8 +2514,9 @@
     var keep = good.filter(function (u) { return u.id; }).map(function (u) { return u.id; });
     var del = sb.from('item_units').delete().eq('item_id', itemId);
     if (keep.length) del = del.not('id', 'in', '(' + keep.join(',') + ')');
-    return del.then(function () {
-      if (!good.length) return;
+    return del.then(function (dr) {
+      if (dr && dr.error) throw dr.error;
+      if (!good.length) return null;
       return sb.from('item_units').upsert(good.map(function (u, i) {
         var row = { item_id:itemId, unit:String(u.unit).trim(), factor:n(u.factor),
                     rate:String(u.rate).trim() === '' ? null : n(u.rate),
@@ -2516,7 +2524,20 @@
         if (u.id) row.id = u.id;
         return row;
       }));
+    }).then(function (ur) {
+      if (ur && ur.error) throw ur.error;
     });
+  }
+
+  /* Units save karo, phir taaza mangwa lo aur doosri apps ko batao */
+  function afterItemSave(itemId) {
+    return saveUnitRows(itemId).then(function () {
+      return sb.from('item_units').select('*').order('line_no');
+    }).then(function (ur) {
+      if (ur && !ur.error) db.itemUnits = ur.data || [];
+      try { window.parent.postMessage({ oht:'refresh', kind:'items' }, '*'); } catch (err) {}
+      render();
+    }).catch(function (e2) { sayErr(e2, 'sale units save'); });
   }
 
   function openEditor(rec) {
@@ -3098,6 +3119,8 @@
         var row0 = (res.data || [])[0];
         if (row0) db[tab] = db[tab].map(function (r) { return r.id === recId ? row0 : r; });
         cacheSave(tab, db[tab]);
+        // Naye item ke sale units bhi \u2014 pehle yeh raasta unhein chhod deta tha
+        if (tab === 'items') afterItemSave(recId);
         syncNote('Saved', '#7DC9A9'); render();
         return;
       }
@@ -3135,15 +3158,7 @@
         });
       }
       // Sale units item ke saath save hote hain (alag table mein rehte hain)
-      if (tab === 'items') {
-        saveUnitRows(recId).then(function () {
-          return sb.from('item_units').select('*').order('line_no');
-        }).then(function (ur) {
-          if (ur && !ur.error) db.itemUnits = ur.data || [];
-          try { window.parent.postMessage({ oht:'refresh', kind:'items' }, '*'); } catch (err) {}
-          render();
-        }).catch(function (e2) { sayErr(e2, 'save sale units'); });
-      }
+      if (tab === 'items') afterItemSave(recId);
       syncNote('Saved', '#7DC9A9');
       render();
     }).catch(function (e) {
