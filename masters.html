@@ -4215,6 +4215,22 @@
     });
   }
 
+  /* File khud batati hai ke wo kab li gayi thi — magar ab tak ye kabhi
+     dikhaya nahi jata tha. Nateeja: user ko yaqeen hi nahi hota ke us
+     ne wohi file chuni hai jo wo samajh raha hai, aur "ye row yahan
+     kahan se aa gayi" jaisa sawal paida hota hai. Ab waqt saamne likha
+     hota hai, restore se PEHLE. */
+  function fileTakenText(j) {
+    if (j.taken_at_karachi) return j.taken_at_karachi;
+    if (!j.taken_at) return '';
+    try {
+      return new Date(j.taken_at).toLocaleString('en-GB', {
+        timeZone:'Asia/Karachi', day:'2-digit', month:'short', year:'numeric',
+        hour:'2-digit', minute:'2-digit', hour12:false
+      }).replace(',', '') + ' (Karachi)';
+    } catch (e) { return String(j.taken_at); }
+  }
+
   /* Kya hoga, wo pehle dikhao — commit se pehle */
   function buildRestorePlan(j) {
     var mode = $('rsMode').value;
@@ -4261,7 +4277,24 @@
        wo "koi tabdeeli nahi" jaisi dikhti hai jabke asal mein pata hi
        nahi chala. Is liye usay alag se, upar dikhate hain. */
     var bad = plan.filter(function (p) { return p.err; });
-    $('rsPlan').innerHTML = '<div class="grp">Kya hoga</div>' +
+    var taken = rsData ? fileTakenText(rsData) : '';
+    var rowsInFile = rsData ? (rsData.order || []).reduce(function (t, x) {
+      return t + ((rsData.tables[x] || []).length);
+    }, 0) : 0;
+    $('rsPlan').innerHTML =
+      (taken
+        ? '<div class="sum"><div class="sline"><span class="k">Ye file kab li gayi</span>' +
+          '<span class="v">' + esc(taken) + '</span></div>' +
+          (rsData.data_date
+            ? '<div class="sline"><span class="k">Data is tareekh tak ka</span>' +
+              '<span class="v">' + esc(rsData.data_date) + '</span></div>'
+            : '') +
+          '<div class="sline"><span class="k">File mein kul rows</span>' +
+          '<span class="v">' + rowsInFile + '</span></div>' +
+          '<div class="hint">Is waqt ke baad jo kuch bhi bana, wo is file mein NAHI hai \u2014 ' +
+          'aur "Poora replace" mein wo urh jayega.</div></div>'
+        : '') +
+      '<div class="grp">Kya hoga</div>' +
       (bad.length
         ? '<div class="sum" style="border-color:var(--debit);margin-bottom:10px">' +
           '<div class="sline"><span class="k neg"><b>Ye tables parhi nahi ja sakin</b></span></div>' +
