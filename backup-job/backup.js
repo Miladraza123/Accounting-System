@@ -11,6 +11,9 @@
 //   GMAIL_APP_PASSWORD   - Gmail ka "App Password"
 //   BACKUP_TO_EMAIL      - jahan backup email jani hai
 
+const fs = require('fs');
+const zlib = require('zlib');
+const nodeCrypto = require('crypto');
 const { createClient } = require('@supabase/supabase-js');
 const ExcelJS = require('exceljs');
 const nodemailer = require('nodemailer');
@@ -391,11 +394,100 @@ function countsText(data) {
     .join('\n');
 }
 
-async function sendEmail(buffer, filename, jsonBuffer, jsonName, data) {
+/* ============================================================
+   RESTORE FILE KO DABANA AUR (CHAHEIN TO) BAND KARNA
+
+   Do khatray thay:
+
+   1) Email ki apni had hai — Gmail par 25 MB. Data barhta gaya to ek
+      din backup email bhejna hi nakaam ho jati aur kisi ko pata bhi
+      na chalta. Is liye restore file ko ab gzip se daba dete hain;
+      is tarah ke data par ye das-pandra guna chhoti ho jati hai.
+
+   2) Backup mein poora karobar hota hai aur wo mailbox mein khula
+      para rehta hai. Agar BACKUP_PASSPHRASE set ho to file band bhi
+      kar dete hain — khulti sirf usi password se hai.
+
+   KHABARDAR: password kho gaya to file kabhi nahi khulegi. Is liye ye
+   apne aap chalu nahi hota — sirf tab jab aap khud passphrase rakhein.
+   Masters ka Restore teenon shaklein (saada, dabai hui, band) khud
+   pehchan kar khol leta hai.
+   ============================================================ */
+const PBKDF2_ITERS = 200000;
+
+function encryptBuffer(buf, pass) {
+  const salt = nodeCrypto.randomBytes(16), iv = nodeCrypto.randomBytes(12);
+  const key = nodeCrypto.pbkdf2Sync(pass, salt, PBKDF2_ITERS, 32, 'sha256');
+  const c = nodeCrypto.createCipheriv('aes-256-gcm', key, iv);
+  // AES-GCM: browser ka crypto.subtle tag ko ciphertext ke aakhir mein chahta hai
+  const body = Buffer.concat([c.update(buf), c.final(), c.getAuthTag()]);
+  return Buffer.from(JSON.stringify({
+    format: 'oht-restore-encrypted', version: 1,
+    kdf: 'PBKDF2-SHA256', iterations: PBKDF2_ITERS,
+    salt: salt.toString('base64'), iv: iv.toString('base64'),
+    data: body.toString('base64')
+  }), 'utf8');
+}
+
+function packRestore(jsonBuffer, stamp) {
+  const gz = zlib.gzipSync(jsonBuffer, { level: 9 });
+  const pass = process.env.BACKUP_PASSPHRASE;
+  if (!pass) return { buffer: gz, name: 'OHT-Restore-' + stamp + '.json.gz', locked: false };
+  return { buffer: encryptBuffer(gz, pass),
+           name: 'OHT-Restore-' + stamp + '.json.enc', locked: true };
+}
+
+/* ============================================================
+   DATABASE KI BANAWAT (SCHEMA)
+
+   Restore file mein DATA hota hai — har table, poori. Us se system
+   wapas aa jata hai. Magar bilkul khali project par pehle BANAWAT
+   chahiye: tables, RLS policies, aur wo SQL functions jin par app
+   khadi hai (trial_balance, receivable_aging, recompute_all_item_costs
+   waghera). Wo data ke backup mein nahi aatin.
+
+   Agar workflow ne pg_dump chala kar file bana di ho to wo bhi saath
+   bhej dete hain. Na bani ho to kuch nahi badalta — data ka backup
+   pehle ki tarah jata rehta hai. Ye file dabai to jati hai magar
+   password se band nahi ki jati: is mein karobar ka data nahi hota,
+   aur zaroorat ke waqt ye har jagah khul jani chahiye.
+   ============================================================ */
+function schemaAttachment(stamp) {
+  const p = process.env.BACKUP_SCHEMA_FILE;
+  if (!p) return null;
+  let buf;
+  try { buf = fs.readFileSync(p); } catch (e) { return null; }
+  if (!buf.length) return null;
+  return { filename: 'OHT-Schema-' + stamp + '.sql.gz',
+           content: zlib.gzipSync(buf, { level: 9 }) };
+}
+
+/* Gmail 25 MB par rok deta hai. Agar dono file mil kar us se barh
+   jayen to Excel chhorh dete hain — wo sirf parhne ke liye hai aur
+   app se dobara ban sakti hai. Restore wali file har haal mein jani
+   chahiye, kyunki system sirf usi se wapas aata hai. */
+const MAIL_LIMIT = 24 * 1024 * 1024;
+
+async function sendEmail(buffer, filename, jsonBuffer, jsonName, data, note, schema) {
   const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD }
   });
+  const attachments = [{ filename: jsonName, content: jsonBuffer }];
+  let used = jsonBuffer.length;
+  if (schema && used + schema.content.length <= MAIL_LIMIT) {
+    attachments.push(schema);
+    used += schema.content.length;
+  }
+  if (used + buffer.length <= MAIL_LIMIT) {
+    attachments.unshift({ filename: filename, content: buffer });
+  } else {
+    note = (note ? note + '\n' : '') +
+      'NOTE: email ki had ke sabab Excel is dafa nahi bheji ja saki. ' +
+      'Restore wali file saath hai — system usi se wapas aata hai, ' +
+      'aur Excel Masters \u2192 Backup se kisi bhi waqt bani ja sakti hai.';
+  }
+
   await transporter.sendMail({
     from: process.env.GMAIL_USER,
     to: process.env.BACKUP_TO_EMAIL,
@@ -405,13 +497,14 @@ async function sendEmail(buffer, filename, jsonBuffer, jsonName, data) {
           'Do file hain:\n' +
           '\u2022 ' + filename + ' \u2014 padhne ke liye (Excel)\n' +
           '\u2022 ' + jsonName + ' \u2014 system wapas laane ke liye. Isay kholne ki zaroorat nahi, ' +
-          'bas mehfooz rakhein. Zaroorat pade to Masters \u2192 Restore se yehi file daali jati hai.\n\n' +
+          'bas mehfooz rakhein. Zaroorat pade to Masters \u2192 Restore se yehi file daali jati hai.\n' +
+          (schema ? '\u2022 ' + schema.filename + ' \u2014 database ki banawat (tables, RLS, ' +
+                    'SQL functions). Bilkul khali project par pehle yehi chalti hai, phir restore.\n' : '') +
+          '\n' +
           'Ye backup roz khud-b-khud banti hai.\n\n' +
+          (note ? note + '\n\n' : '') +
           'Is file mein kitni rows hain:\n' + countsText(data),
-    attachments: [
-      { filename: filename, content: buffer },
-      { filename: jsonName, content: jsonBuffer }
-    ]
+    attachments: attachments
   });
 }
 
@@ -422,13 +515,27 @@ async function main() {
   const buffer = await buildExcel(data);
   const stamp = dataDate();                    // jis din ka data hai
   const filename = 'OHT-Backup-' + stamp + '.xlsx';
-  const jsonName = 'OHT-Restore-' + stamp + '.json';
-  const jsonBuffer = buildRestoreJson(data);
-  await sendEmail(buffer, filename, jsonBuffer, jsonName, data);
+  const plain = buildRestoreJson(data);
+  const packed = packRestore(plain, stamp);
+  const note = packed.locked
+    ? 'Ye restore file password se BAND hai. Khulne ke liye wohi password chahiye ' +
+      'jo BACKUP_PASSPHRASE mein rakha gaya \u2014 wo kho gaya to file kabhi nahi khulegi.'
+    : '';
+  const schema = schemaAttachment(stamp);
+  await sendEmail(buffer, filename, packed.buffer, packed.name, data, note, schema);
   console.log('Liya gaya: ' + takenAtText() + ' | data ' + stamp);
   console.log('Rows: ' + countsText(data).replace(/\n/g, ', '));
-  console.log('Backup emailed: ' + filename + ' + ' + jsonName +
-              ' (' + Math.round(jsonBuffer.length / 1024) + ' KB)');
+  console.log('Restore file: ' + packed.name + ' \u2014 ' +
+              Math.round(plain.length / 1024) + ' KB \u2192 ' +
+              Math.round(packed.buffer.length / 1024) + ' KB' +
+              (packed.locked ? ' (password se band)' : ''));
+  if (packed.buffer.length > MAIL_LIMIT) {
+    console.warn('WARNING: restore file email ki had (24 MB) se barh chuki hai. ' +
+                 'Email nakaam ho sakti hai \u2014 Masters \u2192 Backup se file khud utaar ' +
+                 'lein, aur backup kisi aur jagah bhejne ka bandobast karein.');
+  }
+  console.log('Schema: ' + (schema ? schema.filename : 'nahi (SUPABASE_DB_URL set nahi)'));
+  console.log('Backup emailed: ' + filename + ' + ' + packed.name);
 }
 
 main().catch(function (e) {
