@@ -143,6 +143,32 @@ Agar kabhi ye step nakaam ho (jaise GitHub ka `pg_dump` server se purana
 ho) to bhi **data ka backup ruknay nahi paata** — wo step alag hai aur
 apne aap aage barh jata hai.
 
+## Backup mein kaun si tables jati hain
+
+Table ka naam **do jagah** likha hota hai, aur dono jagah ek jaisa rehna
+chahiye:
+
+- `backup-job/backup.js` → `RESTORE_ORDER`
+- `masters.html` → `RESTORE_ORDER`
+
+**Naya table banayen to us ka naam dono jagah daalna zaroori hai** — warna
+wo table backup mein aayegi hi nahi, aur kisi ko pata bhi nahi chalega.
+Tarteeb ahem hai: pehle wo cheez jis par doosri khadi hai (jaise `items`
+`item_units` se pehle, `app_users` sab se upar, `audit_log` sab se neeche).
+
+Roz ki email mein har table ki row count aati hai — wahin se andaza ho
+jata hai ke kuch chhoot to nahi raha.
+
+### Do surtein jo email khud bata deti hai
+
+| Email mein | Matlab | Kya karna hai |
+|---|---|---|
+| "Ye tables … maujood nahi thin" | Us naam ki table is database mein hai hi nahi. Backup baqi sab utaar kar chala gaya. | Agar us table ka hona chahiye tha to dekhein. Warna kuch nahi. |
+| Subject mein **⚠ ADHOORA** | Table maujood thi magar parhi nahi ja saki (jaise ijazat/RLS ka masla). **Backup adhoora hai.** | Foran dekhein. Run bhi nakaam ginta hai, GitHub ittila bhejta hai. |
+
+Pehle ek bhi ghayab table poore backup ko mar deti thi — na Excel aati, na
+restore file, kuch bhi nahi. Ab aisa nahi hota.
+
 ## Poori tabahi ke baad wapas kaise aayen
 
 Agar Supabase project bilkul khatam ho jaye, tarteeb ye hai:

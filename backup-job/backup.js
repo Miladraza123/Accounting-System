@@ -84,6 +84,32 @@ async function signIn() {
    ============================================================ */
 const PAGE_ROWS = 1000;
 
+/* Do bilkul alag kharabiyan, jinhein mila dena mehnga parta hai:
+
+     TABLE HI NAHI  — is database mein ye table banayi hi nahi gayi.
+                      Backup ko is par rukna nahi chahiye: baqi sab
+                      utaar lo aur is ka naam bata do.
+     COLUMN NAHI    — table hai, magar jis column par tarteeb lagayi
+                      wo nahi. Bina tarteeb ke dobara koshish karte hain.
+
+   Pehle table wali surat dekhte hain, warna "does not exist" dono par
+   chaspan ho jata hai. */
+function isMissingTable(msg) {
+  return /could not find the table|relation .* does not exist|PGRST205|42P01/i.test(msg);
+}
+function isMissingColumn(msg) {
+  return /column .* does not exist|failed to parse order|42703/i.test(msg);
+}
+
+/* Zyada tar tables ki chabi 'id' hai, magar kuch ki nahi — un ki chabi
+   wo cheez hai jis se wo bandhi hui hain. Restore ko yeh maloom hona
+   chahiye, warna wo ghalat column par kaam karta hai. */
+const KEY_COL = {
+  party_opening_balances: 'party_id',
+  item_cost_snapshot: 'item_id'
+};
+function keyCol(t) { return KEY_COL[t] || 'id'; }
+
 async function fetchPaged(t, orderBy) {
   const rows = [];
   /* Rukte tab hain jab ek qist bilkul khali aaye — "poori qist se kam
@@ -104,26 +130,42 @@ async function fetchPaged(t, orderBy) {
 
 async function fetchTable(t) {
   try {
-    return await fetchPaged(t, 'id');
+    return await fetchPaged(t, keyCol(t));
   } catch (e) {
-    /* Kuch tables mein 'id' column hoti hi nahi (jaise settings wali
-       ek-row table). Un par tarteeb nahi lag sakti — un ko bina tarteeb
-       ke laate hain. Aisi tables choti hoti hain, ek hi qist mein aa
-       jati hain, is liye qisten guthne ka sawaal nahi. Baqi har ghalti
-       upar jati hai — backup chup-chaap adhoora nahi hona chahiye. */
-    if (!/does not exist|failed to parse order|42703/i.test(e.message)) throw e;
+    /* Chabi wala column na mile to bina tarteeb ke dobara. Aisi tables
+       choti hoti hain, ek hi qist mein aa jati hain, is liye qisten
+       guthne ka sawaal nahi. Baqi har ghalti upar jati hai — backup
+       chup-chaap adhoora nahi hona chahiye. */
+    if (!isMissingColumn(e.message)) throw e;
     return await fetchPaged(t, null);
   }
 }
 
+/* Restore ke liye HAR table chahiye — warna file se system wapas nahi
+   aata. Magar "har table" ka matlab ye nahi ke ek table ki khatir poora
+   backup mar jaye. Pehle yehi hota tha: RESTORE_ORDER mein ek aisi
+   table ka naam tha jo is database mein hai hi nahi, aur us par poora
+   backup ruk jata — na Excel, na restore file, kuch bhi nahi.
+
+   Ab teen alag anjaam hain:
+     rows    — table mil gayi, poori utar aayi
+     absent  — table is database mein hai hi nahi. Skip, magar naam
+               email mein likha jata hai taake nazar mein rahe.
+     failed  — table hai magar parhi nahi gayi (jaise ijazat na ho).
+               Ye asal kharabi hai: backup phir bhi jata hai, magar
+               "ADHOORA" likh kar, aur run bhi nakaam ginta hai. */
 async function fetchAll() {
-  // Restore ke liye HAR table chahiye — warna file se system wapas nahi aata
-  const tables = RESTORE_ORDER;
-  const out = {};
-  for (const t of tables) {
-    out[t] = await fetchTable(t);
+  const tables = {}, absent = {}, failed = {};
+  for (const t of RESTORE_ORDER) {
+    try {
+      tables[t] = await fetchTable(t);
+    } catch (e) {
+      tables[t] = [];
+      if (isMissingTable(e.message)) absent[t] = e.message;
+      else failed[t] = e.message;
+    }
   }
-  return out;
+  return { tables, absent, failed };
 }
 
 /* ══════ Formatting helpers (masters.html ke bkBtn wale style se, ExcelJS API mein) ══════ */
@@ -355,8 +397,8 @@ async function buildExcel(data) {
    JSON bhi jati hai: har table poori, apni ID aur rishton ke saath,
    bilkul waisi jaisi database mein hai.
    ============================================================ */
-function buildRestoreJson(data) {
-  return Buffer.from(JSON.stringify({
+function buildRestoreJson(res) {
+  const payload = {
     format: 'oht-restore',
     version: 1,
     taken_at: new Date().toISOString(),
@@ -365,14 +407,38 @@ function buildRestoreJson(data) {
     // Tarteeb ahem hai — restore isi tarteeb se daalta hai, taake
     // jis cheez par koi doosri cheez khadi hai wo pehle mojood ho.
     order: RESTORE_ORDER,
-    tables: data
-  }), 'utf8');
+    tables: res.tables
+  };
+  // Jo table thi hi nahi wo kharabi nahi — magar file mein likh dete
+  // hain, taake baad mein koi ye na samjhe ke wo khali thi.
+  if (Object.keys(res.absent).length) payload.absent = res.absent;
+  if (Object.keys(res.failed).length) { payload.partial = true; payload.errors = res.failed; }
+  return Buffer.from(JSON.stringify(payload), 'utf8');
 }
 
-/* Pehle wo tables jin par baqi khadi hain, phir un par khadi hui cheezein */
+/* Pehle wo tables jin par baqi khadi hain, phir un par khadi hui
+   cheezein. Jo table is list mein nahi, wo backup mein bhi nahi — is
+   liye naya table banayen to us ka naam YAHAN aur masters.html ke
+   RESTORE_ORDER mein daalna zaroori hai. Dono jagah ek jaisi rehni
+   chahiye.
+
+   app_users, item_units, audit_log, party_opening_balances,
+   item_cost_snapshot aur steel_sizes pehle is list mein thin hi nahi —
+   yani database mein maujood hone ke bawajood kabhi backup nahi hotin
+   thin. app_users mein to logon ke permissions rehte hain. Ab shamil
+   hain.
+
+   app_users sab se upar hai kyunki taqreeban har table us se bandhi
+   hui hai (created_by / updated_by). audit_log sab se neeche, kyunki
+   wo app_users par khadi hai. */
 const RESTORE_ORDER = [
-  'app_settings', 'period_lock',
+  'app_settings',
+  'app_users',
+  'period_lock',
   'warehouses', 'companies', 'parties', 'party_kinds', 'items',
+  'steel_sizes',
+  'item_units', 'item_cost_snapshot',
+  'party_opening_balances',
   'services',
   'vouchers', 'voucher_lines',
   'sales_returns', 'sales_return_lines',
@@ -381,7 +447,8 @@ const RESTORE_ORDER = [
   'quotations', 'quotation_lines',
   'purchase_orders', 'po_lines',
   'stock_transfers', 'stock_transfer_lines', 'stock_adjustments',
-  'sheets'
+  'sheets',
+  'audit_log'
 ];
 
 /* Har table se kitni rows aayin — email aur log dono mein. Agar kabhi
@@ -392,6 +459,26 @@ function countsText(data) {
     .filter(function (t) { return (data[t] || []).length; })
     .map(function (t) { return t + ': ' + data[t].length; })
     .join('\n');
+}
+
+/* Jo table skip hui ya toot gayi — email mein saaf likhi jati hai.
+   Backup ka sab se bura anjaam ye hai ke wo adhoora ho aur dekhne
+   wale ko lage ke poora hai. */
+function skippedText(res) {
+  var out = '';
+  var absent = Object.keys(res.absent);
+  if (absent.length) {
+    out += 'Ye tables is database mein maujood nahi thin, is liye chhorh di gayin:\n' +
+           absent.map(function (t) { return '  \u2022 ' + t; }).join('\n') + '\n' +
+           '(Agar inhein hona chahiye tha to yeh dekhne wali baat hai.)\n\n';
+  }
+  var failed = Object.keys(res.failed);
+  if (failed.length) {
+    out += 'YE TABLES PARHI NAHI JA SAKIN \u2014 BACKUP ADHOORA HAI:\n' +
+           failed.map(function (t) { return '  \u2022 ' + t + ': ' + res.failed[t]; }).join('\n') +
+           '\n\n';
+  }
+  return out;
 }
 
 /* ============================================================
@@ -468,7 +555,7 @@ function schemaAttachment(stamp) {
    chahiye, kyunki system sirf usi se wapas aata hai. */
 const MAIL_LIMIT = 24 * 1024 * 1024;
 
-async function sendEmail(buffer, filename, jsonBuffer, jsonName, data, note, schema) {
+async function sendEmail(buffer, filename, jsonBuffer, jsonName, res, note, schema) {
   const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD }
@@ -491,7 +578,10 @@ async function sendEmail(buffer, filename, jsonBuffer, jsonName, data, note, sch
   await transporter.sendMail({
     from: process.env.GMAIL_USER,
     to: process.env.BACKUP_TO_EMAIL,
-    subject: 'OHT Daily Backup — ' + dataDate(),
+    // Adhoora backup subject se hi pata chal jana chahiye, andar khol
+    // kar nahi. Warna wo poore backup jaisa lagta hai.
+    subject: (Object.keys(res.failed).length ? '\u26A0 ADHOORA \u2014 ' : '') +
+             'OHT Daily Backup \u2014 ' + dataDate(),
     text: 'Backup liya gaya: ' + takenAtText() + '\n' +
           'Data is tareekh tak ka: ' + dataDate() + '\n\n' +
           'Do file hain:\n' +
@@ -503,7 +593,8 @@ async function sendEmail(buffer, filename, jsonBuffer, jsonName, data, note, sch
           '\n' +
           'Ye backup roz khud-b-khud banti hai.\n\n' +
           (note ? note + '\n\n' : '') +
-          'Is file mein kitni rows hain:\n' + countsText(data),
+          skippedText(res) +
+          'Is file mein kitni rows hain:\n' + countsText(res.tables),
     attachments: attachments
   });
 }
@@ -511,20 +602,22 @@ async function sendEmail(buffer, filename, jsonBuffer, jsonName, data, note, sch
 async function main() {
   console.log('OHT backup starting…');
   await signIn();
-  const data = await fetchAll();
-  const buffer = await buildExcel(data);
+  const res = await fetchAll();
+  const buffer = await buildExcel(res.tables);
   const stamp = dataDate();                    // jis din ka data hai
   const filename = 'OHT-Backup-' + stamp + '.xlsx';
-  const plain = buildRestoreJson(data);
+  const plain = buildRestoreJson(res);
   const packed = packRestore(plain, stamp);
   const note = packed.locked
     ? 'Ye restore file password se BAND hai. Khulne ke liye wohi password chahiye ' +
       'jo BACKUP_PASSPHRASE mein rakha gaya \u2014 wo kho gaya to file kabhi nahi khulegi.'
     : '';
   const schema = schemaAttachment(stamp);
-  await sendEmail(buffer, filename, packed.buffer, packed.name, data, note, schema);
+  await sendEmail(buffer, filename, packed.buffer, packed.name, res, note, schema);
   console.log('Liya gaya: ' + takenAtText() + ' | data ' + stamp);
-  console.log('Rows: ' + countsText(data).replace(/\n/g, ', '));
+  console.log('Rows: ' + countsText(res.tables).replace(/\n/g, ', '));
+  var absent = Object.keys(res.absent), failed = Object.keys(res.failed);
+  if (absent.length) console.log('Maujood nahi (chhorh di gayin): ' + absent.join(', '));
   console.log('Restore file: ' + packed.name + ' \u2014 ' +
               Math.round(plain.length / 1024) + ' KB \u2192 ' +
               Math.round(packed.buffer.length / 1024) + ' KB' +
@@ -536,6 +629,16 @@ async function main() {
   }
   console.log('Schema: ' + (schema ? schema.filename : 'nahi (SUPABASE_DB_URL set nahi)'));
   console.log('Backup emailed: ' + filename + ' + ' + packed.name);
+
+  /* Email pehle bhej di — jo mil saka wo haath mein hona chahiye. Magar
+     agar koi table toot gayi to run ko kamyab nahi kehte: GitHub is par
+     nakami ki ittila bhejta hai, aur wohi chahiye. */
+  if (failed.length) {
+    console.error('ADHOORA BACKUP: ' + failed.map(function (t) {
+      return t + ' (' + res.failed[t] + ')';
+    }).join('; '));
+    process.exitCode = 1;
+  }
 }
 
 main().catch(function (e) {
