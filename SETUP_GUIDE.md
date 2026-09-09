@@ -159,6 +159,13 @@ Tarteeb ahem hai: pehle wo cheez jis par doosri khadi hai (jaise `items`
 Roz ki email mein har table ki row count aati hai — wahin se andaza ho
 jata hai ke kuch chhoot to nahi raha.
 
+**`audit_log` backup mein jati hai magar restore nahi hoti.** Wo is baat
+ka record hai ke kis ne kab kya badla, aur database khud usay app se
+likhne nahi deta — likhna wahin ka trigger karta hai. Ye rok jaan boojh
+kar hai: jo record baad mein badla ja sake wo record rehta hi nahi.
+Guzri hui tareekh file mein mehfooz rehti hai, bas wapas nahi daali
+jati.
+
 ### Do surtein jo email khud bata deti hai
 
 | Email mein | Matlab | Kya karna hai |

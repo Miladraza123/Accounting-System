@@ -4023,6 +4023,19 @@
   };
   function keyCol(t) { return KEY_COL[t] || 'id'; }
 
+  /* Kuch cheezein sirf MEHFOOZ RAKHNE ke liye backup mein jati hain,
+     wapas nahi daali jatin.
+
+     audit_log wohi hai: wo is baat ka record hai ke kis ne kab kya
+     badla. Database khud usay app se likhne nahi deta — sirf parhne ki
+     ijazat hai, aur likhna wahin ka trigger karta hai. Ye rok jaan
+     boojh kar hai: agar record baad mein badla ja sake to wo record
+     rehta hi nahi.
+
+     Is liye restore is mein haath nahi lagata. File mein wo phir bhi
+     jati hai, taake guzri hui tareekh mehfooz rahe. */
+  var RESTORE_SKIP = { audit_log: true };
+
   /* Table hi na ho — ye kharabi nahi. Is database mein wo cheez banayi
      hi nahi gayi. Table ho magar parhi na ja sake (jaise ijazat na ho)
      — ye asal kharabi hai. Dono ko alag rakhna zaroori hai, warna ya to
@@ -4207,6 +4220,10 @@
     var mode = $('rsMode').value;
     return Promise.all(j.order.map(function (t) {
       var k = keyCol(t), rows = j.tables[t] || [];
+      if (RESTORE_SKIP[t]) {
+        return Promise.resolve({ table:t, add:0, upd:0, del:0,
+                                 total:rows.length, err:'', skip:true });
+      }
       return fetchAllRows(function () {
         return sb.from(t).select(k).order(k, { ascending:true });
       }).then(function (data) {
@@ -4237,6 +4254,9 @@
 
   function drawRestorePlan(plan) {
     var any = plan.filter(function (p) { return p.add || p.upd || p.del; });
+    /* Jo cheez file mein hai magar restore nahi hoti, us ka bata dena
+       zaroori hai — warna user samjhega ke wo bhi wapas aa gayi. */
+    var kept = plan.filter(function (p) { return p.skip && p.total; });
     /* Jo table parhi hi na ja saki us ka plan bharosay ke qabil nahi —
        wo "koi tabdeeli nahi" jaisi dikhti hai jabke asal mein pata hi
        nahi chala. Is liye usay alag se, upar dikhate hain. */
@@ -4263,6 +4283,14 @@
               '<td class="r' + (p.del ? ' neg' : '') + '">' + (p.del || '\u2014') + '</td></tr>';
           }).join('') + '</tbody></table>'
         : '<div class="hint">Koi tabdeeli nahi \u2014 database pehle se file jaisa hai.</div>') +
+      (kept.length
+        ? '<div class="f"><div class="hint">' +
+          kept.map(function (p) {
+            return '<b>' + esc(p.table) + '</b> (' + p.total + ' rows)';
+          }).join(', ') +
+          ' \u2014 ye sirf mehfooz rakhne ke liye file mein hai, wapas nahi daali jati. ' +
+          'Ye kaam ka record hai; usay badla nahi jata.</div></div>'
+        : '') +
       '<div class="f"><div class="hint">Restore se pehle system khud ek taaza backup file ' +
       'utaar dega. Ghalti ho jaye to usi se wapas laut sakte hain.</div></div>';
   }
@@ -4399,11 +4427,13 @@
 
     if (mode === 'replace') {
       order.slice().reverse().forEach(function (t) {
+        if (RESTORE_SKIP[t]) return;
         chain = chain.then(function () { return deleteMissing(t, j.tables[t] || []); });
       });
     }
 
     order.forEach(function (t) {
+      if (RESTORE_SKIP[t]) return;
       chain = chain.then(function () {
         var rows = j.tables[t] || [];
         if (!rows.length) return;
@@ -4442,7 +4472,7 @@
   function verifyRestore(j, mode) {
     return Promise.all(j.order.map(function (t) {
       var want = (j.tables[t] || []).length;
-      if (!want) return null;
+      if (!want || RESTORE_SKIP[t]) return null;
       var k = keyCol(t);
       return fetchAllRows(function () {
         return sb.from(t).select(k).order(k, { ascending:true });
