@@ -3987,10 +3987,21 @@
 
   /* Pehle wo tables jin par baqi khadi hain, phir un par khadi hui
      cheezein — bilkul wohi tarteeb jo backup-job/backup.js mein hai.
-     Dono jagah ek jaisi rehni chahiye. */
+     Dono jagah ek jaisi rehni chahiye; naya table banayen to us ka
+     naam dono jagah daalna zaroori hai, warna wo backup mein aayega
+     hi nahi.
+
+     app_users sab se upar, kyunki taqreeban har table us se bandhi hui
+     hai (created_by / updated_by). audit_log sab se neeche, kyunki wo
+     app_users par khadi hai. */
   var RESTORE_ORDER = [
-    'app_settings', 'period_lock',
+    'app_settings',
+    'app_users',
+    'period_lock',
     'warehouses', 'companies', 'parties', 'party_kinds', 'items',
+    'steel_sizes',
+    'item_units', 'item_cost_snapshot',
+    'party_opening_balances',
     'services',
     'vouchers', 'voucher_lines',
     'sales_returns', 'sales_return_lines',
@@ -3999,33 +4010,58 @@
     'quotations', 'quotation_lines',
     'purchase_orders', 'po_lines',
     'stock_transfers', 'stock_transfer_lines', 'stock_adjustments',
-    'sheets'
+    'sheets',
+    'audit_log'
   ];
+
+  /* Har table ki chabi 'id' nahi hoti — kuch us cheez se bandhi hui
+     hain jis ki wo tafseel hain. Restore ko sahi column par kaam karna
+     chahiye, warna wo na ginti mila sakta hai na purani rows urha
+     sakta hai. */
+  var KEY_COL = {
+    party_opening_balances: 'party_id',
+    item_cost_snapshot: 'item_id'
+  };
+  function keyCol(t) { return KEY_COL[t] || 'id'; }
+
+  /* Table hi na ho — ye kharabi nahi. Is database mein wo cheez banayi
+     hi nahi gayi. Table ho magar parhi na ja sake (jaise ijazat na ho)
+     — ye asal kharabi hai. Dono ko alag rakhna zaroori hai, warna ya to
+     har roz jhooti warning aati hai ya asal kharabi us mein chhup jati
+     hai. */
+  function isMissingTable(m) {
+    return /could not find the table|relation .* does not exist|PGRST205|42P01/i.test(m);
+  }
+  function isMissingColumn(m) {
+    return /column .* does not exist|failed to parse order|42703/i.test(m);
+  }
 
   /* Poora database jaisa hai waisa — har table, apni ID aur rishton ke
      sath. Jo table na parhi ja sake usay chhupate nahi: file mein bhi
      likh dete hain aur user ko bhi bata dete hain. */
   function fetchTableRows(t) {
     return fetchAllRows(function () {
-      return sb.from(t).select('*').order('id', { ascending:true });
+      return sb.from(t).select('*').order(keyCol(t), { ascending:true });
     }).catch(function (e) {
-      /* Jis table mein 'id' hai hi nahi (jaise settings wali ek-row
-         table) us par tarteeb nahi lag sakti — usay bina tarteeb ke
-         laate hain. Aisi tables choti hoti hain, ek hi qist mein aa
-         jati hain. */
+      /* Chabi wala column na mile to bina tarteeb ke dobara. Aisi
+         tables choti hoti hain, ek hi qist mein aa jati hain. */
       var m = (e && e.message) || String(e);
-      if (!/does not exist|failed to parse order|42703/i.test(m)) throw e;
+      if (!isMissingColumn(m)) throw e;
       return fetchAllRows(function () { return sb.from(t).select('*'); });
     });
   }
 
   function dumpAllTables(order) {
-    var tables = {}, errors = {};
+    var tables = {}, errors = {}, absent = {};
     return Promise.all(order.map(function (t) {
       return fetchTableRows(t)
         .then(function (rows) { tables[t] = rows; })
-        .catch(function (e) { tables[t] = []; errors[t] = (e && e.message) || String(e); });
-    })).then(function () { return { tables:tables, errors:errors }; });
+        .catch(function (e) {
+          var m = (e && e.message) || String(e);
+          tables[t] = [];
+          if (isMissingTable(m)) absent[t] = m; else errors[t] = m;
+        });
+    })).then(function () { return { tables:tables, errors:errors, absent:absent }; });
   }
 
   function restoreFileBlob(order, dump) {
@@ -4033,6 +4069,9 @@
       format:'oht-restore', version:1, taken_at:new Date().toISOString(),
       order:order, tables:dump.tables
     };
+    // Jo table thi hi nahi wo kharabi nahi — magar likh dete hain,
+    // taake baad mein koi ye na samjhe ke wo khali thi.
+    if (Object.keys(dump.absent || {}).length) payload.absent = dump.absent;
     if (Object.keys(dump.errors).length) { payload.partial = true; payload.errors = dump.errors; }
     return new Blob([JSON.stringify(payload)], { type:'application/json' });
   }
@@ -4168,21 +4207,27 @@
   function buildRestorePlan(j) {
     var mode = $('rsMode').value;
     return Promise.all(j.order.map(function (t) {
+      var k = keyCol(t), rows = j.tables[t] || [];
       return fetchAllRows(function () {
-        return sb.from(t).select('id').order('id', { ascending:true });
+        return sb.from(t).select(k).order(k, { ascending:true });
       }).then(function (data) {
         return { rows:data, err:'' };
       }).catch(function (e) {
-        return { rows:[], err:(e && e.message) || String(e) };
+        var m = (e && e.message) || String(e);
+        /* Table is database mein hai hi nahi. Agar file mein bhi is ka
+           kuch nahi to koi masla nahi — chup rehte hain. Magar file
+           mein rows hon to ye batana zaroori hai, warna restore beech
+           mein ja kar rukega aur wajah samajh nahi aayegi. */
+        if (isMissingTable(m) && !rows.length) return { rows:[], err:'' };
+        return { rows:[], err:m };
       }).then(function (r) {
         var have = {};
-        r.rows.forEach(function (x) { have[x.id] = true; });
-        var rows = j.tables[t] || [];
+        r.rows.forEach(function (x) { have[x[k]] = true; });
         var add = 0, upd = 0;
-        rows.forEach(function (x) { if (have[x.id]) upd++; else add++; });
+        rows.forEach(function (x) { if (have[x[k]]) upd++; else add++; });
         var del = mode === 'replace'
           ? Object.keys(have).filter(function (id) {
-              return !rows.some(function (x) { return String(x.id) === String(id); });
+              return !rows.some(function (x) { return String(x[k]) === String(id); });
             }).length
           : 0;
         return { table:t, add:add, upd:mode === 'replace' ? upd : 0, del:del,
@@ -4319,10 +4364,10 @@
   var DEL_BATCH = 100, UPS_BATCH = 200;
 
   function deleteMissing(t, rows) {
-    var keep = {};
-    rows.forEach(function (x) { if (x && x.id != null) keep[String(x.id)] = true; });
+    var k = keyCol(t), keep = {};
+    rows.forEach(function (x) { if (x && x[k] != null) keep[String(x[k])] = true; });
     return fetchAllRows(function () {
-      return sb.from(t).select('id').order('id', { ascending:true });
+      return sb.from(t).select(k).order(k, { ascending:true });
     }).catch(function (e) {
       /* Table hi maujood nahi aur file mein bhi is ka kuch nahi —
          urhane ko kuch hai hi nahi, aage barh jayen. Lekin file mein
@@ -4331,13 +4376,13 @@
       throw new Error(t + ' (delete): ' + ((e && e.message) || e));
     }).then(function (have) {
       if (!have) return;
-      var doomed = have.map(function (x) { return x.id; })
+      var doomed = have.map(function (x) { return x[k]; })
         .filter(function (id) { return id != null && !keep[String(id)]; });
       var p = Promise.resolve();
       for (var i = 0; i < doomed.length; i += DEL_BATCH) {
         (function (part) {
           p = p.then(function () {
-            return sb.from(t).delete().in('id', part).then(function (r) {
+            return sb.from(t).delete().in(k, part).then(function (r) {
               if (r.error) throw new Error(t + ' (delete): ' + r.error.message);
             });
           });
@@ -4399,8 +4444,9 @@
     return Promise.all(j.order.map(function (t) {
       var want = (j.tables[t] || []).length;
       if (!want) return null;
+      var k = keyCol(t);
       return fetchAllRows(function () {
-        return sb.from(t).select('id').order('id', { ascending:true });
+        return sb.from(t).select(k).order(k, { ascending:true });
       }).then(function (have) {
         var ok = mode === 'replace' ? have.length === want : have.length >= want;
         return ok ? null : { table:t, want:want, got:have.length, err:'' };
