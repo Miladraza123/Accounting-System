@@ -700,7 +700,12 @@
     </p>
 
     <div class="f"><label>Backup file</label>
-      <input id="rsFile" type="file" accept=".json,application/json"></div>
+      <input id="rsFile" type="file" accept=".json,.gz,.enc,application/json"></div>
+
+    <div class="f" id="rsPassBox" style="display:none"><label>File ka password</label>
+      <input id="rsPass" type="password" autocomplete="off" placeholder="Backup ka password">
+      <div class="hint">Ye wohi password hai jo backup ke <b>BACKUP_PASSPHRASE</b> mein
+        rakha gaya. Password na ho to file kabhi nahi khulti — isay sambhal kar rakhein.</div></div>
 
     <div class="f"><label>Tareeqa</label>
       <select id="rsMode">
@@ -4058,27 +4063,104 @@
     $('restoreModal').classList.add('on');
     rsData = null; rsPlan = null;
     $('rsFile').value = ''; $('rsConfirm').value = '';
+    $('rsPass').value = ''; $('rsPassBox').style.display = 'none';
     $('rsPlan').innerHTML = '';
     $('rsConfirmBox').style.display = 'none';
     $('rsGo').style.display = 'none';
     $('rsModeHint').textContent = RS_HINT[$('rsMode').value];
   }
 
+  /* ---------- Backup file kholna ----------
+     Teen shaklein aa sakti hain, aur teenon chalti hain:
+       • saada .json          — jaisi pehle thi, aur jaisi ye app khud banati hai
+       • dabai hui .json.gz   — email chhoti rakhne ke liye (Gmail ki 25 MB had)
+       • band .json.enc       — password se band, agar backup mein
+                                BACKUP_PASSPHRASE rakha gaya ho
+     File khud bata deti hai wo kya hai — hum naam par bharosa nahi karte. */
+  function readFileBytes(f) {
+    return new Promise(function (res, rej) {
+      var fr = new FileReader();
+      fr.onload = function () { res(new Uint8Array(fr.result)); };
+      fr.onerror = function () { rej(new Error('File padhi nahi ja saki')); };
+      fr.readAsArrayBuffer(f);
+    });
+  }
+
+  function b64bytes(b64) {
+    var bin = atob(String(b64 || ''));
+    var out = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+
+  function gunzip(bytes) {
+    if (typeof DecompressionStream === 'undefined') {
+      return Promise.reject(new Error('Ye file dabai hui hai aur ye browser usay khol ' +
+        'nahi sakta. Naye Chrome ya Safari mein kholein.'));
+    }
+    /* Seedha stream se parhte hain — Blob ya fetch/Response ke baghair,
+       taake purane browser bhi na atkein. */
+    var ds = new DecompressionStream('gzip');
+    var w = ds.writable.getWriter();
+    w.write(bytes).catch(function () {});      // kharabi parhne ki taraf khud aa jayegi
+    w.close().catch(function () {});
+    var reader = ds.readable.getReader(), chunks = [], total = 0;
+    return (function pump() {
+      return reader.read().then(function (res) {
+        if (res.done) {
+          var out = new Uint8Array(total), at = 0;
+          chunks.forEach(function (c) { out.set(c, at); at += c.length; });
+          return out;
+        }
+        chunks.push(res.value); total += res.value.length;
+        return pump();
+      });
+    })();
+  }
+
+  function decryptBackup(env) {
+    var pass = ($('rsPass').value || '');
+    $('rsPassBox').style.display = '';
+    if (!pass) return Promise.reject(new Error('Ye file password se band hai \u2014 password likhein'));
+    if (!window.crypto || !window.crypto.subtle) {
+      return Promise.reject(new Error('Ye browser band file khol nahi sakta. Naye Chrome ' +
+        'ya Safari mein kholein (aur page https par hona chahiye).'));
+    }
+    var salt = b64bytes(env.salt), iv = b64bytes(env.iv), data = b64bytes(env.data);
+    var raw = new TextEncoder().encode(pass);
+    return window.crypto.subtle.importKey('raw', raw, 'PBKDF2', false, ['deriveKey'])
+      .then(function (base) {
+        return window.crypto.subtle.deriveKey(
+          { name:'PBKDF2', salt:salt, iterations:env.iterations || 200000, hash:'SHA-256' },
+          base, { name:'AES-GCM', length:256 }, false, ['decrypt']);
+      })
+      .then(function (key) {
+        return window.crypto.subtle.decrypt({ name:'AES-GCM', iv:iv }, key, data);
+      })
+      .then(function (buf) { return new Uint8Array(buf); },
+            function () { throw new Error('Password ghalat lagta hai \u2014 file khul nahi rahi'); });
+  }
+
+  /* gzip ki pehchan us ke pehle do bytes se hoti hai (1f 8b) */
+  function isGzip(b) { return b.length > 1 && b[0] === 0x1f && b[1] === 0x8b; }
+
+  function unpackBackup(bytes) {
+    if (isGzip(bytes)) return gunzip(bytes).then(function (b) { return unpackBackup(b); });
+    var text = new TextDecoder('utf-8').decode(bytes);
+    if (text.slice(0, 300).indexOf('oht-restore-encrypted') === -1) return Promise.resolve(text);
+    return decryptBackup(JSON.parse(text)).then(function (b) { return unpackBackup(b); });
+  }
+
   function readBackupFile() {
     var f = $('rsFile').files[0];
     if (!f) return Promise.reject(new Error('Pehle backup file chunein'));
-    return new Promise(function (res, rej) {
-      var fr = new FileReader();
-      fr.onload = function () {
-        try {
-          var j = JSON.parse(fr.result);
-          if (j.format !== 'oht-restore') throw new Error('Yeh restore wali file nahi lagti');
-          if (!j.tables || !j.order) throw new Error('File adhoori lagti hai');
-          res(j);
-        } catch (e) { rej(new Error('File padhi nahi ja saki \u2014 ' + e.message)); }
-      };
-      fr.onerror = function () { rej(new Error('File padhi nahi ja saki')); };
-      fr.readAsText(f);
+    return readFileBytes(f).then(unpackBackup).then(function (text) {
+      var j = JSON.parse(text);
+      if (j.format !== 'oht-restore') throw new Error('Yeh restore wali file nahi lagti');
+      if (!j.tables || !j.order) throw new Error('File adhoori lagti hai');
+      return j;
+    }).catch(function (e) {
+      throw new Error('File padhi nahi ja saki \u2014 ' + ((e && e.message) || e));
     });
   }
 
@@ -4141,6 +4223,13 @@
       'utaar dega. Ghalti ho jaye to usi se wapas laut sakte hain.</div></div>';
   }
 
+  /* .enc file chunte hi password ka khana khol dete hain — user ko
+     pehle "Check karein" dabana na pare tab pata chale. */
+  $('rsFile').addEventListener('change', function () {
+    var f = this.files[0];
+    if (f && /\.enc$/i.test(f.name)) $('rsPassBox').style.display = '';
+  });
+
   $('restoreBtn').addEventListener('click', openRestore);
   $('rsClose').addEventListener('click', function () { $('restoreModal').classList.remove('on'); });
   $('rsMode').addEventListener('change', function () {
@@ -4171,20 +4260,35 @@
     if ($('rsConfirm').value.trim().toUpperCase() !== 'RESTORE') {
       toast('Confirm karne ke liye RESTORE likhein', true); return;
     }
-    var btn = this; btn.disabled = true; btn.textContent = 'Restore ho raha hai\u2026';
+    var btn = this, mode = $('rsMode').value;
+    btn.disabled = true; btn.textContent = 'Restore ho raha hai\u2026';
     // Pehle abhi ka data utaar lo — wapas laut'ne ka raasta khula rahe
     downloadSafetyBackup().then(function () {
-      return runRestore(rsData, $('rsMode').value);
+      return runRestore(rsData, mode);
     }).then(function (done) {
-      btn.disabled = false; btn.textContent = 'Restore';
-      $('restoreModal').classList.remove('on');
       toast('Restore mukammal \u2014 ' + done + ' rows. Costing dobara chal rahi hai\u2026');
       return sb.rpc('recompute_all_item_costs', { lock_date:null });
     }).then(function () {
+      btn.textContent = 'Ginti mila rahe hain\u2026';
+      return verifyRestore(rsData, mode);
+    }).then(function (bad) {
+      btn.disabled = false; btn.textContent = 'Restore';
       loadAll();
-      toast('Sab kuch wapas aa gaya');
+      /* Modal tabhi band hota hai jab ginti mil jaye. Warna khula rehta
+         hai, taake jo mila wo saamne rahe — chup-chaap band ho jana
+         sab se bura anjaam hai. */
+      if (bad.length) { drawRestoreMismatch(bad); toast('Ginti nahi mili \u2014 neeche dekhein', true); return; }
+      $('restoreModal').classList.remove('on');
+      toast('Sab kuch wapas aa gaya \u2014 ginti bhi mil gayi');
     }).catch(function (e) {
       btn.disabled = false; btn.textContent = 'Restore';
+      /* Beech mein ruk gaya: database ab na purana hai na naya. Yeh
+         chhupana nahi hai — saaf batate hain aur safety file yaad
+         dila dete hain. */
+      drawRestoreProblem('Restore beech mein ruk gaya',
+        '<div class="sline"><span class="v neg">' + esc((e && e.message) || String(e)) +
+        '</span></div>');
+      loadAll();
       sayErr(e, 'restore');
     });
   });
@@ -4202,6 +4306,47 @@
     });
   }
 
+  /* Jo rows file mein nahi rahin unhein urhana hai. Pehle ye ek hi
+     request mein hota tha: har REHNE wali id URL mein likh kar "in ke
+     ilawa sab urhao". Hazaron rows par wo URL itna lamba ho jata ke
+     server 414 de deta aur restore wahin ruk jata. Doosri kharabi:
+     jawab dekha hi nahi jata tha, to delete nakaam ho kar bhi restore
+     "mukammal" keh deta.
+
+     Ab pehle dekh lete hain database mein kaun si id maujood hai,
+     hisaab yahan lagate hain, aur sirf URHNE walon ko choti qiston
+     mein bhejte hain — aur har qist ka jawab parhte hain. */
+  var DEL_BATCH = 100, UPS_BATCH = 200;
+
+  function deleteMissing(t, rows) {
+    var keep = {};
+    rows.forEach(function (x) { if (x && x.id != null) keep[String(x.id)] = true; });
+    return fetchAllRows(function () {
+      return sb.from(t).select('id').order('id', { ascending:true });
+    }).catch(function (e) {
+      /* Table hi maujood nahi aur file mein bhi is ka kuch nahi —
+         urhane ko kuch hai hi nahi, aage barh jayen. Lekin file mein
+         rows hain to chup nahi rehna: wo upsert par waise bhi rukega. */
+      if (!rows.length) return null;
+      throw new Error(t + ' (delete): ' + ((e && e.message) || e));
+    }).then(function (have) {
+      if (!have) return;
+      var doomed = have.map(function (x) { return x.id; })
+        .filter(function (id) { return id != null && !keep[String(id)]; });
+      var p = Promise.resolve();
+      for (var i = 0; i < doomed.length; i += DEL_BATCH) {
+        (function (part) {
+          p = p.then(function () {
+            return sb.from(t).delete().in('id', part).then(function (r) {
+              if (r.error) throw new Error(t + ' (delete): ' + r.error.message);
+            });
+          });
+        })(doomed.slice(i, i + DEL_BATCH));
+      }
+      return p;
+    });
+  }
+
   /* Asal kaam. Tarteeb ahem hai — pehle wo cheezein jin par baqi khadi
      hain. Urhana ulti tarteeb mein, warna foreign key rok deti hai. */
   function runRestore(j, mode) {
@@ -4210,14 +4355,7 @@
 
     if (mode === 'replace') {
       order.slice().reverse().forEach(function (t) {
-        chain = chain.then(function () {
-          var rows = j.tables[t] || [];
-          var keep = rows.map(function (x) { return x.id; }).filter(Boolean);
-          var q = sb.from(t).delete();
-          q = keep.length ? q.not('id', 'in', '(' + keep.join(',') + ')')
-                          : q.gte('id', '00000000-0000-0000-0000-000000000000');
-          return q.then(function () {});
-        });
+        chain = chain.then(function () { return deleteMissing(t, j.tables[t] || []); });
       });
     }
 
@@ -4225,9 +4363,9 @@
       chain = chain.then(function () {
         var rows = j.tables[t] || [];
         if (!rows.length) return;
-        // 200 ki qist mein — ek saath bhejne par request bohat bari ho jati hai
+        // qiston mein — ek saath bhejne par request bohat bari ho jati hai
         var parts = [];
-        for (var i = 0; i < rows.length; i += 200) parts.push(rows.slice(i, i + 200));
+        for (var i = 0; i < rows.length; i += UPS_BATCH) parts.push(rows.slice(i, i + UPS_BATCH));
         var p = Promise.resolve();
         parts.forEach(function (part) {
           p = p.then(function () {
@@ -4245,6 +4383,50 @@
     });
 
     return chain.then(function () { return done; });
+  }
+
+  /* ---------- Restore ke baad ginti milana ----------
+     Restore ek saath nahi hota — har table apni apni request mein jati
+     hai, aur database in sab ko ek lamha bana kar nahi rakhta. Beech
+     mein kuch ruk jaye to aadha data chala jata hai aur upar se "ho
+     gaya" likha aata hai. Yehi sab se bura hai.
+
+     Is liye aakhir mein ginti milate hain: file mein jitni rows thin,
+     database mein utni honi chahiyen (replace mein barabar, "sirf
+     ghaayab" wale mein us se kam nahi). Jo na mile wo saamne rakh
+     dete hain — aur safety file to bani hi rakhi hai. */
+  function verifyRestore(j, mode) {
+    return Promise.all(j.order.map(function (t) {
+      var want = (j.tables[t] || []).length;
+      if (!want) return null;
+      return fetchAllRows(function () {
+        return sb.from(t).select('id').order('id', { ascending:true });
+      }).then(function (have) {
+        var ok = mode === 'replace' ? have.length === want : have.length >= want;
+        return ok ? null : { table:t, want:want, got:have.length, err:'' };
+      }).catch(function (e) {
+        return { table:t, want:want, got:null, err:(e && e.message) || String(e) };
+      });
+    })).then(function (all) {
+      return all.filter(function (x) { return x; });
+    });
+  }
+
+  function drawRestoreProblem(title, body) {
+    $('rsPlan').innerHTML = '<div class="sum" style="border-color:var(--debit)">' +
+      '<div class="sline"><span class="k neg"><b>' + esc(title) + '</b></span></div>' +
+      body +
+      '<div class="hint">Restore se pehle jo <b>OHT-Before-Restore-' + esc(today()) +
+      '.json</b> file utri thi, us se pichli halat wapas laayi ja sakti hai — ' +
+      'usay Replace tareeqe se daalein.</div></div>';
+  }
+
+  function drawRestoreMismatch(bad) {
+    drawRestoreProblem('Ginti nahi mili', bad.map(function (x) {
+      return '<div class="sline"><span class="k">' + esc(x.table) + '</span>' +
+             '<span class="v neg">' + (x.err ? esc(x.err)
+               : 'file mein ' + x.want + ', database mein ' + x.got) + '</span></div>';
+    }).join(''));
   }
 
   /* ---------- Receivable Aging ----------

@@ -9,6 +9,14 @@ on:
 jobs:
   backup:
     runs-on: ubuntu-latest
+    # Sirf ye batane ke liye ke DB wala secret rakha gaya hai ya nahi —
+    # secret khud yahan nahi aata.
+    env:
+      HAS_DB_URL: ${{ secrets.SUPABASE_DB_URL != '' }}
+    # Neeche wala keepalive step repo mein ek chhoti file likhta hai,
+    # is liye likhne ki ijazat chahiye.
+    permissions:
+      contents: write
     steps:
       - name: Repo checkout
         uses: actions/checkout@v4
@@ -22,6 +30,25 @@ jobs:
         run: npm install
         working-directory: backup-job
 
+      # Marzi ki cheez: SUPABASE_DB_URL secret rakha ho to database ki
+      # BANAWAT bhi utaar lete hain — tables, RLS policies aur wo SQL
+      # functions jin par app khadi hai. Restore file mein sirf DATA
+      # hota hai; bilkul khali project par pehle banawat chahiye hoti
+      # hai. Secret na ho to ye step chhoot jata hai aur sab pehle
+      # jaisa chalta hai. Yahan koi ghalti aaye (jaise pg_dump ka
+      # version server se purana ho) to bhi data ka backup rukna nahi
+      # chahiye — is liye continue-on-error.
+      - name: Database ki banawat (schema) utaaro
+        if: env.HAS_DB_URL == 'true'
+        continue-on-error: true
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          pg_dump --schema-only --no-owner --no-privileges \
+                  --schema=public "$SUPABASE_DB_URL" > "$RUNNER_TEMP/schema.sql"
+          test -s "$RUNNER_TEMP/schema.sql"
+          echo "SCHEMA_FILE=$RUNNER_TEMP/schema.sql" >> "$GITHUB_ENV"
+
       - name: Backup chalao
         run: npm start
         working-directory: backup-job
@@ -33,3 +60,39 @@ jobs:
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           BACKUP_TO_EMAIL: ${{ secrets.BACKUP_TO_EMAIL }}
+          # Marzi ki cheez: ye secret rakhein to restore file password se
+          # band ho kar jati hai. Na rakhein to sab pehle jaisa chalta hai.
+          # KHABARDAR: password kho gaya to file kabhi nahi khulegi.
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+          # Upar wale step ne banai ho to hi set hoti hai
+          BACKUP_SCHEMA_FILE: ${{ env.SCHEMA_FILE }}
+
+      # ─────────────────────────────────────────────────────────────
+      # Ye repo PUBLIC hai. Is liye backup file ko yahan "artifact"
+      # bana kar kabhi mat rakhein — public repo ke artifacts koi bhi
+      # utaar sakta hai, aur us mein poora karobar hota hai. Backup
+      # sirf email se jata hai. Doosri jagah copy chahiye to
+      # BACKUP_TO_EMAIL mein comma laga kar doosra pata likh dein.
+      # ─────────────────────────────────────────────────────────────
+
+      # GitHub scheduled workflow ko 60 din repo khali rehne par khud
+      # band kar deta hai — aur backup chup-chaap ruk jata hai. Ye step
+      # mahine mein ek dafa ek chhoti file (sirf mahina, koi data nahi)
+      # commit kar deta hai, jis se repo "zinda" rehti hai. Backup
+      # kamyab ho chuka hota hai, is liye yahan koi ghalti aa bhi jaye
+      # to poore run ko nakaam nahi kehte.
+      - name: Schedule ko zinda rakho (mahine mein ek dafa)
+        if: success()
+        continue-on-error: true
+        run: |
+          date -u +%Y-%m > backup-job/last-backup.txt
+          if [ -n "$(git status --porcelain backup-job/last-backup.txt)" ]; then
+            git config user.name  "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add backup-job/last-backup.txt
+            git commit -m "Backup chal raha hai - $(date -u +%Y-%m)"
+            git pull --rebase --autostash
+            git push
+          else
+            echo "Is mahine ka nishan pehle se lagaya hua hai - kuch nahi karna."
+          fi
