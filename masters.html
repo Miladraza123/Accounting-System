@@ -3956,6 +3956,90 @@
   $('warehouseClose').addEventListener('click', function () { $('warehouseModal').classList.remove('on'); });
   $('warehousesBtn').addEventListener('click', openWarehouseModal);
 
+  /* ---------- Har row laao, sirf pehli 1000 nahi ----------
+     Supabase ek request mein zyada se zyada 1000 rows deta hai. Backup
+     is se khamoshi se kat jata tha — file poori lagti thi magar us mein
+     sirf 1000 rows hoti thin, aur kisi ko pata bhi na chalta. Ab har
+     table qist-qist kar ke poori laate hain. Tarteeb 'id' par lagti hai,
+     warna do qisten aapas mein guth sakti hain. */
+  var PAGE_ROWS = 1000;
+  function fetchAllRows(build) {
+    var out = [];
+    /* Rukte tab hain jab ek qist bilkul khali aaye — "poori qist se kam
+       aayi to bas" par nahin. Project ki apni had 1000 se kam bhi ho
+       sakti hai, aur us surat mein pehli hi qist chhoti aati. */
+    function step(from) {
+      return build().range(from, from + PAGE_ROWS - 1).then(function (r) {
+        if (r.error) throw r.error;
+        var rows = r.data || [];
+        out = out.concat(rows);
+        if (!rows.length) return out;
+        return step(from + rows.length);
+      });
+    }
+    return step(0);
+  }
+
+  /* Pehle wo tables jin par baqi khadi hain, phir un par khadi hui
+     cheezein — bilkul wohi tarteeb jo backup-job/backup.js mein hai.
+     Dono jagah ek jaisi rehni chahiye. */
+  var RESTORE_ORDER = [
+    'app_settings', 'period_lock',
+    'warehouses', 'companies', 'parties', 'party_kinds', 'items',
+    'services',
+    'vouchers', 'voucher_lines',
+    'sales_returns', 'sales_return_lines',
+    'service_invoices', 'service_invoice_lines',
+    'recurring_service_templates',
+    'quotations', 'quotation_lines',
+    'purchase_orders', 'po_lines',
+    'stock_transfers', 'stock_transfer_lines', 'stock_adjustments',
+    'sheets'
+  ];
+
+  /* Poora database jaisa hai waisa — har table, apni ID aur rishton ke
+     sath. Jo table na parhi ja sake usay chhupate nahi: file mein bhi
+     likh dete hain aur user ko bhi bata dete hain. */
+  function fetchTableRows(t) {
+    return fetchAllRows(function () {
+      return sb.from(t).select('*').order('id', { ascending:true });
+    }).catch(function (e) {
+      /* Jis table mein 'id' hai hi nahi (jaise settings wali ek-row
+         table) us par tarteeb nahi lag sakti — usay bina tarteeb ke
+         laate hain. Aisi tables choti hoti hain, ek hi qist mein aa
+         jati hain. */
+      var m = (e && e.message) || String(e);
+      if (!/does not exist|failed to parse order|42703/i.test(m)) throw e;
+      return fetchAllRows(function () { return sb.from(t).select('*'); });
+    });
+  }
+
+  function dumpAllTables(order) {
+    var tables = {}, errors = {};
+    return Promise.all(order.map(function (t) {
+      return fetchTableRows(t)
+        .then(function (rows) { tables[t] = rows; })
+        .catch(function (e) { tables[t] = []; errors[t] = (e && e.message) || String(e); });
+    })).then(function () { return { tables:tables, errors:errors }; });
+  }
+
+  function restoreFileBlob(order, dump) {
+    var payload = {
+      format:'oht-restore', version:1, taken_at:new Date().toISOString(),
+      order:order, tables:dump.tables
+    };
+    if (Object.keys(dump.errors).length) { payload.partial = true; payload.errors = dump.errors; }
+    return new Blob([JSON.stringify(payload)], { type:'application/json' });
+  }
+
+  function saveBlob(blob, name) {
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 4000);
+  }
+
   /* ---------- Restore from backup ----------
      Roz ki email mein jo JSON file aati hai, us se poora system wapas
      laaya ja sakta hai. Do tareeqe hain, aur dono se PEHLE system khud
@@ -4002,9 +4086,15 @@
   function buildRestorePlan(j) {
     var mode = $('rsMode').value;
     return Promise.all(j.order.map(function (t) {
-      return sb.from(t).select('id').then(function (r) {
+      return fetchAllRows(function () {
+        return sb.from(t).select('id').order('id', { ascending:true });
+      }).then(function (data) {
+        return { rows:data, err:'' };
+      }).catch(function (e) {
+        return { rows:[], err:(e && e.message) || String(e) };
+      }).then(function (r) {
         var have = {};
-        (r.error ? [] : (r.data || [])).forEach(function (x) { have[x.id] = true; });
+        r.rows.forEach(function (x) { have[x.id] = true; });
         var rows = j.tables[t] || [];
         var add = 0, upd = 0;
         rows.forEach(function (x) { if (have[x.id]) upd++; else add++; });
@@ -4014,14 +4104,28 @@
             }).length
           : 0;
         return { table:t, add:add, upd:mode === 'replace' ? upd : 0, del:del,
-                 total:rows.length, err:!!r.error };
+                 total:rows.length, err:r.err };
       });
     }));
   }
 
   function drawRestorePlan(plan) {
     var any = plan.filter(function (p) { return p.add || p.upd || p.del; });
+    /* Jo table parhi hi na ja saki us ka plan bharosay ke qabil nahi —
+       wo "koi tabdeeli nahi" jaisi dikhti hai jabke asal mein pata hi
+       nahi chala. Is liye usay alag se, upar dikhate hain. */
+    var bad = plan.filter(function (p) { return p.err; });
     $('rsPlan').innerHTML = '<div class="grp">Kya hoga</div>' +
+      (bad.length
+        ? '<div class="sum" style="border-color:var(--debit);margin-bottom:10px">' +
+          '<div class="sline"><span class="k neg"><b>Ye tables parhi nahi ja sakin</b></span></div>' +
+          bad.map(function (p) {
+            return '<div class="sline"><span class="k">' + esc(p.table) + '</span>' +
+                   '<span class="v neg">' + esc(p.err) + '</span></div>';
+          }).join('') +
+          '<div class="hint">In ke liye neeche jo likha hai wo adhoora hai. ' +
+          'Pehle wajah dur karein, phir dobara check karein.</div></div>'
+        : '') +
       (any.length
         ? '<table class="ltab"><thead><tr><th>Table</th>' +
           '<th style="text-align:right">Nayi</th><th style="text-align:right">Badlengi</th>' +
@@ -4087,23 +4191,14 @@
 
   /* Restore se pehle abhi ka poora data utaar do */
   function downloadSafetyBackup() {
-    var order = (rsData && rsData.order) || [];
-    return Promise.all(order.map(function (t) {
-      return sb.from(t).select('*').then(function (r) {
-        return { t:t, rows:r.error ? [] : (r.data || []) };
-      });
-    })).then(function (all) {
-      var tables = {};
-      all.forEach(function (x) { tables[x.t] = x.rows; });
-      var blob = new Blob([JSON.stringify({
-        format:'oht-restore', version:1, taken_at:new Date().toISOString(),
-        order:order, tables:tables
-      })], { type:'application/json' });
-      var a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = 'OHT-Before-Restore-' + today() + '.json';
-      a.click();
-      setTimeout(function () { URL.revokeObjectURL(a.href); }, 4000);
+    var order = (rsData && rsData.order) || RESTORE_ORDER;
+    return dumpAllTables(order).then(function (dump) {
+      saveBlob(restoreFileBlob(order, dump), 'OHT-Before-Restore-' + today() + '.json');
+      var bad = Object.keys(dump.errors);
+      if (bad.length) {
+        toast('Safety backup adhoori rahi \u2014 ye tables nahi parhi ja sakin: ' +
+              bad.join(', '), true);
+      }
     });
   }
 
@@ -4310,202 +4405,6 @@
         : '<div class="hint">\u2713 Reconciliation theek: har party ka aging total ' +
           'us ke ledger balance ke barabar hai.</div>';
     });
-  }
-
-  /* ---------- Restore from backup ----------
-     Roz ki email mein jo JSON file aati hai, us se poora system wapas
-     laaya ja sakta hai. Do tareeqe hain, aur dono se PEHLE system khud
-     ek taaza backup utaar deta hai — taake ghalti ho jaye to wapas
-     laut sakein. Yehi sab se ahem hifazat hai. */
-  var rsData = null, rsPlan = null;
-
-  var RS_HINT = {
-    missing: 'Jo record file mein hai magar database mein nahi, sirf wo daala jayega. ' +
-             'Jo pehle se mojood hai usay haath nahi lagta.',
-    replace: 'Database bilkul wohi ban jayega jo file mein hai. Jo file mein nahi, ' +
-             'wo urh jayega. Yeh us waqt ke liye hai jab poori halat wapas leni ho.'
-  };
-
-  function openRestore() {
-    $('restoreModal').classList.add('on');
-    rsData = null; rsPlan = null;
-    $('rsFile').value = ''; $('rsConfirm').value = '';
-    $('rsPlan').innerHTML = '';
-    $('rsConfirmBox').style.display = 'none';
-    $('rsGo').style.display = 'none';
-    $('rsModeHint').textContent = RS_HINT[$('rsMode').value];
-  }
-
-  function readBackupFile() {
-    var f = $('rsFile').files[0];
-    if (!f) return Promise.reject(new Error('Pehle backup file chunein'));
-    return new Promise(function (res, rej) {
-      var fr = new FileReader();
-      fr.onload = function () {
-        try {
-          var j = JSON.parse(fr.result);
-          if (j.format !== 'qtc-restore') throw new Error('Yeh restore wali file nahi lagti');
-          if (!j.tables || !j.order) throw new Error('File adhoori lagti hai');
-          res(j);
-        } catch (e) { rej(new Error('File padhi nahi ja saki \u2014 ' + e.message)); }
-      };
-      fr.onerror = function () { rej(new Error('File padhi nahi ja saki')); };
-      fr.readAsText(f);
-    });
-  }
-
-  /* Kya hoga, wo pehle dikhao — commit se pehle */
-  function buildRestorePlan(j) {
-    var mode = $('rsMode').value;
-    return Promise.all(j.order.map(function (t) {
-      return sb.from(t).select('id').then(function (r) {
-        var have = {};
-        (r.error ? [] : (r.data || [])).forEach(function (x) { have[x.id] = true; });
-        var rows = j.tables[t] || [];
-        var add = 0, upd = 0;
-        rows.forEach(function (x) { if (have[x.id]) upd++; else add++; });
-        var del = mode === 'replace'
-          ? Object.keys(have).filter(function (id) {
-              return !rows.some(function (x) { return String(x.id) === String(id); });
-            }).length
-          : 0;
-        return { table:t, add:add, upd:mode === 'replace' ? upd : 0, del:del,
-                 total:rows.length, err:!!r.error };
-      });
-    }));
-  }
-
-  function drawRestorePlan(plan) {
-    var any = plan.filter(function (p) { return p.add || p.upd || p.del; });
-    $('rsPlan').innerHTML = '<div class="grp">Kya hoga</div>' +
-      (any.length
-        ? '<table class="ltab"><thead><tr><th>Table</th>' +
-          '<th style="text-align:right">Nayi</th><th style="text-align:right">Badlengi</th>' +
-          '<th style="text-align:right">Urhengi</th></tr></thead><tbody>' +
-          any.map(function (p) {
-            return '<tr><td>' + esc(p.table) + '</td>' +
-              '<td class="r">' + (p.add || '\u2014') + '</td>' +
-              '<td class="r">' + (p.upd || '\u2014') + '</td>' +
-              '<td class="r' + (p.del ? ' neg' : '') + '">' + (p.del || '\u2014') + '</td></tr>';
-          }).join('') + '</tbody></table>'
-        : '<div class="hint">Koi tabdeeli nahi \u2014 database pehle se file jaisa hai.</div>') +
-      '<div class="f"><div class="hint">Restore se pehle system khud ek taaza backup file ' +
-      'utaar dega. Ghalti ho jaye to usi se wapas laut sakte hain.</div></div>';
-  }
-
-  $('restoreBtn').addEventListener('click', openRestore);
-  $('rsClose').addEventListener('click', function () { $('restoreModal').classList.remove('on'); });
-  $('rsMode').addEventListener('change', function () {
-    $('rsModeHint').textContent = RS_HINT[this.value];
-    if (rsData) { $('rsCheck').click(); }
-  });
-
-  $('rsCheck').addEventListener('click', function () {
-    var btn = this; btn.disabled = true; btn.textContent = 'Dekh rahe hain\u2026';
-    readBackupFile().then(function (j) {
-      rsData = j;
-      return buildRestorePlan(j);
-    }).then(function (plan) {
-      rsPlan = plan;
-      drawRestorePlan(plan);
-      var any = plan.some(function (p) { return p.add || p.upd || p.del; });
-      $('rsConfirmBox').style.display = any ? '' : 'none';
-      $('rsGo').style.display = any ? '' : 'none';
-      btn.disabled = false; btn.textContent = 'Check karein';
-    }).catch(function (e) {
-      btn.disabled = false; btn.textContent = 'Check karein';
-      toast(e.message, true);
-    });
-  });
-
-  $('rsGo').addEventListener('click', function () {
-    if (!rsData) { toast('Pehle file check karein', true); return; }
-    if ($('rsConfirm').value.trim().toUpperCase() !== 'RESTORE') {
-      toast('Confirm karne ke liye RESTORE likhein', true); return;
-    }
-    var btn = this; btn.disabled = true; btn.textContent = 'Restore ho raha hai\u2026';
-    // Pehle abhi ka data utaar lo — wapas laut'ne ka raasta khula rahe
-    downloadSafetyBackup().then(function () {
-      return runRestore(rsData, $('rsMode').value);
-    }).then(function (done) {
-      btn.disabled = false; btn.textContent = 'Restore';
-      $('restoreModal').classList.remove('on');
-      toast('Restore mukammal \u2014 ' + done + ' rows. Costing dobara chal rahi hai\u2026');
-      return sb.rpc('recompute_all_item_costs', { lock_date:null });
-    }).then(function () {
-      loadAll();
-      toast('Sab kuch wapas aa gaya');
-    }).catch(function (e) {
-      btn.disabled = false; btn.textContent = 'Restore';
-      sayErr(e, 'restore');
-    });
-  });
-
-  /* Restore se pehle abhi ka poora data utaar do */
-  function downloadSafetyBackup() {
-    var order = (rsData && rsData.order) || [];
-    return Promise.all(order.map(function (t) {
-      return sb.from(t).select('*').then(function (r) {
-        return { t:t, rows:r.error ? [] : (r.data || []) };
-      });
-    })).then(function (all) {
-      var tables = {};
-      all.forEach(function (x) { tables[x.t] = x.rows; });
-      var blob = new Blob([JSON.stringify({
-        format:'qtc-restore', version:1, taken_at:new Date().toISOString(),
-        order:order, tables:tables
-      })], { type:'application/json' });
-      var a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = 'QTC-Before-Restore-' + today() + '.json';
-      a.click();
-      setTimeout(function () { URL.revokeObjectURL(a.href); }, 4000);
-    });
-  }
-
-  /* Asal kaam. Tarteeb ahem hai — pehle wo cheezein jin par baqi khadi
-     hain. Urhana ulti tarteeb mein, warna foreign key rok deti hai. */
-  function runRestore(j, mode) {
-    var order = j.order, done = 0;
-    var chain = Promise.resolve();
-
-    if (mode === 'replace') {
-      order.slice().reverse().forEach(function (t) {
-        chain = chain.then(function () {
-          var rows = j.tables[t] || [];
-          var keep = rows.map(function (x) { return x.id; }).filter(Boolean);
-          var q = sb.from(t).delete();
-          q = keep.length ? q.not('id', 'in', '(' + keep.join(',') + ')')
-                          : q.gte('id', '00000000-0000-0000-0000-000000000000');
-          return q.then(function () {});
-        });
-      });
-    }
-
-    order.forEach(function (t) {
-      chain = chain.then(function () {
-        var rows = j.tables[t] || [];
-        if (!rows.length) return;
-        // 200 ki qist mein — ek saath bhejne par request bohat bari ho jati hai
-        var parts = [];
-        for (var i = 0; i < rows.length; i += 200) parts.push(rows.slice(i, i + 200));
-        var p = Promise.resolve();
-        parts.forEach(function (part) {
-          p = p.then(function () {
-            var q = mode === 'replace'
-              ? sb.from(t).upsert(part)
-              : sb.from(t).upsert(part, { ignoreDuplicates:true });
-            return q.then(function (r) {
-              if (r.error) throw new Error(t + ': ' + r.error.message);
-              done += part.length;
-            });
-          });
-        });
-        return p;
-      });
-    });
-
-    return chain.then(function () { return done; });
   }
 
   $('agingBtn').addEventListener('click', openAgingModal);
@@ -4838,23 +4737,29 @@
   function backupNow() {
     var btn = $('bkBtn');
     btn.disabled = true; btn.textContent = 'Preparing…';
+    /* Har table poori laani hai — 1000 par kat gayi to Excel adhoora
+       banega aur kisi ko pata nahi chalega. Jo table maujood hi na ho
+       (purani install) wo pehle bhi khali maani jati thi, wohi rehne
+       dete hain. 'id' par tarteeb isliye ke qisten na guthein. */
+    var pageSafe = function (build) {
+      return fetchAllRows(build).catch(function () { return []; });
+    };
     Promise.all([
       loadXlsxLib(),
-      sb.from('parties').select('*').is('deleted_at', null),
-      sb.from('items').select('*').is('deleted_at', null),
-      sb.from('companies').select('*').is('deleted_at', null),
-      sb.from('vouchers').select('*').is('deleted_at', null).order('vdate', { ascending: true }),
-      sb.from('voucher_lines').select('*'),
-      sb.from('sheets').select('*').order('sheet_date', { ascending: true }),
-      sb.from('sales_returns').select('*').is('deleted_at', null)
+      pageSafe(function () { return sb.from('parties').select('*').is('deleted_at', null).order('id', { ascending: true }); }),
+      pageSafe(function () { return sb.from('items').select('*').is('deleted_at', null).order('id', { ascending: true }); }),
+      pageSafe(function () { return sb.from('companies').select('*').is('deleted_at', null).order('id', { ascending: true }); }),
+      pageSafe(function () { return sb.from('vouchers').select('*').is('deleted_at', null).order('vdate', { ascending: true }).order('id', { ascending: true }); }),
+      pageSafe(function () { return sb.from('voucher_lines').select('*').order('id', { ascending: true }); }),
+      pageSafe(function () { return sb.from('sheets').select('*').order('sheet_date', { ascending: true }).order('id', { ascending: true }); }),
+      pageSafe(function () { return sb.from('sales_returns').select('*').is('deleted_at', null).order('id', { ascending: true }); }),
+      /* Excel insaan ke parhne ke liye hai — us mein ID aur rishtay nahi
+         hote, is liye us se system wapas nahi aata. Saath mein wohi JSON
+         file bhi banti hai jo Restore mein daali jati hai. */
+      dumpAllTables(RESTORE_ORDER)
     ]).then(function (r) {
-      var P = r[1].error ? [] : (r[1].data || []);
-      var I = r[2].error ? [] : (r[2].data || []);
-      var C = r[3].error ? [] : (r[3].data || []);
-      var V = r[4].error ? [] : (r[4].data || []);
-      var L = r[5].error ? [] : (r[5].data || []);
-      var S = r[6].error ? [] : (r[6].data || []);
-      var R = r[7] && !r[7].error ? (r[7].data || []) : [];
+      var P = r[1], I = r[2], C = r[3], V = r[4], L = r[5], S = r[6], R = r[7];
+      var dump = r[8];
 
       var partyName = {}; P.forEach(function (p) { partyName[p.id] = p.name; });
       var itemName  = {}; I.forEach(function (i) { itemName[i.id]  = i.name; });
@@ -5012,8 +4917,18 @@
       addPlain('Firms', C.map(function(c){ return {Name:c.name,Address:c.address,City:c.city,Phone:c.phone,NTN:c.ntn,STRN:c.strn,Default:c.is_default?'Yes':'No',Active:c.active===false?'No':'Yes'}; }));
 
       XLSX.writeFile(wb, 'OHT-backup-' + today() + '.xlsx');
+      /* Do file — Excel parhne ke liye, JSON system wapas laane ke liye.
+         Thora ruk kar, warna browser doosri download rok deta hai. */
+      setTimeout(function () {
+        saveBlob(restoreFileBlob(RESTORE_ORDER, dump), 'OHT-Restore-' + today() + '.json');
+      }, 500);
       btn.disabled = false; btn.textContent = 'Backup';
-      toast('Backup downloaded');
+      var bad = Object.keys(dump.errors);
+      if (bad.length) {
+        toast('Backup ban gaya magar ye tables nahi parhi ja sakin: ' + bad.join(', '), true);
+      } else {
+        toast('Backup downloaded \u2014 Excel + restore file');
+      }
     }).catch(function (e) {
       btn.disabled = false; btn.textContent = 'Backup';
       if (isNetErr(e)) toast('No internet — could not prepare the backup', true);

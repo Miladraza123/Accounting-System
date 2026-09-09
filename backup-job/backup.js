@@ -66,14 +66,59 @@ async function signIn() {
   if (res.error) throw new Error('Sign-in failed: ' + res.error.message);
 }
 
+/* ============================================================
+   HAR ROW — SIRF PEHLI 1000 NAHI
+
+   Supabase ek request mein zyada se zyada 1000 rows deta hai. Pehle
+   yahan sirf ek select chalti thi, to jis din kisi table mein 1000 se
+   zyada rows ho jatin, backup khamoshi se kat jata — file poori lagti,
+   email bhi aa jati, magar us mein aadha data hota. Ab har table
+   qist-qist kar ke poori laate hain.
+
+   Tarteeb 'id' par lagti hai: bina tarteeb ke database do alag
+   qiston mein wohi row do dafa bhi de sakta hai aur koi row chhorh
+   bhi sakta hai.
+   ============================================================ */
+const PAGE_ROWS = 1000;
+
+async function fetchPaged(t, orderBy) {
+  const rows = [];
+  /* Rukte tab hain jab ek qist bilkul khali aaye — "poori qist se kam
+     aayi to bas" par nahin. Wajah: project ki apni had 1000 se kam bhi
+     ho sakti hai (Supabase settings mein badalti hai), aur us surat
+     mein pehli hi qist chhoti aati aur hum baqi data chhorh dete. */
+  for (let from = 0; ;) {
+    let q = sb.from(t).select('*');
+    if (orderBy) q = q.order(orderBy, { ascending: true });
+    const { data, error } = await q.range(from, from + PAGE_ROWS - 1);
+    if (error) throw new Error(t + ': ' + error.message);
+    const part = data || [];
+    rows.push(...part);
+    if (!part.length) return rows;
+    from += part.length;
+  }
+}
+
+async function fetchTable(t) {
+  try {
+    return await fetchPaged(t, 'id');
+  } catch (e) {
+    /* Kuch tables mein 'id' column hoti hi nahi (jaise settings wali
+       ek-row table). Un par tarteeb nahi lag sakti — un ko bina tarteeb
+       ke laate hain. Aisi tables choti hoti hain, ek hi qist mein aa
+       jati hain, is liye qisten guthne ka sawaal nahi. Baqi har ghalti
+       upar jati hai — backup chup-chaap adhoora nahi hona chahiye. */
+    if (!/does not exist|failed to parse order|42703/i.test(e.message)) throw e;
+    return await fetchPaged(t, null);
+  }
+}
+
 async function fetchAll() {
   // Restore ke liye HAR table chahiye — warna file se system wapas nahi aata
   const tables = RESTORE_ORDER;
   const out = {};
   for (const t of tables) {
-    const { data, error } = await sb.from(t).select('*');
-    if (error) throw new Error(t + ': ' + error.message);
-    out[t] = data || [];
+    out[t] = await fetchTable(t);
   }
   return out;
 }
@@ -336,7 +381,17 @@ const RESTORE_ORDER = [
   'sheets'
 ];
 
-async function sendEmail(buffer, filename, jsonBuffer, jsonName) {
+/* Har table se kitni rows aayin — email aur log dono mein. Agar kabhi
+   koi table ghalti se khali ya adhoori aaye to wo saamne dikhe, chhupe
+   nahi. */
+function countsText(data) {
+  return RESTORE_ORDER
+    .filter(function (t) { return (data[t] || []).length; })
+    .map(function (t) { return t + ': ' + data[t].length; })
+    .join('\n');
+}
+
+async function sendEmail(buffer, filename, jsonBuffer, jsonName, data) {
   const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD }
@@ -351,7 +406,8 @@ async function sendEmail(buffer, filename, jsonBuffer, jsonName) {
           '\u2022 ' + filename + ' \u2014 padhne ke liye (Excel)\n' +
           '\u2022 ' + jsonName + ' \u2014 system wapas laane ke liye. Isay kholne ki zaroorat nahi, ' +
           'bas mehfooz rakhein. Zaroorat pade to Masters \u2192 Restore se yehi file daali jati hai.\n\n' +
-          'Ye backup roz khud-b-khud banti hai.',
+          'Ye backup roz khud-b-khud banti hai.\n\n' +
+          'Is file mein kitni rows hain:\n' + countsText(data),
     attachments: [
       { filename: filename, content: buffer },
       { filename: jsonName, content: jsonBuffer }
@@ -368,8 +424,9 @@ async function main() {
   const filename = 'OHT-Backup-' + stamp + '.xlsx';
   const jsonName = 'OHT-Restore-' + stamp + '.json';
   const jsonBuffer = buildRestoreJson(data);
-  await sendEmail(buffer, filename, jsonBuffer, jsonName);
+  await sendEmail(buffer, filename, jsonBuffer, jsonName, data);
   console.log('Liya gaya: ' + takenAtText() + ' | data ' + stamp);
+  console.log('Rows: ' + countsText(data).replace(/\n/g, ', '));
   console.log('Backup emailed: ' + filename + ' + ' + jsonName +
               ' (' + Math.round(jsonBuffer.length / 1024) + ' KB)');
 }
