@@ -423,7 +423,7 @@ function buildRestoreJson(res) {
    chahiye.
 
    app_users, item_units, audit_log, party_opening_balances,
-   item_cost_snapshot aur steel_sizes pehle is list mein thin hi nahi —
+   aur item_cost_snapshot pehle is list mein thin hi nahi —
    yani database mein maujood hone ke bawajood kabhi backup nahi hotin
    thin. app_users mein to logon ke permissions rehte hain. Ab shamil
    hain.
@@ -431,12 +431,20 @@ function buildRestoreJson(res) {
    app_users sab se upar hai kyunki taqreeban har table us se bandhi
    hui hai (created_by / updated_by). audit_log sab se neeche, kyunki
    wo app_users par khadi hai. */
+/* steel_sizes yahan JAAN BOOJH KAR nahi hai. Wo table maujood to hai
+   magar khali hai, poori app mein kahin istemal nahi hoti, aur us par
+   SELECT ki ijazat hi nahi di gayi ("permission denied") — yani app
+   bhi usay parh nahi sakti. Us ki khatir har raat backup ko "adhoora"
+   kehna sirf ye sikhata hai ke warning ko nazarandaz kar do.
+
+   Agar kabhi wo table istemal hone lage to DO kaam karne honge: us par
+   SELECT ki ijazat dein, AUR us ka naam yahan aur masters.html dono
+   mein wapas daalein. */
 const RESTORE_ORDER = [
   'app_settings',
   'app_users',
   'period_lock',
   'warehouses', 'companies', 'parties', 'party_kinds', 'items',
-  'steel_sizes',
   'item_units', 'item_cost_snapshot',
   'party_opening_balances',
   'services',
