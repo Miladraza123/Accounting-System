@@ -431,15 +431,6 @@ function buildRestoreJson(res) {
    app_users sab se upar hai kyunki taqreeban har table us se bandhi
    hui hai (created_by / updated_by). audit_log sab se neeche, kyunki
    wo app_users par khadi hai. */
-/* steel_sizes yahan JAAN BOOJH KAR nahi hai. Wo table maujood to hai
-   magar khali hai, poori app mein kahin istemal nahi hoti, aur us par
-   SELECT ki ijazat hi nahi di gayi ("permission denied") — yani app
-   bhi usay parh nahi sakti. Us ki khatir har raat backup ko "adhoora"
-   kehna sirf ye sikhata hai ke warning ko nazarandaz kar do.
-
-   Agar kabhi wo table istemal hone lage to DO kaam karne honge: us par
-   SELECT ki ijazat dein, AUR us ka naam yahan aur masters.html dono
-   mein wapas daalein. */
 const RESTORE_ORDER = [
   'app_settings',
   'app_users',
