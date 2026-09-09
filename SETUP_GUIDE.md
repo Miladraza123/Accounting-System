@@ -159,6 +159,11 @@ Tarteeb ahem hai: pehle wo cheez jis par doosri khadi hai (jaise `items`
 Roz ki email mein har table ki row count aati hai — wahin se andaza ho
 jata hai ke kuch chhoot to nahi raha.
 
+**`steel_sizes` jaan boojh kar shamil nahi hai:** wo khali hai, app mein
+kahin istemal nahi hoti, aur us par SELECT ki ijazat hi nahi (app bhi
+usay parh nahi sakti). Agar kabhi zaroorat pade to pehle us par ijazat
+dein, phir naam dono jagah daalein.
+
 ### Do surtein jo email khud bata deti hai
 
 | Email mein | Matlab | Kya karna hai |
