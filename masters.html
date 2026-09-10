@@ -1161,7 +1161,7 @@
   }
   function blankCompany() {
     return { name:'', address:'', city:'', phone:'', email:'', ntn:'', strn:'',
-             logo:'', is_default:false, notes:'', active:true };
+             logo:'', signature:'', stamp:'', is_default:false, notes:'', active:true };
   }
   function blankService() {
     return { name:'', description:'', default_rate:0, default_tax:0, notes:'', active:true };
@@ -1521,6 +1521,36 @@
         '</div>' +
       '</div><div class="hint">Shown on printed bills and statements. Any size is fine — it gets ' +
         'shrunk automatically so bills stay quick to open.</div></div>' +
+
+      /* Dastkhat aur mohar — logo jaisa hi khana, wohi tasveer sambhalne
+         wala hissa chalata hai. Print par "Prepared by" wali line ke upar
+         aate hain, aur har print par on/off ka apna switch hota hai. */
+      '<div class="grp">Signature</div>' +
+      '<div class="f"><div class="logobox">' +
+        '<div class="logopv" id="signPv">' +
+          (r.signature ? '<img src="' + esc(r.signature) + '" alt="">' : '<div class="no">No signature</div>') +
+        '</div>' +
+        '<div class="logoacts">' +
+          '<button class="btn" id="signPick" type="button">Choose image</button>' +
+          (r.signature ? '<button class="btn dgr" id="signClr" type="button">Remove</button>' : '') +
+          '<input id="signFile" type="file" style="display:none">' +
+        '</div>' +
+      '</div><div class="hint">Bill ya quotation par dastkhat khud chhap jayega \u2014 haath se ' +
+        'karne ki zaroorat nahi. Saaf tasveer ke liye safed kaghaz par kiya hua dastkhat, ya ' +
+        'transparent PNG behtar hai. Print ke waqt is ka on/off switch bhi milta hai.</div></div>' +
+
+      '<div class="grp">Stamp</div>' +
+      '<div class="f"><div class="logobox">' +
+        '<div class="logopv" id="stampPv">' +
+          (r.stamp ? '<img src="' + esc(r.stamp) + '" alt="">' : '<div class="no">No stamp</div>') +
+        '</div>' +
+        '<div class="logoacts">' +
+          '<button class="btn" id="stampPick" type="button">Choose image</button>' +
+          (r.stamp ? '<button class="btn dgr" id="stampClr" type="button">Remove</button>' : '') +
+          '<input id="stampFile" type="file" style="display:none">' +
+        '</div>' +
+      '</div><div class="hint">Firm ki mohar. Ye dastkhat se alag hai \u2014 dono ka apna switch ' +
+        'hai, to jahan jo chahiye wohi lagayein.</div></div>' +
 
       '<div class="grp">Firm</div>' +
       '<div class="f" id="fName"><label>Name</label>' +
@@ -2809,21 +2839,33 @@
     }
   }
 
-  function wireLogo() {
-    var pick = $('logoPick'); if (!pick) return;
-    pick.onclick = function () { $('logoFile').click(); };
-    $('logoFile').onchange = function () {
+  /* Teen tasveerein hain — logo, dastkhat aur mohar — aur teenon ek hi
+     tarah chunti aur hatti hain. Is liye ek hi function teenon chalata
+     hai: teen alag copies rakhne ka matlab hota hai ke ek mein sudhaar
+     ho aur baqi do peeche reh jayein. */
+  var IMG_FIELDS = [
+    { pre:'logo',  field:'logo',      empty:'No logo' },
+    { pre:'sign',  field:'signature', empty:'No signature' },
+    { pre:'stamp', field:'stamp',     empty:'No stamp' }
+  ];
+
+  function wireLogo() { IMG_FIELDS.forEach(wireImagePicker); }
+
+  function wireImagePicker(spec) {
+    var pick = $(spec.pre + 'Pick'); if (!pick) return;
+    pick.onclick = function () { $(spec.pre + 'File').click(); };
+    $(spec.pre + 'File').onchange = function () {
       var f = this.files && this.files[0]; if (!f) return;
       pick.disabled = true; pick.textContent = 'Working\u2026';
       shrinkLogo(f).then(function (dataUrl) {
-        editing.logo = dataUrl; dirty = true;
-        $('logoPv').innerHTML = '<img src="' + esc(dataUrl) + '" alt="">';
+        editing[spec.field] = dataUrl; dirty = true;
+        $(spec.pre + 'Pv').innerHTML = '<img src="' + esc(dataUrl) + '" alt="">';
         pick.disabled = false; pick.textContent = 'Change image';
-        if (!$('logoClr')) {
+        if (!$(spec.pre + 'Clr')) {
           var b = document.createElement('button');
-          b.className = 'btn dgr'; b.id = 'logoClr'; b.type = 'button'; b.textContent = 'Remove';
+          b.className = 'btn dgr'; b.id = spec.pre + 'Clr'; b.type = 'button'; b.textContent = 'Remove';
           pick.parentNode.insertBefore(b, pick.nextSibling);
-          wireLogoClear();
+          wireImageClear(spec);
         }
       }).catch(function (e) {
         pick.disabled = false; pick.textContent = 'Choose image';
@@ -2831,14 +2873,15 @@
       });
       this.value = '';
     };
-    wireLogoClear();
+    wireImageClear(spec);
   }
-  function wireLogoClear() {
-    var clr = $('logoClr'); if (!clr) return;
+
+  function wireImageClear(spec) {
+    var clr = $(spec.pre + 'Clr'); if (!clr) return;
     clr.onclick = function () {
-      editing.logo = ''; dirty = true;
-      $('logoPv').innerHTML = '<div class="no">No logo</div>';
-      $('logoPick').textContent = 'Choose image';
+      editing[spec.field] = ''; dirty = true;
+      $(spec.pre + 'Pv').innerHTML = '<div class="no">' + spec.empty + '</div>';
+      $(spec.pre + 'Pick').textContent = 'Choose image';
       clr.remove();
     };
   }
@@ -3017,6 +3060,8 @@
       return { name:readVal('eName'), address:readVal('eAddr'), city:readVal('eCity'),
                phone:readVal('ePhone'), email:readVal('eMail'), ntn:readVal('eNtn'),
                strn:readVal('eStrn'), logo:(editing && editing.logo) || '',
+               signature:(editing && editing.signature) || '',
+               stamp:(editing && editing.stamp) || '',
                is_default:$('eDefault').classList.contains('on'),
                notes:readVal('eNotes'), active:act };
     }
