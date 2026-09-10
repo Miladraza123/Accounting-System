@@ -2450,9 +2450,12 @@
             return '<option value="' + esc(f.id) + '"' +
                    (f.id === b.company_id ? ' selected' : '') + '>' + esc(f.name) + '</option>';
           }).join('') + '</select></div>' : '') +
+      /* Yahan bhi textarea — is template se jo invoice banti hai us par
+         yehi matn chapta hai, is liye lines yahan bhi qaim rehni chahiyen. */
       '<div class="f"><label>Description</label>' +
-        '<input id="rcDesc" type="text" value="' + esc(b.description || '') +
-        '" placeholder="Har invoice par yeh matn aayega"></div></div>';
+        '<textarea id="rcDesc" rows="2" ' +
+        'placeholder="Har invoice par yeh matn aayega">' + esc(b.description || '') +
+        '</textarea></div></div>';
 
     h += '<div class="card"><div class="ttl">Rate</div>' +
       '<div class="qr">' +
@@ -2813,9 +2816,14 @@
       h += '<div class="ln" data-k="' + l.key + '">' +
         '<div class="top">' + pickBox('sv_' + l.key, sv ? sv.name : '', 'Kaun si service?') +
           '<button class="rm" data-svrm="' + l.key + '" aria-label="Remove">\u00d7</button></div>' +
+        /* Ye textarea hai, ek-line ka input nahi. Wajah: service ki
+           description kai lines mein likhi ja sakti hai (Masters mein wo
+           bhi textarea hai), aur ek-line wala khana line break rakh hi
+           nahi sakta — browser usay chup-chaap mita deta hai. Jo likha
+           gaya wohi bill par chapna chahiye. */
         '<div class="f" style="margin-bottom:6px"><label>Description</label>' +
-          '<input class="svd" data-k="' + l.key + '" type="text" value="' + esc(l.description) +
-          '" placeholder="Bill par yeh chapega"></div>' +
+          '<textarea class="svd" data-k="' + l.key + '" rows="2" ' +
+          'placeholder="Bill par yeh chapega">' + esc(l.description) + '</textarea></div>' +
         '<div class="qr">' +
           '<div class="f num"><label>Qty</label><input class="svq" data-k="' + l.key +
             '" type="text" inputmode="decimal" value="' + (num(l.qty) ? fmt(l.qty) : '') +
@@ -3736,7 +3744,10 @@
       var amt = svcLineAmount(l);
       return '<tr><td class="c">' + (i + 1) + '</td>' +
         '<td>' + esc(sv ? sv.name : '') +
-        (l.description ? '<div style="font-size:8.5pt;color:#9C9384">' + esc(l.description) + '</div>' : '') +
+        (l.description
+          ? '<div style="font-size:8.5pt;color:#9C9384;white-space:pre-wrap">' +
+            esc(l.description) + '</div>'
+          : '') +
         '</td>' +
         '<td class="r">' + fmt(l.qty) + '</td>' +
         '<td class="r">' + money(l.rate) + '</td>' +
