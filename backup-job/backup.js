@@ -442,6 +442,7 @@ const RESTORE_ORDER = [
   'vouchers', 'voucher_lines',
   'sales_returns', 'sales_return_lines',
   'service_invoices', 'service_invoice_lines',
+  'service_quotations', 'service_quotation_lines',
   'recurring_service_templates',
   'quotations', 'quotation_lines',
   'purchase_orders', 'po_lines',
