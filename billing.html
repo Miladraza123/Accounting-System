@@ -297,6 +297,13 @@
     .sheet .foot { margin-top:14mm; display:flex; justify-content:space-between; font-size:9pt;
                    color:#4A4436; }
     .sheet .sign { border-top:0.3mm solid #9C9384; padding-top:1.5mm; width:52mm; text-align:center; }
+    /* Dastkhat aur mohar line ke UPAR baithte hain, warna wo dastkhat
+       nahi lagta. Jagah hamesha utni hi rakhi jati hai — chahe tasveer
+       ho ya na ho — taake line dono taraf ek hi bulandi par rahe. */
+    .sheet .signcol { width:52mm; }
+    .sheet .marks { height:16mm; display:flex; align-items:flex-end; justify-content:center;
+                    gap:3mm; }
+    .sheet .marks img { max-height:16mm; max-width:26mm; object-fit:contain; }
     .sheet .note { margin-top:4mm; font-size:9.5pt; color:#4A4436; white-space:pre-line; }
   }
 
@@ -437,6 +444,21 @@
   <div class="box">
     <h4 id="askTitle"></h4><p id="askBody"></p>
     <div class="acts"><button class="btn" id="askNo">Cancel</button><button class="btn dgr" id="askYes">Delete</button></div>
+  </div>
+</div>
+
+<div class="ask" id="printMarks">
+  <div class="box" style="max-width:420px">
+    <h4>Print par kya lagayen?</h4>
+    <p style="font-size:12.5px;color:var(--mute);margin:0 0 12px">Ye firm par lagi hui tasveerein
+      hain. Jo band karenge wo is print par nahi aayegi — aur yehi faisla agli dafa bhi yaad
+      rahega.</p>
+    <div class="swrow"><div class="lbl">Dastkhat (signature)</div>
+      <button class="sw on" id="pmSign" role="switch" aria-checked="true"></button></div>
+    <div class="swrow"><div class="lbl">Mohar (stamp)</div>
+      <button class="sw on" id="pmStamp" role="switch" aria-checked="true"></button></div>
+    <div class="acts"><button class="btn" id="pmNo">Cancel</button>
+      <button class="btn pri" id="pmGo">Print</button></div>
   </div>
 </div>
 
@@ -3691,6 +3713,9 @@
 
     var co = defFirm();
     var coAdr = co ? [co.address, co.city, co.phone, co.email].filter(Boolean).map(esc).join('<br>') : '';
+    /* Pehle poochho, phir kaghaz banao — warna switch ka faisla usi
+       print par lagta hi nahi jis ke liye kiya gaya hai. */
+    var doPrint = function () {
     $('sheet').innerHTML =
       '<div class="hd">' + (co && co.logo ? '<img class="logo" src="' + esc(co.logo) + '" alt="">' : '') +
       '<div><div class="firm">' + esc(co ? co.name : firmName) + '</div>' +
@@ -3709,7 +3734,7 @@
       '<tbody>' + rows + '</tbody><tfoot>' + foot + '</tfoot></table>' +
 
       (b.narration ? '<div class="note">' + esc(b.narration) + '</div>' : '') +
-      '<div class="foot"><div class="sign">Prepared by</div><div class="sign">Received by</div></div>';
+      footHtml(co);
 
     var oldTitle = document.title;
     var oldTopTitle = (function () { try { return window.top && window.top !== window ? window.top.document.title : oldTitle; } catch (e) { return oldTitle; } })();
@@ -3719,6 +3744,8 @@
       window.removeEventListener('afterprint', restore);
     });
     printWhenReady($('sheet'));
+    };
+    askMarks(co).then(function (go) { if (go) doPrint(); });
   }
 
   function openReturnRec(rr) { startReturn(rr.sale_id, rr); }
@@ -3726,6 +3753,86 @@
   /* Service invoice ka apna print. Maal wale bill se alag: na unit, na
      warehouse \u2014 kyunki yahan maal hai hi nahi. Us ki jagah billing
      period aur due date, jo service ke bill par asal maayne rakhte hain. */
+  /* ---------- Dastkhat aur mohar ----------
+     Firm par lagi hui tasveerein "Prepared by" wali line ke upar chhapti
+     hain, taake print seedha bheja ja sake aur us par haath se dastkhat
+     na karna pare.
+
+     Har print par dono ka apna switch hai — kabhi sirf mohar chahiye
+     hoti hai, kabhi sirf dastkhat, kabhi koi bhi nahi. Faisla yaad rakha
+     jata hai (isi device par), to roz roz dobara chunna nahi parta. */
+  var MARKS_KEY = 'oht-print-marks';
+
+  function marksPref() {
+    var d = { signature:true, stamp:true };
+    try {
+      var raw = localStorage.getItem(MARKS_KEY);
+      if (!raw) return d;
+      var j = JSON.parse(raw);
+      return { signature:j.signature !== false, stamp:j.stamp !== false };
+    } catch (e) { return d; }
+  }
+  function saveMarksPref(p) {
+    try { localStorage.setItem(MARKS_KEY, JSON.stringify(p)); } catch (e) {}
+  }
+
+  /* Print ka footer. Jo tasveer firm par lagi hi nahi, ya jis ka switch
+     band hai, wo bilkul nahi aati — us ki jagah khali rehti hai. */
+  function footHtml(co, rightLabel) {
+    var pref = marksPref();
+    var imgs = '';
+    if (co && co.signature && pref.signature) {
+      imgs += '<img src="' + esc(co.signature) + '" alt="">';
+    }
+    if (co && co.stamp && pref.stamp) {
+      imgs += '<img src="' + esc(co.stamp) + '" alt="">';
+    }
+    return '<div class="foot">' +
+      '<div class="signcol"><div class="marks">' + imgs + '</div>' +
+        '<div class="sign">Prepared by</div></div>' +
+      '<div class="signcol"><div class="marks"></div>' +
+        '<div class="sign">' + esc(rightLabel || 'Received by') + '</div></div>' +
+      '</div>';
+  }
+
+  /* Print se pehle poochho — magar sirf usi soorat mein jab firm par
+     koi tasveer lagi ho. Jis firm par kuch nahi, us ka print bilkul
+     pehle jaisa chalta hai, beech mein koi rukawat nahi. */
+  function askMarks(co) {
+    if (!co || (!co.signature && !co.stamp)) return Promise.resolve(true);
+    return new Promise(function (res) {
+      var pref = marksPref();
+      $('pmSign').parentNode.style.display = co.signature ? '' : 'none';
+      $('pmStamp').parentNode.style.display = co.stamp ? '' : 'none';
+      $('pmSign').classList.toggle('on', !!pref.signature && !!co.signature);
+      $('pmSign').setAttribute('aria-checked', pref.signature ? 'true' : 'false');
+      $('pmStamp').classList.toggle('on', !!pref.stamp && !!co.stamp);
+      $('pmStamp').setAttribute('aria-checked', pref.stamp ? 'true' : 'false');
+      $('printMarks').classList.add('on');
+
+      function done(go) {
+        $('printMarks').classList.remove('on');
+        $('pmSign').onclick = null; $('pmStamp').onclick = null;
+        $('pmGo').onclick = null; $('pmNo').onclick = null;
+        res(go);
+      }
+      $('pmSign').onclick = function () {
+        var on = !this.classList.contains('on');
+        this.classList.toggle('on', on); this.setAttribute('aria-checked', on ? 'true' : 'false');
+      };
+      $('pmStamp').onclick = function () {
+        var on = !this.classList.contains('on');
+        this.classList.toggle('on', on); this.setAttribute('aria-checked', on ? 'true' : 'false');
+      };
+      $('pmGo').onclick = function () {
+        saveMarksPref({ signature:$('pmSign').classList.contains('on'),
+                        stamp:$('pmStamp').classList.contains('on') });
+        done(true);
+      };
+      $('pmNo').onclick = function () { done(false); };
+    });
+  }
+
   function printServiceInvoice() {
     var b = bill; if (!b) return;
     if (!b.party_id) { toast('Pehle party chunein', true); return; }
@@ -3781,6 +3888,9 @@
                 .filter(Boolean).join(' \u2014 ')
             : '');
 
+    /* Pehle poochho, phir kaghaz banao — warna switch ka faisla usi
+       print par lagta hi nahi jis ke liye kiya gaya hai. */
+    var doPrint = function () {
     $('sheet').innerHTML =
       '<div class="hd">' +
       (co && co.logo ? '<img class="logo" src="' + esc(co.logo) + '" alt="">' : '') +
@@ -3811,10 +3921,7 @@
 
       ((b.narration || b.notes) ? '<div class="note">' +
         esc(b.narration || b.notes) + '</div>' : '') +
-      (isQuote ? '<div class="note">Yeh quotation hai, bill nahi \u2014 is par koi raqam ' +
-                 'wajib-ul-ada nahi.</div>' : '') +
-      '<div class="foot"><div class="sign">Prepared by</div>' +
-      '<div class="sign">' + (isQuote ? 'Accepted by' : 'Received by') + '</div></div>';
+      footHtml(co, isQuote ? 'Accepted by' : 'Received by');
 
     var oldTitle = document.title;
     var oldTopTitle = (function () { try { return window.top && window.top !== window ? window.top.document.title : oldTitle; } catch (e) { return oldTitle; } })();
@@ -3824,6 +3931,8 @@
       window.removeEventListener('afterprint', restore);
     });
     printWhenReady($('sheet'));
+    };
+    askMarks(co).then(function (go) { if (go) doPrint(); });
   }
 
   function printBill() {
@@ -3875,6 +3984,9 @@
                      .filter(Boolean).map(esc).join('<br>') : '';
     var kindLabel = b.doc === 'quotation' ? 'Quotation' : b.doc === 'po' ? 'Purchase Order'
                     : (b.vtype === 'purchase' ? 'Purchase Bill' : 'Sales Invoice');
+    /* Pehle poochho, phir kaghaz banao — warna switch ka faisla usi
+       print par lagta hi nahi jis ke liye kiya gaya hai. */
+    var doPrint = function () {
     $('sheet').innerHTML =
       '<div class="hd">' +
       (co && co.logo ? '<img class="logo" src="' + esc(co.logo) + '" alt="">' : '') +
@@ -3898,7 +4010,7 @@
       '<tbody>' + rows + '</tbody><tfoot>' + foot + '</tfoot></table>' +
 
       (b.narration ? '<div class="note">' + esc(b.narration) + '</div>' : '') +
-      '<div class="foot"><div class="sign">Prepared by</div><div class="sign">Received by</div></div>';
+      footHtml(co);
 
     var oldTitle = document.title;
     var oldTopTitle = (function () { try { return window.top && window.top !== window ? window.top.document.title : oldTitle; } catch (e) { return oldTitle; } })();
@@ -3908,6 +4020,8 @@
       window.removeEventListener('afterprint', restore);
     });
     printWhenReady($('sheet'));
+    };
+    askMarks(co).then(function (go) { if (go) doPrint(); });
   }
 
   /* ---------- cloud ---------- */
