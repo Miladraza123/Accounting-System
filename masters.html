@@ -992,6 +992,13 @@
   };
 
   var sb = null, tab = 'parties', editing = null, dirty = false;
+  /* Server ko bhejne wala "pehle kya tha" snapshot — editor khulte hi
+     yahan liya jata hai, aur us ke baad kabhi nahi badalta. `editing`
+     khud badalta rehta hai (jaise logo/signature/stamp chunte waqt),
+     is liye save ke waqt USI se snapshot lena ghalat hai — server ko
+     lagega "koi farq nahi aaya" aur wo nayi tasveer chup-chaap urha
+     kar purani (database wali) wapas rakh dega. */
+  var editingBaseline = null;
   var db = { parties: [], items: [], companies: [], services: [], itemUnits: [] };
 
   /* ---------- helpers ---------- */
@@ -2668,6 +2675,7 @@
     editing = rec ? JSON.parse(JSON.stringify(rec))
                   : (tab === 'parties' ? blankParty() : tab === 'companies' ? blankCompany()
                      : tab === 'services' ? blankService() : blankItem());
+    editingBaseline = JSON.parse(JSON.stringify(editing));
     dirty = false;
     $('edTitle').textContent = (rec ? 'Edit ' : 'New ') +
       (tab === 'parties' ? 'party' : tab === 'companies' ? 'firm'
@@ -2890,7 +2898,7 @@
     $('scrim').classList.remove('on');
     $('sheet').classList.remove('on');
     $('edSave').style.display = '';
-    editing = null; dirty = false; edView = 'details';
+    editing = null; editingBaseline = null; dirty = false; edView = 'details';
   }
   function twin() {                        // bilkul wohi naam pehle se to nahi?
     var n = norm($('eName').value);
@@ -3227,11 +3235,13 @@
     var isNew = !(editing && editing.id);
     var recId = isNew ? uuid() : editing.id;
     var label = body.name;
-    /* Editor server se pehle band ho jata hai (local-first), aur closeEditor()
-       `editing` ko null kar deta hai. Is liye "badalne se pehle row aisi thi"
-       wala snapshot YAHIN mehfooz karna zaroori hai — warna merge ko null
-       milta tha aur wo har badle hue field par conflict de deta tha. */
-    var priorRow = isNew ? null : JSON.parse(JSON.stringify(editing));
+    /* editingBaseline editor KHULTE waqt liya gaya tha — editing khud
+       tab se ab tak badal chuka ho sakta hai (jaise logo/signature/stamp
+       chunna). Yahan editing ka TAAZA snapshot lena ghalat hoga: server
+       ko lagta "koi farq nahi aaya" aur wo nayi tasveer ko chup-chaap
+       purani (database wali) se badal deta \u2014 "Saved" bhi dikhta aur
+       tabdeeli phir bhi urh jati. */
+    var priorRow = isNew ? null : editingBaseline;
     var priorVersion = isNew ? null : (editing.version || 1);
 
     // Local-first: turant screen par dikhado, editor band karo — internet ka wait nahi
