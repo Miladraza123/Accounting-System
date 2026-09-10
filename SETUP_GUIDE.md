@@ -176,6 +176,33 @@ jati.
 Pehle ek bhi ghayab table poore backup ko mar deti thi — na Excel aati, na
 restore file, kuch bhi nahi. Ab aisa nahi hota.
 
+## Database functions likhte waqt: DELETE/UPDATE ko hamesha WHERE chahiye
+
+Is project ke `authenticator` role (jis se app ki HAR call guzarti hai)
+par Postgres ka `safeupdate` extension chalu hai. Wo **koi bhi**
+DELETE ya UPDATE rok deta hai jis mein WHERE clause na ho — chahe
+maqsad hi "poori table khali kar do" kyun na ho. Error yehi hota hai:
+
+> DELETE requires a WHERE clause
+
+Ye extension sirf `authenticator` ke connection par load hota hai — is
+liye Supabase ke **SQL Editor** se, ya `execute_sql`/`apply_migration`
+tools se chalai gayi wohi statement **bina kisi error ke chal jati
+hai**. Yani agar aap SQL Editor mein test kar ke dekhein, sab theek
+lagega — magar app se chalane par ruk jayega. Isi wajah se
+`wipe_test_data()` ka asal masla pakarne mein waqt laga.
+
+**Hal:** poori table khali karni ho to `where true` laga dein:
+
+```sql
+delete from kisi_bhi_table where true;
+update kisi_bhi_table set x = 0 where true;
+```
+
+Koi naya "sab kuch saaf karo" jaisa function banayen to isay yaad
+rakhein — SQL Editor mein test kaamyab hone ka matlab ye nahi ke app
+se bhi chalega.
+
 ## Poori tabahi ke baad wapas kaise aayen
 
 Agar Supabase project bilkul khatam ho jaye, tarteeb ye hai:
