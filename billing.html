@@ -370,6 +370,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3.2"/><path d="M12 4v2M12 18v2M4 12h2M18 12h2M6.3 6.3l1.5 1.5M16.2 16.2l1.5 1.5M6.3 17.7l1.5-1.5M16.2 7.8l1.5-1.5"/></svg>
         Service invoice<span class="n" id="nSvc"></span>
       </button>
+      <button class="sb-item" data-t="squote">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="4" width="16" height="16" rx="1"/><circle cx="12" cy="11" r="2.4"/><path d="M12 6.6v1.2M12 14.2v1.2M7.6 11h1.2M15.2 11h1.2"/></svg>
+        Service quotation<span class="n" id="nSq"></span>
+      </button>
       <button class="sb-item" data-t="recurring">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.3-6.4M21 12a9 9 0 0 1-15.3 6.4"/><path d="M18 3v5h-5M6 21v-5h5"/></svg>
         Recurring<span class="n" id="nRec"></span>
@@ -461,6 +465,10 @@
   var sb = null, vtype = 'purchase', bill = null, dirty = false;
   var allVnos = [];   // sab vouchers ke numbers (deleted bhi shamil) — takraav se bachne ke liye
   var quotes = [], pos = [];   // Quotations aur Purchase Orders — alag arrays, vouchers/balance se koi taluq nahi
+  /* Service quotations. Bilkul upar walon ki tarah: sirf kaghaz hain —
+     na ledger, na stock, na balance. Paisa tab banta hai jab in se
+     service invoice banayi jaye. */
+  var svcQuotes = [], svcQuoteTableMissing = false;
   var returns = [];   // Sales Returns — asal financial impact hai, is liye alag nahi (ledger/stock mein shamil)
   var parties = [], items = [], bills = [], firms = [], warehouses = [], transfers = [],
       itemUnits = [], services = [], svcInvoices = [], recurTemplates = [], lineSeq = 0;
@@ -712,6 +720,7 @@
     if (vtype === 'return') { renderReturns(); return; }
     if (vtype === 'transfer') { renderTransfers(); return; }
     if (vtype === 'service')  { renderServiceInvoices(); return; }
+    if (vtype === 'squote')   { renderServiceQuotes(); return; }
     if (vtype === 'recurring'){ renderRecurring(); return; }
     var q = norm($('q').value);
     var list = bills.filter(function (b) { return b.vtype === vtype; });
@@ -2760,9 +2769,12 @@
     var t = svcTotals(b);
     var due = svcDueDate(b);
 
-    var h = '<div class="card"><div class="ttl">Service Invoice</div>' +
+    var isQuote = !!b.isQuote;
+    var h = '<div class="card"><div class="ttl">' +
+      (isQuote ? 'Service Quotation' : 'Service Invoice') + '</div>' +
       '<div class="f2">' +
-        '<div class="f"><label>Invoice no</label><input value="' + esc(b.sino) +
+        '<div class="f"><label>' + (isQuote ? 'Quotation no' : 'Invoice no') +
+          '</label><input value="' + esc(b.sino) +
           '" readonly style="background:var(--panel)"></div>' +
         '<div class="f"><label>Date</label><input id="svDate" type="date" value="' +
           esc(b.sidate) + '"></div>' +
@@ -2777,10 +2789,13 @@
       '<div class="f"><label>Billed to</label>' + pickBox('svParty', p ? p.name : '', 'Customer ka naam') +
         (p ? '<div class="hint">' + balText(b.party_id) + '</div>' : '') + '</div>' +
       '<div class="f2">' +
-        '<div class="f"><label>Due date</label><input id="svDue" type="date" value="' +
+        '<div class="f"><label>' + (isQuote ? 'Valid till' : 'Due date') +
+          '</label><input id="svDue" type="date" value="' +
           esc(b.due_date || '') + '">' +
-          (!b.due_date && due ? '<div class="hint">Khali chhorein to party ke credit days se: ' +
-            esc(due) + '</div>' : '') + '</div>' +
+          (isQuote
+            ? '<div class="hint">Khali chhorein to koi miyaad nahi.</div>'
+            : (!b.due_date && due ? '<div class="hint">Khali chhorein to party ke credit days se: ' +
+               esc(due) + '</div>' : '')) + '</div>' +
         '<div class="f"><label>Billing period</label><input id="svLabel" type="text" value="' +
           esc(b.billing_label || '') + '" placeholder="September 2026"></div>' +
       '</div>' +
@@ -2830,18 +2845,31 @@
 
     h += '<div class="card"><div class="ttl">Total</div>' +
       '<div class="f2">' +
-        '<div class="f num"><label>Invoice discount</label><input id="svDisc" type="text" ' +
+        '<div class="f num"><label>' + (isQuote ? 'Quotation discount' : 'Invoice discount') +
+          '</label><input id="svDisc" type="text" ' +
           'inputmode="decimal" value="' + (num(b.discount) ? fmt(b.discount) : '') +
           '" placeholder="0"></div>' +
-        '<div class="f num"><label>Received now</label><input id="svPaid" type="text" ' +
-          'inputmode="decimal" value="' + (num(b.paid) ? fmt(b.paid) : '') +
-          '" placeholder="0"></div>' +
+        /* Quotation par paisa aata hi nahi — is liye ye khana hi nahi
+           dikhate. Dikhana aur phir nazarandaz karna gumrah karta hai. */
+        (isQuote ? '<div class="f"></div>'
+          : '<div class="f num"><label>Received now</label><input id="svPaid" type="text" ' +
+            'inputmode="decimal" value="' + (num(b.paid) ? fmt(b.paid) : '') +
+            '" placeholder="0"></div>') +
       '</div>' +
       '<div class="sum" id="svSum">' + svcSumHtml(t) + '</div></div>';
 
     h += '<div class="card"><div class="ttl">Notes</div>' +
       '<div class="f"><textarea id="svNotes" rows="2" placeholder="Sirf record ke liye">' +
       esc(b.notes || '') + '</textarea></div></div>';
+
+    if (isQuote && b.id) {
+      h += '<div class="card"><div class="ttl">Party maan gayi?</div>' +
+        '<div class="hint" style="margin-bottom:8px">Is quotation se service invoice ban ' +
+        'jayegi. Quotation apni jagah mehfooz rahegi — mitti nahi.' +
+        (b.status === 'converted' ? ' <b>Is se invoice pehle hi ban chuki hai.</b>' : '') +
+        '</div>' +
+        '<button class="addln" id="svConvert" type="button">Convert to Service Invoice</button></div>';
+    }
 
     $('edBody').innerHTML = h;
     wireSvcEditor();
@@ -2949,6 +2977,14 @@
         dirty = true; refresh();
       });
     });
+
+    if ($('svConvert')) $('svConvert').addEventListener('click', function () {
+      if (!dirty) { convertServiceQuote(); return; }
+      confirmBox('Pehle save karein?',
+                 'Is quotation mein tabdeeliyan abhi mehfooz nahi huin. Convert karne se ' +
+                 'wo tabdeeliyan quotation par nahi lagengi.', 'Convert phir bhi')
+        .then(function (ok) { if (ok) convertServiceQuote(); });
+    });
   }
 
   /* ---------- Service Invoice: save aur delete ----------
@@ -2967,6 +3003,7 @@
 
     var isNew = !b.id;
     var recId = b.id || uuid();
+    var fromQuoteId = b.fromQuoteId || null;
     var head = {
       sino:b.sino, party_id:b.party_id, company_id:b.company_id || null,
       sidate:b.sidate, due_date:b.due_date || null,
@@ -3022,7 +3059,10 @@
         .then(function (ir) {
           if (ir && ir.error) throw ir.error;
           syncNote('Saved', '#7DC9A9');
-          return loadServiceInvoices();
+          // Quotation se bani thi to us par nishan laga do
+          return markQuoteConverted(fromQuoteId, recId).then(function () {
+            return loadServiceInvoices();
+          });
         });
     }).catch(function (e) {
       syncNote('');
@@ -3069,6 +3109,340 @@
       });
       render();
     }).catch(function () {});
+  }
+
+
+  /* ══════════════════════════════════════════════════════════════
+     SERVICE QUOTATION
+
+     Service invoice ka hi bhai hai — wohi form, wohi lines, wohi
+     print. Farq sirf itna:
+       • paisa nahi liya jata (na "Received now", na balance due)
+       • us ki jagah "Valid till" hoti hai
+       • ledger, balance, stock — kisi par koi asar NAHI
+       • party maan jaye to ek button se service invoice ban jati hai,
+         aur quotation apni jagah mehfooz rehti hai
+
+     Is liye alag editor nahi banaya: wohi drawSvcEditor chalta hai,
+     bas bill.isQuote laga hota hai. Do alag editor rakhne ka anjaam
+     yehi hota hai ke ek mein sudhaar ho aur doosra peeche reh jaye.
+
+     Yaad rahe: yahan memory mein quotation bilkul invoice jaisi shakl
+     rakhti hai (sino / sidate / due_date), taake editor aur print bina
+     kisi tabdeeli ke chalein. Database ke naam (sqno / sqdate /
+     valid_till) sirf save aur load ke waqt badle jate hain — ek hi
+     jagah, neeche.
+     ══════════════════════════════════════════════════════════════ */
+
+  /* Table hi na bani ho (SQL abhi chalayi na gayi ho) — ye kharabi
+     nahi, sirf "abhi set up nahi hui". Ise baqi kharabiyon se alag
+     rakhna zaroori hai, warna user ko wajah samajh nahi aati. */
+  function isMissingTableErr(m) {
+    return /could not find the table|relation .* does not exist|PGRST205|42P01/i.test(String(m || ''));
+  }
+
+  function nextSvcQuoteNo() {
+    var mx = 0;
+    svcQuotes.forEach(function (v) {
+      var m = /^SQ-(\d+)$/.exec(String(v.sino || ''));
+      if (m) mx = Math.max(mx, parseInt(m[1], 10));
+    });
+    return 'SQ-' + String(mx + 1).padStart(4, '0');
+  }
+
+  /* Quotation par paisa nahi aata — is liye paid/due wala status yahan
+     bemaani hai. Yahan sirf teen halaten hain. */
+  function svcQuoteStatus(q) {
+    if (q.status === 'converted') return { k:'paid',      label:'INVOICE BAN GAYI' };
+    if (q.status === 'cancelled') return { k:'cancelled', label:'CANCELLED' };
+    if (q.due_date && q.due_date < today()) return { k:'overdue', label:'MIYAAD KHATAM' };
+    return { k:'unpaid', label:'OPEN' };
+  }
+
+  function svcQuoteById(id) {
+    return svcQuotes.filter(function (x) { return x.id === id; })[0] || null;
+  }
+
+  function renderServiceQuotes() {
+    $('nSq').textContent = svcQuotes.length ? '(' + svcQuotes.length + ')' : '';
+    $('searchWrap').classList.toggle('has', !!$('q').value);
+    var box = $('rows');
+
+    if (svcQuoteTableMissing) {
+      box.innerHTML = '<div class="empty"><div class="big">Service quotation abhi set up nahi hui</div>' +
+        '<div class="sm">Repo mein <b>service-quotations.sql</b> file hai — usay Supabase → ' +
+        'SQL Editor mein ek dafa chala dein, phir ye page refresh karein. Baqi sab pehle ki ' +
+        'tarah chalta rahega.</div></div>';
+      return;
+    }
+
+    var q = norm($('q').value);
+    var list = svcQuotes.slice();
+    if (q) list = list.filter(function (v) {
+      var p = partyById(v.party_id);
+      return (norm(v.sino) + ' ' + norm(p && p.name) + ' ' +
+              norm(v.narration) + ' ' + norm(v.billing_label)).indexOf(q) !== -1;
+    });
+    list.sort(function (a, b) {
+      if (a.sidate !== b.sidate) return a.sidate < b.sidate ? 1 : -1;
+      return (a.created_at || '') < (b.created_at || '') ? 1 : -1;
+    });
+
+    if (!list.length) {
+      box.innerHTML = '<div class="empty">' + (q
+        ? '<div class="big">Nothing matched “' + esc($('q').value) + '”</div>'
+        : '<div class="big">Koi service quotation nahi</div><div class="sm">Party ko rate ' +
+          'batane ke liye. Ye sirf kaghaz hai — na ledger par asar, na balance par. ' +
+          'Party maan jaye to ek button se service invoice ban jayegi.</div>') + '</div>';
+      return;
+    }
+
+    var html = '', day = '';
+    list.forEach(function (v) {
+      if (v.sidate !== day) { day = v.sidate; html += '<div class="datehead">' + esc(human(day)) + '</div>'; }
+      var p = partyById(v.party_id);
+      var st = svcQuoteStatus(v);
+      var t = svcTotals(v);
+      var cnt = (v.lines || []).length;
+      html += '<div class="brow" data-sq="' + v.id + '" tabindex="0" role="button">' +
+        '<div class="dicon svc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+          'stroke-width="1.8"><rect x="4" y="4" width="16" height="16" rx="1"/>' +
+          '<circle cx="12" cy="11" r="2.4"/></svg></div>' +
+        '<div class="no">' + esc(v.sino || '—') + '</div><div class="mid">' +
+        '<div class="nm">' + esc(p ? p.name : 'No party') + '</div>' +
+        '<div class="sub">' + cnt + (cnt === 1 ? ' service' : ' services') +
+          (v.billing_label ? ' · ' + esc(v.billing_label) : '') +
+          (v.tax_on ? ' · with tax' : '') + '</div></div>' +
+        '<div class="amt clr">' + money(t.grand) +
+        '<span class="tag">' + esc(st.label) + '</span></div></div>';
+    });
+    box.innerHTML = html;
+
+    box.querySelectorAll('[data-sq]').forEach(function (row) {
+      row.addEventListener('click', function () { openServiceQuote(row.getAttribute('data-sq')); });
+    });
+  }
+
+  function openServiceQuote(id) {
+    var rec = id ? svcQuoteById(id) : null;
+    bill = rec ? JSON.parse(JSON.stringify(rec)) : {
+      id:null, sino:nextSvcQuoteNo(), sidate:today(), due_date:'',
+      party_id:null, company_id:(firms.filter(function (f) { return f.is_default; })[0] ||
+                                 firms[0] || {}).id || null,
+      billing_from:'', billing_to:'', billing_label:'', narration:'', notes:'',
+      tax_on:false, discount:0, paid:0, status:'open', version:1,
+      lines:[blankSvcLine()]
+    };
+    bill.isService = true;      // editor wohi hai
+    bill.isQuote   = true;      // magar quotation wali shakl mein
+    bill.paid = 0;              // quotation par paisa hota hi nahi
+    if (rec) {
+      bill.lines = (rec.lines || []).map(function (l) {
+        return { key:'L' + (++lineSeq), id:l.id, service_id:l.service_id,
+                 description:l.description || '', qty:num(l.qty), rate:num(l.rate),
+                 discount:num(l.discount), tax_pct:num(l.tax_pct) };
+      });
+    }
+    if (!bill.lines.length) bill.lines.push(blankSvcLine());
+
+    originalHeadSnapshot = rec ? JSON.parse(JSON.stringify(rec)) : null;
+    originalLineSnapshot = null;
+    dirty = false;
+
+    $('edTitle').textContent = (rec ? 'Edit ' : 'New ') + 'Service Quotation';
+    $('edDel').style.display  = (rec && can('quotation_delete')) ? '' : 'none';
+    $('edSave').style.display = can(rec ? 'quotation_edit' : 'quotation_create') ? '' : 'none';
+    $('edSave').textContent = 'Save quotation';
+    drawSvcEditor();
+    $('edBody').scrollTop = 0;
+    $('ed').classList.add('on');
+  }
+
+  function saveServiceQuote() {
+    var b = bill;
+    if (!b.party_id) { toast('Party chunein', true); return; }
+    var good = b.lines.filter(function (l) {
+      return l.service_id && (num(l.qty) > 0 || num(l.rate) > 0);
+    });
+    if (!good.length) { toast('Kam se kam ek service daalein', true); return; }
+
+    var t = svcTotals(b);
+    var isNew = !b.id;
+    var recId = b.id || uuid();
+    /* Yahan memory ke naam database ke naamon mein badalte hain — sirf
+       isi ek jagah. Totals bhi yahin se jate hain, bilkul maal wali
+       quotation ki tarah (wahan bhi client hi hisaab kar ke bhejta hai). */
+    var head = {
+      sqno:b.sino, party_id:b.party_id, company_id:b.company_id || null,
+      sqdate:b.sidate || today(), valid_till:b.due_date || null,
+      billing_from:b.billing_from || null, billing_to:b.billing_to || null,
+      billing_label:b.billing_label || null,
+      narration:b.narration || null, notes:b.notes || null,
+      tax_on:!!b.tax_on, discount:num(b.discount),
+      sub_total:t.sub, tax_total:t.tax, grand_total:t.grand,
+      status:b.status || 'open',
+      updated_at:new Date().toISOString()
+    };
+    /* Do log ek hi waqt mein ek quotation kholein to jo baad mein save
+       kare wo pehle wale ka kaam chup-chaap mita deta. Is liye update
+       sirf usi soorat mein lagta hai jab version wohi ho jo kholte waqt
+       tha — warna kuch nahi hota aur hum bata dete hain. */
+    var baseVersion = num(b.version) || 1;
+    head.version = baseVersion + 1;
+    var lines = good.map(function (l, ix) {
+      return { quotation_id:recId, service_id:l.service_id,
+               description:l.description || null,
+               qty:num(l.qty), rate:num(l.rate), discount:num(l.discount),
+               tax_pct:num(l.tax_pct), amount:svcLineAmount(l), line_no:ix };
+    });
+
+    syncNote('Saving…');
+    closeBill(); render();
+
+    var step = isNew
+      ? sb.from('service_quotations').insert(Object.assign({ id:recId, version:1 }, head))
+      : sb.from('service_quotations').update(head)
+          .eq('id', recId).eq('version', baseVersion).select();
+
+    step.then(function (res) {
+      if (res && res.error) throw res.error;
+      if (!isNew && res && Array.isArray(res.data) && !res.data.length) {
+        /* Ya to kisi aur ne isi waqt badal diya, ya delete kar diya.
+           Dono soorton mein hamara likha hua kuch nahi bigaad-ta. */
+        syncNote('');
+        toast('"' + (head.sqno || '') + '" kisi aur ne bhi isi waqt badla \u2014 ' +
+              'taaza dekh kar dobara karein', true);
+        return loadServiceQuotes();
+      }
+      /* Lines: purani hata kar nayi. Quotation par koi stock ya cost
+         nahi tikti, is liye maal wale bill jaisa smart merge yahan
+         zaroori nahi. */
+      return sb.from('service_quotation_lines').delete().eq('quotation_id', recId)
+        .then(function (dr) {
+          if (dr && dr.error) throw dr.error;
+          if (!lines.length) return { error:null };
+          return sb.from('service_quotation_lines').insert(lines);
+        })
+        .then(function (ir) {
+          if (ir && ir.error) throw ir.error;
+          syncNote('Saved', '#7DC9A9');
+          return loadServiceQuotes();
+        });
+    }).catch(function (e) {
+      syncNote('');
+      // Adhoora header reh na jaye — nayi quotation thi to usay hata do
+      if (isNew) sb.from('service_quotations').delete().eq('id', recId).then(function () {});
+      sayErr(e, 'service quotation save');
+    });
+  }
+
+  function deleteServiceQuote() {
+    var b = bill;
+    if (!b || !b.id) { closeBill(); render(); return; }
+    confirmBox('Delete ' + (b.sino || '') + '?',
+               'Recycle Bin mein chala jayega — wapas laya ja sakta hai. ' +
+               'Is se koi bill ya balance nahi badalta.')
+      .then(function (yes) {
+        if (!yes) return;
+        syncNote('Deleting…');
+        closeBill(); render();
+        sb.from('service_quotations').update({ deleted_at:new Date().toISOString() })
+          .eq('id', b.id).then(function (res) {
+            if (res.error) throw res.error;
+            syncNote('');
+            return loadServiceQuotes();
+          }).catch(function (e) { syncNote(''); sayErr(e, 'delete'); });
+      });
+  }
+
+  /* Party maan gayi — ab isi quotation se service invoice banao.
+     Maal wali quotation bhi bilkul aisa hi karti hai: nayi cheez saamne
+     rakh deti hai, save karna user ke haath mein rehta hai, aur asal
+     quotation apni jagah mehfooz rehti hai. */
+  function convertServiceQuote() {
+    var b = bill;
+    if (!b || !b.id) { toast('Pehle quotation save karein', true); return; }
+    if (!can('bill_create')) { toast('Is ki ijazat nahi', true); return; }
+    var good = (b.lines || []).filter(function (l) {
+      return l.service_id && (num(l.qty) > 0 || num(l.rate) > 0);
+    });
+    if (!good.length) { toast('Pehle koi service daalein', true); return; }
+
+    var sourceNo = b.sino, sourceId = b.id;
+    bill = {
+      isService:true, id:null, sino:nextSvcNo(), sidate:today(), due_date:'',
+      party_id:b.party_id, company_id:b.company_id || null,
+      billing_from:b.billing_from || '', billing_to:b.billing_to || '',
+      billing_label:b.billing_label || '', narration:b.narration || '', notes:b.notes || '',
+      tax_on:!!b.tax_on, discount:num(b.discount), paid:0, status:'active', version:1,
+      fromQuoteId:sourceId,
+      lines:good.map(function (l) {
+        return { key:'L' + (++lineSeq), id:null, service_id:l.service_id,
+                 description:l.description || '', qty:num(l.qty), rate:num(l.rate),
+                 discount:num(l.discount), tax_pct:num(l.tax_pct) };
+      })
+    };
+    vtype = 'service';
+    document.querySelectorAll('.sb-item[data-t]').forEach(function (x) {
+      x.classList.toggle('on', x.getAttribute('data-t') === 'service');
+    });
+    dirty = true;
+    $('edTitle').textContent = 'New Service Invoice (from ' + esc(sourceNo || '') + ')';
+    $('edSave').textContent = 'Save Invoice';
+    $('edDel').style.display = 'none';
+    $('edSave').style.display = can('bill_create') ? '' : 'none';
+    drawSvcEditor();
+    $('edBody').scrollTop = 0;
+    toast('Ab review kar ke Save karein — quotation apni jagah mehfooz rahegi');
+  }
+
+  /* Invoice save hone ke baad quotation par nishan laga dete hain, taake
+     baad mein saaf pata ho ke kaun si quotation kaam aayi. Yeh nishan na
+     lag sake to invoice phir bhi theek hai — is liye khamoshi se chhorh
+     dete hain, magar console mein likh kar. */
+  function markQuoteConverted(quoteId, invoiceId) {
+    if (!quoteId) return Promise.resolve();
+    return sb.from('service_quotations').update({
+      status:'converted', converted_invoice_id:invoiceId || null,
+      converted_at:new Date().toISOString()
+    }).eq('id', quoteId).then(function (r) {
+      if (r && r.error) console.error('quotation par nishan nahi lag saka:', r.error.message);
+      return loadServiceQuotes();
+    }).catch(function (e) { console.error(e); });
+  }
+
+  /* Quotations aur un ki lines dobara mangwao */
+  function loadServiceQuotes() {
+    if (!sb) return Promise.resolve();
+    return Promise.all([
+      sb.from('service_quotations').select('*').is('deleted_at', null)
+        .order('sqdate', { ascending:false }).limit(300),
+      sb.from('service_quotation_lines').select('*')
+    ]).then(function (r) {
+      if (r[0].error) {
+        svcQuoteTableMissing = isMissingTableErr(r[0].error.message);
+        svcQuotes = [];
+        if (!svcQuoteTableMissing) console.error('service quotations:', r[0].error.message);
+        render();
+        return;
+      }
+      svcQuoteTableMissing = false;
+      /* Database ke naam wapas wohi bana dete hain jo editor samajhta
+         hai — badalne ki jagah sirf yehi aur save wali function hai. */
+      svcQuotes = (r[0].data || []).map(function (q) {
+        return Object.assign({}, q, {
+          sino:q.sqno, sidate:q.sqdate, due_date:q.valid_till || '', paid:0
+        });
+      });
+      var byQ = {};
+      (r[1].error ? [] : (r[1].data || [])).forEach(function (l) {
+        (byQ[l.quotation_id] = byQ[l.quotation_id] || []).push(l);
+      });
+      svcQuotes.forEach(function (v) {
+        v.lines = (byQ[v.id] || []).sort(function (a, c) { return (a.line_no || 0) - (c.line_no || 0); });
+      });
+      render();
+    }).catch(function (e) { console.error(e); });
   }
 
   function openTransfer(rec) {
@@ -3353,7 +3727,8 @@
     if (!good.length) { toast('Pehle koi service daalein', true); return; }
 
     var p = partyById(b.party_id), t = svcTotals(b);
-    var due = svcDueDate(b);
+    var isQuote = !!b.isQuote;
+    var due = isQuote ? null : svcDueDate(b);
     var cols = b.tax_on ? 6 : 5;
 
     var rows = good.map(function (l, i) {
@@ -3377,7 +3752,7 @@
     if (num(b.discount)) foot += frow('Discount', '\u2212 ' + money(b.discount));
     if (b.tax_on && t.tax) foot += frow('Sales tax', '+ ' + money(t.tax));
     foot += frow('Total', money(t.grand), 'grand');
-    if (num(b.paid)) {
+    if (!isQuote && num(b.paid)) {
       foot += frow('Received', '\u2212 ' + money(b.paid));
       foot += frow('Balance receivable', money(t.due));
     }
@@ -3400,12 +3775,15 @@
       (co && co.logo ? '<img class="logo" src="' + esc(co.logo) + '" alt="">' : '') +
       '<div><div class="firm">' + esc(co ? co.name : firmName) + '</div>' +
       (coAdr ? '<div class="adr">' + coAdr + '</div>' : '') +
-      '<div class="kind">Service Invoice' + (b.tax_on ? ' \u00b7 Sales Tax' : '') + '</div></div>' +
+      '<div class="kind">' + (isQuote ? 'Quotation' : 'Service Invoice') +
+        (b.tax_on ? ' \u00b7 Sales Tax' : '') + '</div></div>' +
       '<div class="rt"><div class="no">' + esc(b.sino || '') + '</div>' +
       '<div>' + esc(human(b.sidate)) + '</div>' +
-      (due ? '<div>Due ' + esc(human(due)) + '</div>' : '') + '</div></div>' +
+      (isQuote
+        ? (b.due_date ? '<div>Valid till ' + esc(human(b.due_date)) + '</div>' : '')
+        : (due ? '<div>Due ' + esc(human(due)) + '</div>' : '')) + '</div></div>' +
 
-      '<div class="who"><div><div class="lb">Billed to</div>' +
+      '<div class="who"><div><div class="lb">' + (isQuote ? 'Quotation for' : 'Billed to') + '</div>' +
       '<div class="nm">' + esc(p ? p.name : '') + '</div>' +
       (p && p.address ? '<div>' + esc(p.address) + '</div>' : '') +
       (p && p.city ? '<div>' + esc(p.city) + '</div>' : '') +
@@ -3422,7 +3800,10 @@
 
       ((b.narration || b.notes) ? '<div class="note">' +
         esc(b.narration || b.notes) + '</div>' : '') +
-      '<div class="foot"><div class="sign">Prepared by</div><div class="sign">Received by</div></div>';
+      (isQuote ? '<div class="note">Yeh quotation hai, bill nahi \u2014 is par koi raqam ' +
+                 'wajib-ul-ada nahi.</div>' : '') +
+      '<div class="foot"><div class="sign">Prepared by</div>' +
+      '<div class="sign">' + (isQuote ? 'Accepted by' : 'Received by') + '</div></div>';
 
     var oldTitle = document.title;
     var oldTopTitle = (function () { try { return window.top && window.top !== window ? window.top.document.title : oldTitle; } catch (e) { return oldTitle; } })();
@@ -3896,6 +4277,11 @@
 
           attachLines(r[4].data || []);
           syncNote(''); render(); loadCounts(); tryOpenWanted();
+          /* Service quotations alag se — main load positional hai (upar
+             likha hai ke beech mein daalne se index khisak jate hain),
+             aur agar SQL abhi chalayi na gayi ho to us ki kharabi baqi
+             sab ko na le doobe. */
+          loadServiceQuotes();
           // agar bill khula hua hai aur sheets ab aa gayi hain to balance dobara theek karo
           refreshOpenBillBalance();
           cacheSave('parties', parties); cacheSave('items', items); cacheSave('bills', bills);
@@ -3935,6 +4321,7 @@
                                 : vtype === 'quotation' ? 'Quotation' : vtype === 'po' ? 'Purchase order'
                                 : vtype === 'transfer' ? 'Stock transfer'
                                 : vtype === 'service' ? 'Service invoice'
+                                : vtype === 'squote' ? 'Service quotation'
                                 : vtype === 'recurring' ? 'Recurring services' : 'Sales return';
       closeSidebar();
       $('q').value = '';
@@ -3942,6 +4329,7 @@
                                : vtype === 'quotation' ? '+ Quotation' : vtype === 'po' ? '+ Purchase Order'
                                : vtype === 'transfer' ? '+ Transfer'
                                : vtype === 'service' ? '+ Service Invoice'
+                               : vtype === 'squote' ? '+ Service Quotation'
                                : vtype === 'recurring' ? '+ Recurring' : '+ Return';
       updateNewBtnPerm();
       render();
@@ -3967,6 +4355,15 @@
       }
       openServiceInvoice(null); return;
     }
+    if (vtype === 'squote') {
+      if (svcQuoteTableMissing) {
+        toast('Pehle service-quotations.sql Supabase mein chalayein', true); return;
+      }
+      if (!services.length) {
+        toast('Pehle Masters \u2192 Services mein koi service banayein', true); return;
+      }
+      openServiceQuote(null); return;
+    }
     if (vtype === 'recurring') {
       if (!services.length) {
         toast('Pehle Masters \u2192 Services mein koi service banayein', true); return;
@@ -3984,7 +4381,8 @@
     openBill(null);
   });
   function updateNewBtnPerm() {
-    var ok = vtype === 'quotation' ? can('quotation_create')
+    var ok = vtype === 'squote'    ? can('quotation_create')
+           : vtype === 'quotation' ? can('quotation_create')
            : vtype === 'po'        ? can('po_create')
            : vtype === 'return'    ? can('bill_create')
            : vtype === 'transfer'  ? can('bill_create')
@@ -4032,6 +4430,7 @@
   $('edSave').addEventListener('click', function () {
     if (bill && bill.isReturn) { saveReturn(); return; }
     if (bill && bill.isTransfer) { saveTransfer(); return; }
+    if (bill && bill.isQuote)   { saveServiceQuote(); return; }
     if (bill && bill.isService) { saveServiceInvoice(); return; }
     if (bill && bill.isRecurring) { saveRecurring(); return; }
     (bill && bill.doc) ? saveDoc() : saveBill();
@@ -4039,6 +4438,7 @@
   $('edDel').addEventListener('click', function () {
     if (bill && bill.isReturn) { deleteReturn(); return; }
     if (bill && bill.isTransfer) { deleteTransfer(); return; }
+    if (bill && bill.isQuote)   { deleteServiceQuote(); return; }
     if (bill && bill.isService) { deleteServiceInvoice(); return; }
     if (bill && bill.isRecurring) { deleteRecurring(); return; }
     (bill && bill.doc) ? deleteDoc() : delBill();

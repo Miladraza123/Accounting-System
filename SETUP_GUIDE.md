@@ -182,7 +182,9 @@ Agar Supabase project bilkul khatam ho jaye, tarteeb ye hai:
 
 1. Naya Supabase project banayein.
 2. `OHT-Schema-<date>.sql.gz` kholein aur us ka SQL project ke SQL Editor
-   mein chalayein (ya jo SQL files aap ne alag mehfooz rakhi hain).
+   mein chalayein (ya jo SQL files aap ne alag mehfooz rakhi hain —
+   `trial-balance-function.sql`, `period-locking.sql`, aur repo mein
+   maujood `service-quotations.sql`).
 3. Masters kholein, naye project ki URL/key daalein, sign in karein.
 4. **Restore from backup** → us din ki `OHT-Restore-<date>.json.gz`
    (ya `.enc`, password ke sath) → tareeqa **"Poora replace"** → `RESTORE`
