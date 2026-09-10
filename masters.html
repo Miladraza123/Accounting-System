@@ -1007,6 +1007,22 @@
     return n.toLocaleString('en-PK', { maximumFractionDigits: 2 });
   }
   function norm(s) { return String(s == null ? '' : s).trim().toLowerCase().replace(/\s+/g, ' '); }
+  /* Daily Ledger jab party link karta hai to us ka naam text ke shuru mein
+     literal likh deta hai (jaise "Ali Traders 500 rent"). Wahan wo naam
+     dikhna theek hai (list mein har party mil sakti hai). Magar isi party
+     KE APNE ledger mein wo naam dobara dikhana faaltu hai — party khud pata
+     hai kis ka ledger khula hai. Is liye sirf yahan (party ke apne account
+     view mein, screen aur print dono par) us leading naam ko hata dete hain,
+     asal stored text (Daily Ledger wali file) chhue bina. */
+  function stripLeadingName(text, name) {
+    var s = String(text == null ? '' : text);
+    var nm = String(name == null ? '' : name).trim();
+    if (!nm) return s.trim();
+    if (norm(s.slice(0, nm.length)) === norm(nm)) {
+      return s.slice(nm.length).replace(/^\s+/, '').trim();
+    }
+    return s.trim();
+  }
   /* print se pehle logo ki tasveer poori tarah load hone do — warna print preview me khali reh jati hai */
   /* shell ke andar (iframe) chal rahe hon to print/save ka naam BAHAR wali tab se aata hai —
      is liye dono jagah title badalna zaroori hai */
@@ -2269,12 +2285,12 @@
         if (String(row[6] || '') === String(p.id)) {          // credit taraf — paisa aaya
           var a = n(row[2]);
           if (a) ev.push({ kind:'day', date:s.sheet_date, line:i + 1,
-                           label:'Received', sub:String(row[3] || '').trim(), delta:-a });
+                           label:'Received', sub:stripLeadingName(row[3], p.name), delta:-a });
         }
         if (String(row[7] || '') === String(p.id)) {          // debit taraf — paisa gaya
           var b = n(row[0]);
           if (b) ev.push({ kind:'day', date:s.sheet_date, line:i + 1,
-                           label:'Paid', sub:String(row[1] || '').trim(), delta:b });
+                           label:'Paid', sub:stripLeadingName(row[1], p.name), delta:b });
         }
       });
     });
