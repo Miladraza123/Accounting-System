@@ -3897,19 +3897,28 @@
     $('wipeConfirm').disabled = true;
     $('wipeIncludeMasters').checked = false;
     $('wipeCounts').textContent = 'Ginte hain\u2026';
+    /* Ye ginti wahi cheezein dikhati hai jo wipe_test_data() function
+       asal mein mitata hai — service invoices/quotations bhi ab is mein
+       shamil hain (baqi transactional data jaisi, hamesha mitti hain,
+       masters checkbox ke peeche nahi). Dono jagah ek jaisa rehna
+       zaroori hai, warna user ko pata hi nahi chalega ke kya jane wala
+       hai. */
     Promise.all([
       sb.from('vouchers').select('id', { count:'exact', head:true }),
       sb.from('sheets').select('sheet_date', { count:'exact', head:true }),
       sb.from('quotations').select('id', { count:'exact', head:true }),
       sb.from('purchase_orders').select('id', { count:'exact', head:true }),
       sb.from('sales_returns').select('id', { count:'exact', head:true }),
+      sb.from('service_invoices').select('id', { count:'exact', head:true }),
+      sb.from('service_quotations').select('id', { count:'exact', head:true }),
       sb.from('parties').select('id', { count:'exact', head:true }),
       sb.from('items').select('id', { count:'exact', head:true })
     ]).then(function (r) {
       var c = r.map(function (x) { return x.count || 0; });
       $('wipeCounts').innerHTML =
         c[0] + ' bills, ' + c[1] + ' ledger din, ' + c[2] + ' quotations, ' + c[3] + ' POs, ' + c[4] + ' returns' +
-        '<br><span id="wipeMastersNote" style="display:none">+ ' + c[5] + ' parties, ' + c[6] + ' items</span>';
+        (c[5] || c[6] ? ', ' + c[5] + ' service invoices, ' + c[6] + ' service quotations' : '') +
+        '<br><span id="wipeMastersNote" style="display:none">+ ' + c[7] + ' parties, ' + c[8] + ' items</span>';
     }).catch(function () { $('wipeCounts').textContent = ''; });
   }
   $('wipeIncludeMasters').addEventListener('change', function () {
