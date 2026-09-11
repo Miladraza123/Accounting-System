@@ -747,6 +747,25 @@
 
 
   /* pull every sheet from the cloud into the local copy */
+  // PostgREST ek dafa me 1000 se zyada rows kabhi nahi deta — agar sheets
+  // 1000 se badh jayein to poore qist (page) le kar aana zaroori hai, warna
+  // aage ki purani tareekhein "cloud par nahi hain" lagengi aur neeche wala
+  // reconcile unhe galti se is device se bhi hata dega
+  var SHEETS_PAGE = 1000;
+  function fetchAllSheets() {
+    var out = [];
+    function step(from) {
+      return sb.from('sheets').select('*').is('deleted_at', null)
+        .range(from, from + SHEETS_PAGE - 1).then(function (r) {
+          if (r.error) return r;
+          var rows = r.data || [];
+          out = out.concat(rows);
+          if (!rows.length || rows.length < SHEETS_PAGE) return { data:out, error:null };
+          return step(from + rows.length);
+        });
+    }
+    return step(0);
+  }
   // net band hone ki ghalti aur asli cloud ghalti me farq
   function isNetErr(e) {
     if (!e) return false;
@@ -770,7 +789,7 @@
   function pullAll() {
     if (!sb || !online) return Promise.resolve(false);
     syncNote('Syncing\u2026');
-    return sb.from('sheets').select('*').is('deleted_at', null).then(function (res) {
+    return fetchAllSheets().then(function (res) {
       if (res.error) {
         if (isNetErr(res.error)) {
           syncNote('Offline \u2014 saved on this device', '#B08A3E');
@@ -785,7 +804,9 @@
         console.error('Supabase select failed:', res.error);
         return false;
       }
+      var seen = {};
       (res.data || []).forEach(function (row) {
+        seen[row.sheet_date] = true;
         // is din ko abhi (pichle 3 second me) edit kiya ja raha hai to is ka model mat badlo —
         // warna abhi-abhi ki gayi tabdeeli (jaise opening balance clear karna) cloud ki purani
         // (abhi tak na-bheji hui) value se dab jayegi, khaas kar Realtime ki tezi ki wajah se
@@ -797,6 +818,20 @@
         if (!data.sheetBase) data.sheetBase = {};
         data.sheetBase[row.sheet_date] = JSON.parse(JSON.stringify(row.rows || []));
         if (row.firm && !data.firm) data.firm = row.firm;
+      });
+      // Jo tareekh ab cloud par nahi hai (mit chuki -- Recycle Bin se, ya
+      // Masters ke "Wipe Test Data" se seedhi database se, jahan is device
+      // ka apna delete-flow chalta hi nahi) usay is device ke purane local
+      // cache se bhi hata do -- warna wo sheet yahan hamesha "phantom" ban
+      // kar dikhti rehti hai. Sirf ek shart: is tareekh mein koi na-bheji
+      // hui (pending) tabdeeli na ho, warna abhi tak sync na hua naya/
+      // adhoora kaam bhi saath mit jayega.
+      Object.keys(data.sheets).forEach(function (iso) {
+        if (seen[iso]) return;
+        if (pendingSync[iso]) return;
+        if (iso === active && Date.now() - lastEditTime < 3000) return;
+        delete data.sheets[iso];
+        if (data.sheetBase) delete data.sheetBase[iso];
       });
       store.set(KEY, JSON.stringify(data));
       syncNote('Synced', '#7DC9A9');
