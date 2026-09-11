@@ -4775,11 +4775,12 @@
     if (e.data.oht === 'goto') { gotoArg(e.data.arg); return; }
     if (e.data.oht === 'refresh') {
       var kind = e.data.kind;
-      if (kind !== 'parties' && kind !== 'items' && kind !== 'companies') return;
+      if (kind !== 'parties' && kind !== 'items' && kind !== 'companies' && kind !== 'services') return;
       sb.from(kind).select('*').then(function (res) {
         if (res.error) return;
         if (kind === 'parties') parties = res.data || [];
         else if (kind === 'items') items = res.data || [];
+        else if (kind === 'services') services = res.data || [];
         else firms = res.data || [];
         if (!bill) render();      // koi bill khula ho to zabardasti dobara nahi banate — picker khud taaza data dekhega
       }).catch(function () {});
