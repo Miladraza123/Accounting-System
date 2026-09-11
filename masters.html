@@ -3266,7 +3266,6 @@
     else db[tab] = db[tab].map(function (r) { return r.id === recId ? optimisticRow : r; });
     cacheSave(tab, db[tab]);
     led.loaded = false;
-    try { window.parent.postMessage({ oht:'refresh', kind:tab }, '*'); } catch (err) {}
     toast(isNew ? 'Added ' + body.name : 'Saved ' + body.name);
     closeEditor(); render();
 
@@ -3296,6 +3295,12 @@
         cacheSave(tab, db[tab]);
         // Naye item ke sale units bhi \u2014 pehle yeh raasta unhein chhod deta tha
         if (tab === 'items') afterItemSave(recId);
+        // Baaqi khuli apps ko ab bhejna hai \u2014 record ab WAAQAI Supabase mein
+        // maujood hai. Pehle yeh signal save shuru hote hi (network se pehle)
+        // chala jata tha \u2014 doosri app race jeet kar purani list hi fetch
+        // kar leti thi, kabhi kabhi naya record miss ho jata (khaas kar
+        // Service Quotation mein naya Service).
+        try { window.parent.postMessage({ oht:'refresh', kind:tab }, '*'); } catch (err) {}
         syncNote('Saved', '#7DC9A9'); render();
         return;
       }
@@ -3334,6 +3339,7 @@
       }
       // Sale units item ke saath save hote hain (alag table mein rehte hain)
       if (tab === 'items') afterItemSave(recId);
+      try { window.parent.postMessage({ oht:'refresh', kind:tab }, '*'); } catch (err) {}
       syncNote('Saved', '#7DC9A9');
       render();
     }).catch(function (e) {
