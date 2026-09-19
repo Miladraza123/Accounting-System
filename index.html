@@ -137,20 +137,40 @@
   ];
 
   /* ---------- PWA: Service Worker + Install + Update ---------- */
+  // ZAROORI FIX: banner pehle SIRF reg.waiting ki truthy-value par depend
+  // karta tha — jo Baad-mein dabane ke baad bhi wapis nahi hoti thi, is liye
+  // wahi purana/dekha-hua update har app-open par dobara dikh jata tha,
+  // chahy koi asli naya update ho ya na ho. Ab har waiting-SW ka apna
+  // version (CACHE_VERSION) poocha jata hai aur banner sirf tab dikhta hai
+  // jab is version ko pehle "Baad mein" se dismiss na kiya gaya ho.
+  var DISMISS_KEY = 'ohtUpdateDismissedVersion';
+  var pendingVersion = null;
+
+  function showBannerForVersion(version) {
+    if (!version) return;
+    var dismissed = null;
+    try { dismissed = localStorage.getItem(DISMISS_KEY); } catch (e) {}
+    if (dismissed === version) return;
+    pendingVersion = version;
+    $('updateBanner').style.display = 'flex';
+  }
+
   if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', function (event) {
+      if (event.data && event.data.type === 'SW_VERSION') showBannerForVersion(event.data.version);
+    });
+
     navigator.serviceWorker.register('sw.js').then(function (reg) {
-      // Naya SW "waiting" state mein aa jaye to banner dikhado — user ki
-      // marzi se hi activate hoga, kabhi khud-ba-khud bill-likhte waqt reload nahi
-      function showUpdateBannerIfWaiting() {
-        if (reg.waiting) $('updateBanner').style.display = 'flex';
+      function askWaitingVersion() {
+        if (reg.waiting) reg.waiting.postMessage({ type: 'GET_VERSION' });
       }
-      showUpdateBannerIfWaiting();
+      askWaitingVersion();
       reg.addEventListener('updatefound', function () {
         var newSW = reg.installing;
         if (!newSW) return;
         newSW.addEventListener('statechange', function () {
           if (newSW.state === 'installed' && navigator.serviceWorker.controller) {
-            $('updateBanner').style.display = 'flex';
+            askWaitingVersion();
           }
         });
       });
@@ -169,6 +189,9 @@
     $('updateBanner').style.display = 'none';
   });
   $('updateLaterBtn').addEventListener('click', function () {
+    if (pendingVersion) {
+      try { localStorage.setItem(DISMISS_KEY, pendingVersion); } catch (e) {}
+    }
     $('updateBanner').style.display = 'none';
   });
 
