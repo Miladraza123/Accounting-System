@@ -436,7 +436,7 @@ const RESTORE_ORDER = [
   'app_users',
   'period_lock',
   'warehouses', 'companies', 'parties', 'party_kinds', 'items',
-  'item_units', 'item_cost_snapshot',
+  'item_units', 'item_specs', 'item_cost_snapshot',
   'party_opening_balances',
   'services',
   'vouchers', 'voucher_lines',

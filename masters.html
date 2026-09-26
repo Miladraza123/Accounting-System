@@ -999,7 +999,7 @@
      lagega "koi farq nahi aaya" aur wo nayi tasveer chup-chaap urha
      kar purani (database wali) wapas rakh dega. */
   var editingBaseline = null;
-  var db = { parties: [], items: [], companies: [], services: [], itemUnits: [] };
+  var db = { parties: [], items: [], companies: [], services: [], itemUnits: [], itemSpecs: [] };
 
   /* ---------- helpers ---------- */
   function fmt(n) {
@@ -1445,7 +1445,17 @@
        hai (loading/cartage samet). Yeh wo bhaao hai jis par maal pada hai. */
     if (Number(i.avg_cost)) bits.push('cost Rs ' + fmt(i.avg_cost));
     if (Number(i.tax_pct)) bits.push(fmt(i.tax_pct) + '% tax');
+    var specs = specsSummary(i.id);
+    if (specs) bits.push(specs);
     return bits.join(' · ');
+  }
+  /* "Grade: 60 · Size: 12mm" jaisi ek line — item ki apni specs se */
+  function specsSummary(itemId) {
+    return (db.itemSpecs || [])
+      .filter(function (s) { return String(s.item_id) === String(itemId); })
+      .sort(function (a, b) { return (a.line_no || 0) - (b.line_no || 0); })
+      .map(function (s) { return esc(s.label) + ': ' + esc(s.value); })
+      .join(', ');
   }
   /* opening + saari purchase - saari sale = abhi ka stock */
   function stockOf(itemId) {
@@ -1660,6 +1670,13 @@
       '<div class="hint">Leave at 0 for a plain bill. You can still switch tax on per bill later.</div></div>' +
     '<div class="f"><label>HS code</label><input id="eHs" type="text" value="' + esc(r.hs_code) + '" autocomplete="off">' +
       '<div class="hint">Only needed on a sales tax invoice.</div></div>' +
+
+    '<div class="grp">Specifications</div>' +
+    '<div id="specRows"></div>' +
+    '<button class="btn" id="addSpec" type="button" style="width:100%;margin:6px 0 4px">+ Add specification</button>' +
+    '<div class="f"><div class="hint">Grade, size, colour — jo bhi is item ki khaas pehchaan ho. ' +
+      'Jaise <b>Grade</b> ke saamne <b>60</b>, ya <b>Size</b> ke saamne <b>12mm</b>. Bill/Quotation par ' +
+      'item chunte hi yeh khud line description mein bhar jayengi (aage jaakar badli ja sakti hain).</div></div>' +
 
     (Number(r.avg_cost) || Number(r.stock_qty)
       ? '<div class="grp">Current stock</div>' +
@@ -2587,6 +2604,7 @@
      hai; user chahe to fehrist se koi aur chun le ya conversion badal de,
      kyunki har piece ka wazan hamesha ek jaisa nahi hota. */
   var unitRows = [], unitSeq = 0;
+  var specRows = [], specSeq = 0;
 
   function loadUnitRows(itemId) {
     unitRows = (db.itemUnits || [])
@@ -2647,6 +2665,70 @@
       if (rows.length) rows[rows.length - 1].querySelector('[data-uf="unit"]').focus();
     });
   }
+  function loadSpecRows(itemId) {
+    specRows = (db.itemSpecs || [])
+      .filter(function (s) { return String(s.item_id) === String(itemId); })
+      .sort(function (a, b) { return (a.line_no || 0) - (b.line_no || 0); })
+      .map(function (s) { return { _k:++specSeq, id:s.id, label:s.label, value:s.value }; });
+  }
+  function drawSpecRows() {
+    var box = $('specRows'); if (!box) return;
+    box.innerHTML = specRows.length ? specRows.map(function (s) {
+      return '<div class="urow" data-sk="' + s._k + '">' +
+        '<input data-sf="label" type="text" value="' + esc(s.label) + '" placeholder="Grade">' +
+        '<input data-sf="value" type="text" value="' + esc(s.value) + '" placeholder="60">' +
+        '<button type="button" data-srm="' + s._k + '" class="urm">\u00d7</button>' +
+        '</div>';
+    }).join('') : '<div class="hint" style="padding:2px 0 6px">Koi specification nahi.</div>';
+
+    box.querySelectorAll('[data-srm]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var k = Number(b.getAttribute('data-srm'));
+        specRows = specRows.filter(function (s) { return s._k !== k; });
+        dirty = true; drawSpecRows();
+      });
+    });
+  }
+  function wireSpecs() {
+    if (!$('addSpec')) return;
+    drawSpecRows();
+    $('specRows').addEventListener('input', function (e) {
+      var f = e.target.getAttribute('data-sf'); if (!f) return;
+      var host = e.target.closest('[data-sk]'); if (!host) return;
+      var k = Number(host.getAttribute('data-sk'));
+      var s = specRows.filter(function (x) { return x._k === k; })[0];
+      if (s) { s[f] = e.target.value; dirty = true; }
+    });
+    $('addSpec').addEventListener('click', function () {
+      specRows.push({ _k:++specSeq, id:null, label:'', value:'' });
+      dirty = true; drawSpecRows();
+      var rows = $('specRows').querySelectorAll('.urow');
+      if (rows.length) rows[rows.length - 1].querySelector('[data-sf="label"]').focus();
+    });
+  }
+  /* Specs database mein likho \u2014 item save hone ke baad (item_units
+     jaisa hi tareeqa: delete-and-reinsert, kyunke yeh sirf ek chhoti
+     repeatable list hai, smart-merge ki zaroorat nahi). */
+  function saveSpecRows(itemId) {
+    var good = specRows.filter(function (s) {
+      return String(s.label || '').trim() && String(s.value || '').trim();
+    });
+    var keep = good.filter(function (s) { return s.id; }).map(function (s) { return s.id; });
+    var del = sb.from('item_specs').delete().eq('item_id', itemId);
+    if (keep.length) del = del.not('id', 'in', '(' + keep.join(',') + ')');
+    return del.then(function (dr) {
+      if (dr && dr.error) throw dr.error;
+      if (!good.length) return null;
+      return sb.from('item_specs').upsert(good.map(function (s, i) {
+        var row = { item_id:itemId, label:String(s.label).trim(), value:String(s.value).trim(), line_no:i };
+        if (s.id) row.id = s.id;
+        return row;
+      }));
+    }).then(function (sr) {
+      if (sr && sr.error) throw sr.error;
+    });
+  }
+
   /* Sale units database mein likho \u2014 item save hone ke baad.
 
      AHEM: har qadam ka natija dekhna zaroori hai. Supabase error THROW
@@ -2676,15 +2758,22 @@
     });
   }
 
-  /* Units save karo, phir taaza mangwa lo aur doosri apps ko batao */
+  /* Units aur specs save karo, phir taaza mangwa lo aur doosri apps ko batao */
   function afterItemSave(itemId) {
-    return saveUnitRows(itemId).then(function () {
-      return sb.from('item_units').select('*').order('line_no');
-    }).then(function (ur) {
-      if (ur && !ur.error) db.itemUnits = ur.data || [];
+    return Promise.all([
+      saveUnitRows(itemId),
+      saveSpecRows(itemId)
+    ]).then(function () {
+      return Promise.all([
+        sb.from('item_units').select('*').order('line_no'),
+        sb.from('item_specs').select('*').order('line_no')
+      ]);
+    }).then(function (r) {
+      if (r[0] && !r[0].error) db.itemUnits = r[0].data || [];
+      if (r[1] && !r[1].error) db.itemSpecs = r[1].data || [];
       try { window.parent.postMessage({ oht:'refresh', kind:'items' }, '*'); } catch (err) {}
       render();
-    }).catch(function (e2) { sayErr(e2, 'sale units save'); });
+    }).catch(function (e2) { sayErr(e2, 'sale units/specs save'); });
   }
 
   function openEditor(rec) {
@@ -2704,7 +2793,7 @@
     document.querySelectorAll('.et').forEach(function (x) {
       x.classList.toggle('on', x.getAttribute('data-v') === 'details');
     });
-    if (tab === 'items') loadUnitRows(rec ? rec.id : null);
+    if (tab === 'items') { loadUnitRows(rec ? rec.id : null); loadSpecRows(rec ? rec.id : null); }
     $('edBody').innerHTML = fieldset(editing);
     $('edDel').style.display = (rec && can('masters_delete')) ? '' : 'none';
     $('edBody').scrollTop = 0;
@@ -2728,7 +2817,7 @@
       };
     }
     wireLogo();
-    if (tab === 'items') wireUnits();
+    if (tab === 'items') { wireUnits(); wireSpecs(); }
     $('edBody').addEventListener('input', function () { dirty = true; });
     $('eName').addEventListener('input', checkName);
     checkName();
@@ -3209,7 +3298,8 @@
       sb.from('items').select('id,name'),
       // aakhir mein — beech mein daalne se baqi ke index khisak jate hain
       sb.from('item_units').select('*').order('line_no'),
-      sb.from('services').select('*').is('deleted_at', null).order('name')
+      sb.from('services').select('*').is('deleted_at', null).order('name'),
+      sb.from('item_specs').select('*').order('line_no')
     ]).then(function (r) {
       if (r[0].error) throw r[0].error;
       if (r[1].error) throw r[1].error;
@@ -3221,6 +3311,7 @@
       dbAll.items   = r[5].error ? db.items   : (r[5].data || []);
       db.itemUnits  = r[6] && !r[6].error ? (r[6].data || []) : [];   // SQL na chali ho to bhi app chale
       db.services   = r[7] && !r[7].error ? (r[7].data || []) : [];   // SQL na chali ho to bhi app chale
+      db.itemSpecs  = r[8] && !r[8].error ? (r[8].data || []) : [];   // SQL na chali ho to bhi app chale
       cacheSave('parties', db.parties); cacheSave('items', db.items); cacheSave('companies', db.companies);
       cacheSave('services', db.services);
       syncNote('');
@@ -4085,7 +4176,7 @@
     'app_users',
     'period_lock',
     'warehouses', 'companies', 'parties', 'party_kinds', 'items',
-    'item_units', 'item_cost_snapshot',
+    'item_units', 'item_specs', 'item_cost_snapshot',
     'party_opening_balances',
     'services',
     'vouchers', 'voucher_lines',

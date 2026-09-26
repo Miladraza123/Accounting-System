@@ -493,7 +493,7 @@
   var svcQuotes = [], svcQuoteTableMissing = false;
   var returns = [];   // Sales Returns — asal financial impact hai, is liye alag nahi (ledger/stock mein shamil)
   var parties = [], items = [], bills = [], firms = [], warehouses = [], transfers = [],
-      itemUnits = [], services = [], svcInvoices = [], recurTemplates = [], lineSeq = 0;
+      itemUnits = [], itemSpecs = [], services = [], svcInvoices = [], recurTemplates = [], lineSeq = 0;
 
   /* Ek dafa mein kitne bill. Har qism ka apna hissa — warna jis qism ke
      bill naye hote wohi poori hadd bhar leta aur doosri tab khali lagti. */
@@ -620,6 +620,17 @@
     return live.filter(function (c) { return c.is_default; })[0] || live[0] || null;
   }
   function itemById(id)  { return items.filter(function (i) { return i.id === id; })[0] || null; }
+  /* "Grade: 60, Size: 12mm" — Masters mein item par likhi gayi specs.
+     Line description mein SHURUATI (starting) matn ke taur par bharti
+     hain — user chahe to badal/mita sakta hai, us tabdeeli ka master
+     item par koi asar nahi padta. */
+  function specsSummary(itemId) {
+    return (itemSpecs || [])
+      .filter(function (s) { return String(s.item_id) === String(itemId); })
+      .sort(function (a, b) { return (a.line_no || 0) - (b.line_no || 0); })
+      .map(function (s) { return s.label + ': ' + s.value; })
+      .join(', ');
+  }
 
   /* ---------- totals ---------- */
   /* Unit ka option sirf SALE par — purchase par item ka apna unit hi */
@@ -857,7 +868,7 @@
     if (q) list = list.filter(function (d) {
       var p = partyById(d.party_id);
       var no = isQ ? d.qno : d.pono;
-      return (norm(no) + ' ' + norm(p && p.name) + ' ' + norm(d.narration)).indexOf(q) !== -1;
+      return (norm(no) + ' ' + norm(p && p.name) + ' ' + norm(d.walkin_name) + ' ' + norm(d.narration)).indexOf(q) !== -1;
     });
     list.sort(function (a, b) {
       if (a[dateKey] !== b[dateKey]) return a[dateKey] < b[dateKey] ? 1 : -1;
@@ -887,7 +898,7 @@
       html += '<div class="brow" data-doc="' + (isQ ? 'quotation' : 'po') + '" data-id="' + d.id + '" tabindex="0" role="button">' +
         docIcon(isQ ? 'quotation' : 'po') +
         '<div class="no">' + esc((isQ ? d.qno : d.pono) || '—') + '</div><div class="mid">' +
-        '<div class="nm">' + esc(p ? p.name : 'No party') + '</div>' +
+        '<div class="nm">' + esc((isQ && d.walkin_name) || (p ? p.name : 'No party')) + '</div>' +
         '<div class="sub">' + cnt + (cnt === 1 ? ' item' : ' items') +
           (d.narration ? ' · ' + esc(d.narration.slice(0, 34)) : '') + '</div></div>' +
         '<div class="amt clr">' + money(num(d.grand_total)) + '</div></div>';
@@ -949,7 +960,8 @@
              company_id:d ? d.id : null, tax_on:false, discount:0, paid:0, lines:[newLine()],
              loading_on:false, loading_amt:0, cartage_on:false, cartage_amt:0, cutting_on:false, cutting_amt:0 };
   }
-  function newLine() { return { key:'L' + (++lineSeq), item_id:null, qty:'', sale_qty:'', sale_unit:null,
+  function newLine() { return { key:'L' + (++lineSeq), item_id:null, custom_name:null, description:'',
+                                qty:'', sale_qty:'', sale_unit:null,
                                 unit_factor:1, rate:'', tax_pct:0, amount:0, pcs_on:false, pcs:null,
                                 warehouse_id:defaultWarehouseId() }; }
 
@@ -964,6 +976,7 @@
     originalLineSnapshot = rec ? bill.lines.map(function (l) {
       return { id:l.id, item_id:l.item_id, qty:num(l.qty), rate:num(l.rate),
                tax_pct:num(l.tax_pct), amount:num(l.amount), pcs_on:!!l.pcs_on, pcs:l.pcs,
+               description:l.description || null,
                /* purani lines par yeh khaane khali hote hain \u2014 us surat mein
                   item ka apna unit hi maana jata hai */
                sale_unit:l.sale_unit || null, unit_factor:num(l.unit_factor) || 1,
@@ -1004,11 +1017,22 @@
         '<div class="f"><label>' + noLabel + '</label><input id="bNo" type="text" value="' + esc(b.vno) + '" autocomplete="off"></div>' +
         '<div class="f"><label>Date</label><input id="bDate" type="date" value="' + esc(b.vdate) + '"></div>' +
       '</div>' +
-      '<div class="f"><label>' + (other === 'supplier' ? 'Bought from' : 'Sold to') + '</label>' +
-        pickBox('bParty', p ? p.name : '', 'Type a name…') +
-        (b.party_id && !isDoc ? balText(b.party_id) : '<div class="hint">' +
-          (isDoc ? 'This is only a document — it never affects their account balance.' : 'Pick from your parties list. Add new ones in Masters.') + '</div>') +
-      '</div></div>';
+      (b.doc === 'quotation'
+        ? '<div class="swrow"><div class="lbl">Walking Customer' +
+            '<div class="sub">Koi record-wali party nahi — sirf naam likh dein.</div></div>' +
+            '<button class="sw' + (b.walkin_on ? ' on' : '') + '" id="bWalkinOn" role="switch" ' +
+            'aria-checked="' + (b.walkin_on ? 'true' : 'false') + '"></button></div>'
+        : '') +
+      (b.doc === 'quotation' && b.walkin_on
+        ? '<div class="f"><label>Customer ka naam</label>' +
+            '<input id="bWalkinName" type="text" value="' + esc(b.walkin_name || '') +
+            '" placeholder="Jo naam likhein wohi print hoga" autocomplete="off"></div>'
+        : '<div class="f"><label>' + (other === 'supplier' ? 'Bought from' : 'Sold to') + '</label>' +
+            pickBox('bParty', p ? p.name : '', 'Type a name…') +
+            (b.party_id && !isDoc ? balText(b.party_id) : '<div class="hint">' +
+              (isDoc ? 'This is only a document — it never affects their account balance.' : 'Pick from your parties list. Add new ones in Masters.') + '</div>') +
+          '</div>') +
+      '</div>';
 
     h += '<div class="card"><div class="ttl">Items</div><div class="lines" id="lineBox">';
     b.lines.forEach(function (l, i) { h += lineHtml(l, i); });
@@ -1091,9 +1115,18 @@
     var cur  = lineUnit(l);
     var base = list[0].unit;
     var showUnits = isSale() && list.length > 1;   // unit ka option sirf sale par
+    var isCustomAllowed = bill.doc === 'quotation';
+    var itName = it ? it.name : (isCustomAllowed ? (l.custom_name || '') : '');
     return '<div class="ln" data-k="' + l.key + '">' +
-      '<div class="top">' + pickBox('it_' + l.key, it ? it.name : '', 'Which item?') +
+      '<div class="top">' + pickBox('it_' + l.key, itName,
+        isCustomAllowed ? 'Which item? (ya naya naam likhein)' : 'Which item?') +
         '<button class="rm" data-rm="' + l.key + '" aria-label="Remove line">×</button></div>' +
+      (isCustomAllowed && !it
+        ? '<div class="hint" style="margin:-4px 0 6px">Stock mein na ho to bhi naam likh kar quotation ' +
+          'mein daal sakte hain — is line ka stock/costing se koi taluq nahi hoga.</div>' : '') +
+      '<div class="f" style="margin-bottom:6px"><label>Description</label>' +
+        '<textarea class="ld" data-k="' + l.key + '" rows="2" ' +
+        'placeholder="Bill par item ke naam ke neeche chapega">' + esc(l.description || '') + '</textarea></div>' +
       (showUnits
         ? '<div class="f" style="margin-bottom:6px"><label>Sale unit</label>' +
             '<select class="lu" data-k="' + l.key + '">' +
@@ -1194,6 +1227,14 @@
     if ($('bTax'))  $('bTax').addEventListener('click', function () {
       b.tax_on = !b.tax_on; dirty = true; drawEditor();
     });
+    if ($('bWalkinOn')) $('bWalkinOn').addEventListener('click', function () {
+      b.walkin_on = !b.walkin_on;
+      if (b.walkin_on) b.party_id = null; else b.walkin_name = null;
+      dirty = true; drawEditor();
+    });
+    if ($('bWalkinName')) $('bWalkinName').addEventListener('input', function () {
+      b.walkin_name = this.value; dirty = true;
+    });
     document.querySelectorAll('[data-charge]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         var key = btn.getAttribute('data-charge');
@@ -1223,12 +1264,18 @@
                    sub:'per ' + i.unit + (Number(i.sale_rate) ? ' · ' + fmt(i.sale_rate) : '') };
         });
       }, function (r, typing) {
-        if (typing) { l.item_id = null; return; }
+        if (typing) {
+          l.item_id = null;
+          if (b.doc === 'quotation') l.custom_name = ($('it_' + l.key) || {}).value || '';
+          return;
+        }
         var it = itemById(r.id);
         l.item_id = r.id;
+        l.custom_name = null;
         if (it) {
           l.tax_pct = num(it.tax_pct);
           if (!num(l.rate)) l.rate = b.vtype === 'purchase' ? num(it.buy_rate) : num(it.sale_rate);
+          if (!String(l.description || '').trim()) l.description = specsSummary(it.id);
         }
         /* Sale par is item ka default unit khud lag jaye \u2014 us ka conversion
            aur (agar rakha ho to) us ka rate bhi. User chahe to badal sakta hai. */
@@ -1261,6 +1308,12 @@
       refreshSum();
     }
 
+    $('edBody').querySelectorAll('.ld').forEach(function (el) {
+      el.addEventListener('input', function () {
+        var l = lineByKey(this.getAttribute('data-k')); if (!l) return;
+        l.description = this.value; dirty = true;
+      });
+    });
     $('edBody').querySelectorAll('.lq, .lr, .lf').forEach(function (el) {
       el.addEventListener('input', function () {
         var l = lineByKey(this.getAttribute('data-k')); if (!l) return;
@@ -1428,7 +1481,8 @@
                rate:num(l.rate),
                tax_pct:num(l.tax_pct), amount:lineAmount(l),
                pcs_on:!!l.pcs_on, pcs:l.pcs_on ? num(l.pcs) : null,
-               warehouse_id:l.warehouse_id || defaultWarehouseId() };
+               warehouse_id:l.warehouse_id || defaultWarehouseId(),
+               description:l.description || null };
     });
     var linesPayload = linesForMerge.map(function (l) {
       var o = Object.assign({}, l); delete o.id; return o;
@@ -1539,7 +1593,7 @@
   function blankDoc(docType) {
     var d = defFirm();
     return { vtype:(docType === 'po' ? 'purchase' : 'sale'), doc:docType, vno:nextDocNo(docType),
-             vdate:today(), party_id:null, narration:'', company_id:d ? d.id : null,
+             vdate:today(), party_id:null, walkin_name:null, narration:'', company_id:d ? d.id : null,
              tax_on:false, discount:0, paid:0, lines:[newLine()],
              loading_on:false, loading_amt:0, cartage_on:false, cartage_amt:0, cutting_on:false, cutting_amt:0 };
   }
@@ -1562,6 +1616,7 @@
       bill.vno = isQ ? rec.qno : rec.pono;
       bill.vdate = isQ ? rec.qdate : rec.podate;
     }
+    bill.walkin_on = isQ && !!(bill.walkin_name || '').trim();
     bill.lines = (bill.lines || []).map(function (l) {
       if (!l.key) l.key = 'L' + (++lineSeq); return l;
     });
@@ -1570,7 +1625,8 @@
     originalLineSnapshot = rec ? bill.lines.map(function (l) {
       return { id:l.id, item_id:l.item_id, qty:num(l.qty), rate:num(l.rate),
                tax_pct:num(l.tax_pct), amount:num(l.amount),
-               pcs_on:!!l.pcs_on, pcs:l.pcs };
+               pcs_on:!!l.pcs_on, pcs:l.pcs, description:l.description || null,
+               custom_name:isQ ? (l.custom_name || null) : undefined };
     }) : null;
     dirty = false;
     $('edTitle').textContent = (rec ? 'Edit ' : 'New ') + (isQ ? 'quotation' : 'purchase order');
@@ -1596,8 +1652,11 @@
   }
   function saveDoc() {
     var b = bill, isQ = b.doc === 'quotation';
-    if (!b.party_id) { toast('Pick a party first', true); return; }
-    var good = b.lines.filter(function (l) { return l.item_id && num(l.qty) > 0; });
+    var walkin = isQ ? String(b.walkin_name || '').trim() : '';
+    if (!b.party_id && !walkin) { toast('Pick a party first', true); return; }
+    var good = b.lines.filter(function (l) {
+      return (l.item_id || (isQ && String(l.custom_name || '').trim())) && num(l.qty) > 0;
+    });
     if (!good.length) { toast('Add at least one item with a quantity', true); return; }
     var uErr = unitError(good);
     if (uErr) { toast(uErr, true); return; }
@@ -1612,7 +1671,7 @@
     var head = {};
     head[noField] = (b.vno || '').trim();
     head[dateField] = b.vdate || today();
-    head.party_id = b.party_id; head.company_id = b.company_id || null;
+    head.party_id = b.party_id || null; head.company_id = b.company_id || null;
     head.narration = b.narration || ''; head.subtotal = t.sub;
     head.tax_on = !!b.tax_on; head.discount = 0; head.tax_total = t.tax; head.grand_total = t.grand;
     head.updated_at = new Date().toISOString();
@@ -1620,15 +1679,21 @@
       head.loading_on = !!b.loading_on; head.loading_amt = num(b.loading_amt);
       head.cartage_on = !!b.cartage_on; head.cartage_amt = num(b.cartage_amt);
       head.cutting_on = !!b.cutting_on; head.cutting_amt = num(b.cutting_amt);
+      head.walkin_name = walkin || null;
     }
     /* Quotation aur PO ki lines par sale_unit/sale_qty/unit_factor NAHI
        hote — wo khaane sirf voucher_lines aur sales_return_lines par
        banaye gaye thay. Yahan bhejne se "column nahi mila" wali error
-       aati hai. */
+       aati hai. custom_name sirf quotation_lines par hai (Stock mein na
+       ho to bhi naam likh kar quotation mein daala hua item) — PO par
+       yeh column hi nahi, is liye wahan nahi bhejte. */
     var linesForMerge = good.map(function (l) {
-      return { id:l.id || null, item_id:l.item_id, qty:num(l.qty), rate:num(l.rate),
+      var o = { id:l.id || null, item_id:l.item_id, qty:num(l.qty), rate:num(l.rate),
                tax_pct:num(l.tax_pct), amount:round2(num(l.qty) * num(l.rate)),
-               pcs_on:!!l.pcs_on, pcs:l.pcs_on ? num(l.pcs) : null };
+               pcs_on:!!l.pcs_on, pcs:l.pcs_on ? num(l.pcs) : null,
+               description:l.description || null };
+      if (isQ) o.custom_name = l.item_id ? null : (String(l.custom_name || '').trim() || null);
+      return o;
     });
     var linesPayload = linesForMerge.map(function (l) { var o = Object.assign({}, l); delete o.id; return o; });
 
@@ -1765,11 +1830,20 @@
       cutting_on:!!b.cutting_on, cutting_amt:num(b.cutting_amt),
       lines:(b.lines || []).filter(function (l) { return l.item_id && num(l.qty) > 0; }).map(function (l) {
         return { key:'L' + (++lineSeq), item_id:l.item_id, qty:l.qty, rate:l.rate, tax_pct:num(l.tax_pct), amount:l.amount,
-                 pcs_on:!!l.pcs_on, pcs:l.pcs,
+                 pcs_on:!!l.pcs_on, pcs:l.pcs, description:l.description || null,
                  sale_unit:l.sale_unit || null, unit_factor:num(l.unit_factor) || 1,
                  sale_qty:(l.sale_qty == null || l.sale_qty === '') ? num(l.qty) : num(l.sale_qty) };
       })
     };
+    /* Custom items (Masters ke stock mein na hone wale, sirf naam likh kar
+       quotation mein daale gaye) ek asal Sale/Purchase bill mein nahi ja
+       sakte \u2014 wahan har line ek real stock item se bandhi honi zaroori
+       hai. Is liye convert karte waqt wo lines chhoot jati hain \u2014 user ko
+       bata dena zaroori hai, warna khamoshi se gum ho jayen. */
+    var skippedCustom = (b.lines || []).filter(function (l) {
+      return !l.item_id && String(l.custom_name || '').trim() && num(l.qty) > 0;
+    }).length;
+    var wasWalkin = isQ && !b.party_id && String(b.walkin_name || '').trim();
     if (!newBill.lines.length) newBill.lines.push(newLine());
     var sourceNo = b.vno;
     bill = newBill;
@@ -1781,7 +1855,16 @@
     $('edDel').style.display = 'none';
     $('edSave').style.display = can('bill_create') ? '' : 'none';
     drawEditor();
-    toast('Ab review kar ke Save karein \u2014 ' + (isQ ? 'quotation' : 'PO') + ' apni jagah mehfooz rahega');
+    if (wasWalkin) {
+      toast('Yeh "' + b.walkin_name + '" ke naam Walking Customer quotation thi \u2014 Sale banane ke liye ' +
+            'ab ek asal party (Masters wali) chunein', true);
+    } else if (skippedCustom) {
+      toast(skippedCustom + ' custom item' + (skippedCustom > 1 ? 's' : '') +
+            ' (stock mein maujood nahi) is bill mein shamil nahi hui' +
+            (skippedCustom > 1 ? 'n' : '') + ' \u2014 pehle Masters mein add karein', true);
+    } else {
+      toast('Ab review kar ke Save karein \u2014 ' + (isQ ? 'quotation' : 'PO') + ' apni jagah mehfooz rahega');
+    }
   }
 
   function delBill() {
@@ -2811,8 +2894,18 @@
                    (f.id === b.company_id ? ' selected' : '') + '>' + esc(f.name) + '</option>';
           }).join('') + '</select></div>'
         : '') +
-      '<div class="f"><label>Billed to</label>' + pickBox('svParty', p ? p.name : '', 'Customer ka naam') +
-        (p ? '<div class="hint">' + balText(b.party_id) + '</div>' : '') + '</div>' +
+      (isQuote
+        ? '<div class="swrow"><div class="lbl">Walking Customer' +
+            '<div class="sub">Koi record-wali party nahi — sirf naam likh dein.</div></div>' +
+            '<button class="sw' + (b.walkin_on ? ' on' : '') + '" id="svWalkinOn" role="switch" ' +
+            'aria-checked="' + (b.walkin_on ? 'true' : 'false') + '"></button></div>'
+        : '') +
+      (isQuote && b.walkin_on
+        ? '<div class="f"><label>Customer ka naam</label>' +
+            '<input id="svWalkinName" type="text" value="' + esc(b.walkin_name || '') +
+            '" placeholder="Jo naam likhein wohi print hoga" autocomplete="off"></div>'
+        : '<div class="f"><label>Billed to</label>' + pickBox('svParty', p ? p.name : '', 'Customer ka naam') +
+            (p ? '<div class="hint">' + balText(b.party_id) + '</div>' : '') + '</div>') +
       '<div class="f2">' +
         '<div class="f"><label>' + (isQuote ? 'Valid till' : 'Due date') +
           '</label><input id="svDue" type="date" value="' +
@@ -2940,6 +3033,15 @@
 
     /* attachPick chunne par POORA record deta hai (r), sirf id nahi \u2014
        aur likhte waqt (typing) sach hota hai. */
+    if ($('svWalkinOn')) $('svWalkinOn').addEventListener('click', function () {
+      b.walkin_on = !b.walkin_on;
+      if (b.walkin_on) b.party_id = null; else b.walkin_name = null;
+      dirty = true; drawSvcEditor();
+    });
+    if ($('svWalkinName')) $('svWalkinName').addEventListener('input', function () {
+      b.walkin_name = this.value; dirty = true;
+    });
+
     attachPick('svParty', function () {
       return parties.filter(function (x) { return !x.deleted_at; })
         .map(function (x) { return { id:x.id, name:x.name, active:x.active,
@@ -3210,7 +3312,7 @@
     var list = svcQuotes.slice();
     if (q) list = list.filter(function (v) {
       var p = partyById(v.party_id);
-      return (norm(v.sino) + ' ' + norm(p && p.name) + ' ' +
+      return (norm(v.sino) + ' ' + norm(p && p.name) + ' ' + norm(v.walkin_name) + ' ' +
               norm(v.narration) + ' ' + norm(v.billing_label)).indexOf(q) !== -1;
     });
     list.sort(function (a, b) {
@@ -3239,7 +3341,7 @@
           'stroke-width="1.8"><rect x="4" y="4" width="16" height="16" rx="1"/>' +
           '<circle cx="12" cy="11" r="2.4"/></svg></div>' +
         '<div class="no">' + esc(v.sino || '—') + '</div><div class="mid">' +
-        '<div class="nm">' + esc(p ? p.name : 'No party') + '</div>' +
+        '<div class="nm">' + esc(v.walkin_name || (p ? p.name : 'No party')) + '</div>' +
         '<div class="sub">' + cnt + (cnt === 1 ? ' service' : ' services') +
           (v.billing_label ? ' · ' + esc(v.billing_label) : '') +
           (v.tax_on ? ' · with tax' : '') + '</div></div>' +
@@ -3257,7 +3359,7 @@
     var rec = id ? svcQuoteById(id) : null;
     bill = rec ? JSON.parse(JSON.stringify(rec)) : {
       id:null, sino:nextSvcQuoteNo(), sidate:today(), due_date:'',
-      party_id:null, company_id:(firms.filter(function (f) { return f.is_default; })[0] ||
+      party_id:null, walkin_name:null, company_id:(firms.filter(function (f) { return f.is_default; })[0] ||
                                  firms[0] || {}).id || null,
       billing_from:'', billing_to:'', billing_label:'', narration:'', notes:'',
       tax_on:false, discount:0, paid:0, status:'open', version:1,
@@ -3266,6 +3368,7 @@
     bill.isService = true;      // editor wohi hai
     bill.isQuote   = true;      // magar quotation wali shakl mein
     bill.paid = 0;              // quotation par paisa hota hi nahi
+    bill.walkin_on = !!String(bill.walkin_name || '').trim();
     if (rec) {
       bill.lines = (rec.lines || []).map(function (l) {
         return { key:'L' + (++lineSeq), id:l.id, service_id:l.service_id,
@@ -3290,7 +3393,8 @@
 
   function saveServiceQuote() {
     var b = bill;
-    if (!b.party_id) { toast('Party chunein', true); return; }
+    var walkin = String(b.walkin_name || '').trim();
+    if (!b.party_id && !walkin) { toast('Party chunein', true); return; }
     var good = b.lines.filter(function (l) {
       return l.service_id && (num(l.qty) > 0 || num(l.rate) > 0);
     });
@@ -3303,7 +3407,7 @@
        isi ek jagah. Totals bhi yahin se jate hain, bilkul maal wali
        quotation ki tarah (wahan bhi client hi hisaab kar ke bhejta hai). */
     var head = {
-      sqno:b.sino, party_id:b.party_id, company_id:b.company_id || null,
+      sqno:b.sino, party_id:b.party_id || null, walkin_name:walkin || null, company_id:b.company_id || null,
       sqdate:b.sidate || today(), valid_till:b.due_date || null,
       billing_from:b.billing_from || null, billing_to:b.billing_to || null,
       billing_label:b.billing_label || null,
@@ -3835,14 +3939,15 @@
 
   function printServiceInvoice() {
     var b = bill; if (!b) return;
-    if (!b.party_id) { toast('Pehle party chunein', true); return; }
+    var isQuote = !!b.isQuote;
+    var walkin = isQuote ? String(b.walkin_name || '').trim() : '';
+    if (!b.party_id && !walkin) { toast('Pehle party chunein', true); return; }
     var good = (b.lines || []).filter(function (l) {
       return l.service_id && (num(l.qty) > 0 || num(l.rate) > 0);
     });
     if (!good.length) { toast('Pehle koi service daalein', true); return; }
 
     var p = partyById(b.party_id), t = svcTotals(b);
-    var isQuote = !!b.isQuote;
     var due = isQuote ? null : svcDueDate(b);
     var cols = b.tax_on ? 6 : 5;
 
@@ -3905,11 +4010,11 @@
         : (due ? '<div>Due ' + esc(human(due)) + '</div>' : '')) + '</div></div>' +
 
       '<div class="who"><div><div class="lb">' + (isQuote ? 'Quotation for' : 'Billed to') + '</div>' +
-      '<div class="nm">' + esc(p ? p.name : '') + '</div>' +
-      (p && p.address ? '<div>' + esc(p.address) + '</div>' : '') +
-      (p && p.city ? '<div>' + esc(p.city) + '</div>' : '') +
-      (p && p.phone ? '<div>' + esc(p.phone) + '</div>' : '') +
-      (b.tax_on && p && p.ntn ? '<div>NTN ' + esc(p.ntn) + '</div>' : '') + '</div>' +
+      '<div class="nm">' + esc(walkin || (p ? p.name : '')) + '</div>' +
+      (!walkin && p && p.address ? '<div>' + esc(p.address) + '</div>' : '') +
+      (!walkin && p && p.city ? '<div>' + esc(p.city) + '</div>' : '') +
+      (!walkin && p && p.phone ? '<div>' + esc(p.phone) + '</div>' : '') +
+      (!walkin && b.tax_on && p && p.ntn ? '<div>NTN ' + esc(p.ntn) + '</div>' : '') + '</div>' +
       (period ? '<div><div class="lb">Billing period</div><div class="nm">' +
                 esc(period) + '</div></div>' : '') + '</div>' +
 
@@ -3925,7 +4030,7 @@
 
     var oldTitle = document.title;
     var oldTopTitle = (function () { try { return window.top && window.top !== window ? window.top.document.title : oldTitle; } catch (e) { return oldTitle; } })();
-    setPrintTitle(fileSafe(b.sino) + '-' + fileSafe(p ? p.name : 'Party') + '-' + fileDate(b.sidate));
+    setPrintTitle(fileSafe(b.sino) + '-' + fileSafe(walkin || (p ? p.name : 'Party')) + '-' + fileDate(b.sidate));
     window.addEventListener('afterprint', function restore() {
       restorePrintTitle(oldTitle, oldTopTitle);
       window.removeEventListener('afterprint', restore);
@@ -3937,20 +4042,29 @@
 
   function printBill() {
     var b = bill; if (!b) return;
-    if (!b.party_id) { toast('Pick a party before printing', true); return; }
+    var isQ = b.doc === 'quotation';
+    var walkin = isQ ? String(b.walkin_name || '').trim() : '';
+    if (!b.party_id && !walkin) { toast('Pick a party before printing', true); return; }
     var p = partyById(b.party_id), t = totals(b);
-    var good = b.lines.filter(function (l) { return l.item_id && num(l.qty) > 0; });
+    var good = b.lines.filter(function (l) {
+      return (l.item_id || (isQ && String(l.custom_name || '').trim())) && num(l.qty) > 0;
+    });
     if (!good.length) { toast('Add an item before printing', true); return; }
 
     var rows = good.map(function (l, i) {
       var it = itemById(l.item_id);
+      var nameShown = it ? it.name : (l.custom_name || '');
       /* Bill par wohi unit aur qty chapti hai jo user ne likhi. Agar wo item
          ke apne unit se alag ho, to neeche chhote harfon mein asal unit ka
          wazan bhi \u2014 taake party ko dono nazar aayen. */
       var alt = l.sale_unit && String(l.sale_unit) !== String(it ? it.unit : '');
       var shownQty  = alt ? num(l.sale_qty) : num(l.qty);
       var shownUnit = alt ? l.sale_unit : (it ? it.unit : '');
-      return '<tr><td class="c">' + (i + 1) + '</td><td>' + esc(it ? it.name : '') +
+      return '<tr><td class="c">' + (i + 1) + '</td><td>' + esc(nameShown) +
+             (l.description
+               ? '<div style="font-size:8.5pt;color:#9C9384;white-space:pre-wrap">' +
+                 esc(l.description) + '</div>'
+               : '') +
              (alt ? '<div style="font-size:8.5pt;color:#9C9384">' + fmt(l.unit_factor) + ' ' +
                     esc(it ? it.unit : '') + ' per ' + esc(l.sale_unit) + '  \u00b7  ' +
                     fmt(l.qty) + ' ' + esc(it ? it.unit : '') + '</div>' : '') +
@@ -3997,11 +4111,11 @@
       '<div class="rt"><div class="no">' + esc(b.vno || '') + '</div><div>' + esc(human(b.vdate)) + '</div></div></div>' +
 
       '<div class="who"><div><div class="lb">' + (b.vtype === 'purchase' ? 'Bought from' : 'Sold to') + '</div>' +
-      '<div class="nm">' + esc(p ? p.name : '') + '</div>' +
-      (p && p.address ? '<div>' + esc(p.address) + '</div>' : '') +
-      (p && p.city ? '<div>' + esc(p.city) + '</div>' : '') +
-      (p && p.phone ? '<div>' + esc(p.phone) + '</div>' : '') +
-      (b.tax_on && p && p.ntn ? '<div>NTN ' + esc(p.ntn) + '</div>' : '') + '</div></div>' +
+      '<div class="nm">' + esc(walkin || (p ? p.name : '')) + '</div>' +
+      (!walkin && p && p.address ? '<div>' + esc(p.address) + '</div>' : '') +
+      (!walkin && p && p.city ? '<div>' + esc(p.city) + '</div>' : '') +
+      (!walkin && p && p.phone ? '<div>' + esc(p.phone) + '</div>' : '') +
+      (!walkin && b.tax_on && p && p.ntn ? '<div>NTN ' + esc(p.ntn) + '</div>' : '') + '</div></div>' +
 
       '<table><thead><tr><th class="c" style="width:8mm">#</th><th>Item</th>' +
       '<th class="c" style="width:16mm">Unit</th><th class="r" style="width:20mm">Qty</th>' +
@@ -4014,7 +4128,7 @@
 
     var oldTitle = document.title;
     var oldTopTitle = (function () { try { return window.top && window.top !== window ? window.top.document.title : oldTitle; } catch (e) { return oldTitle; } })();
-    setPrintTitle(fileSafe(b.vno) + '-' + fileSafe(p ? p.name : 'Party') + '-' + fileDate(b.vdate));
+    setPrintTitle(fileSafe(b.vno) + '-' + fileSafe(walkin || (p ? p.name : 'Party')) + '-' + fileDate(b.vdate));
     window.addEventListener('afterprint', function restore() {
       restorePrintTitle(oldTitle, oldTopTitle);
       window.removeEventListener('afterprint', restore);
@@ -4348,7 +4462,8 @@
           sb.from('service_invoices').select('*').is('deleted_at', null)
             .order('sidate', { ascending:false }).limit(300),
           sb.from('service_invoice_lines').select('*'),
-          sb.from('recurring_service_templates').select('*').is('deleted_at', null).order('next_date')
+          sb.from('recurring_service_templates').select('*').is('deleted_at', null).order('next_date'),
+          sb.from('item_specs').select('*').order('line_no')
         ]).then(function (r) {
           r.slice(0, 4).forEach(function (x) { if (x.error) throw x.error; });
           parties = r[0].data || [];
@@ -4372,6 +4487,7 @@
             v.lines = (byS[v.id] || []).sort(function (a, c) { return (a.line_no || 0) - (c.line_no || 0); });
           });
           recurTemplates = r[23] && !r[23].error ? (r[23].data || []) : [];
+          itemSpecs = r[24] && !r[24].error ? (r[24].data || []) : [];
           var byTr = {};
           (r[18] && !r[18].error ? (r[18].data || []) : []).forEach(function (l) {
             (byTr[l.transfer_id] = byTr[l.transfer_id] || []).push(l);
