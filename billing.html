@@ -960,7 +960,7 @@
              company_id:d ? d.id : null, tax_on:false, discount:0, paid:0, lines:[newLine()],
              loading_on:false, loading_amt:0, cartage_on:false, cartage_amt:0, cutting_on:false, cutting_amt:0 };
   }
-  function newLine() { return { key:'L' + (++lineSeq), item_id:null, custom_name:null, description:'',
+  function newLine() { return { key:'L' + (++lineSeq), item_id:null, custom_name:null, custom_unit:null, description:'',
                                 qty:'', sale_qty:'', sale_unit:null,
                                 unit_factor:1, rate:'', tax_pct:0, amount:0, pcs_on:false, pcs:null,
                                 warehouse_id:defaultWarehouseId() }; }
@@ -1116,17 +1116,24 @@
     var base = list[0].unit;
     var showUnits = isSale() && list.length > 1;   // unit ka option sirf sale par
     var isCustomAllowed = bill.doc === 'quotation';
+    var isCustom = isCustomAllowed && !it;
     var itName = it ? it.name : (isCustomAllowed ? (l.custom_name || '') : '');
+    var qtyUnitLabel = isCustom ? (l.custom_unit || 'pcs') : (cur ? cur.unit : '');
     return '<div class="ln" data-k="' + l.key + '">' +
       '<div class="top">' + pickBox('it_' + l.key, itName,
         isCustomAllowed ? 'Which item? (ya naya naam likhein)' : 'Which item?') +
         '<button class="rm" data-rm="' + l.key + '" aria-label="Remove line">×</button></div>' +
-      (isCustomAllowed && !it
+      (isCustom
         ? '<div class="hint" style="margin:-4px 0 6px">Stock mein na ho to bhi naam likh kar quotation ' +
           'mein daal sakte hain — is line ka stock/costing se koi taluq nahi hoga.</div>' : '') +
       '<div class="f" style="margin-bottom:6px"><label>Description</label>' +
         '<textarea class="ld" data-k="' + l.key + '" rows="2" ' +
         'placeholder="Bill par item ke naam ke neeche chapega">' + esc(l.description || '') + '</textarea></div>' +
+      (isCustom
+        ? '<div class="f" style="margin-bottom:6px"><label>Unit</label>' +
+            '<input class="lcu" data-k="' + l.key + '" type="text" value="' + esc(l.custom_unit || '') +
+            '" placeholder="pcs, kg, ltr, dozen" autocomplete="off"></div>'
+        : '') +
       (showUnits
         ? '<div class="f" style="margin-bottom:6px"><label>Sale unit</label>' +
             '<select class="lu" data-k="' + l.key + '">' +
@@ -1136,7 +1143,7 @@
               }).join('') + '</select></div>'
         : '') +
       '<div class="qr">' +
-        '<div class="f num"><label>Qty' + (cur ? ' (' + esc(cur.unit) + ')' : '') + '</label>' +
+        '<div class="f num"><label>Qty' + (qtyUnitLabel ? ' (' + esc(qtyUnitLabel) + ')' : '') + '</label>' +
           '<input class="lq" data-k="' + l.key + '" type="text" inputmode="decimal" value="' +
           (num(l.sale_qty) ? fmt(l.sale_qty) : '') + '" placeholder="0"></div>' +
         '<div class="f num"><label>Rate' + (cur && !cur.base ? ' / ' + esc(cur.unit) : '') + '</label>' +
@@ -1153,7 +1160,7 @@
               (baseQty(l) ? 'Stock se ' + fmt(baseQty(l)) + ' ' + esc(base) + ' minus hoga' : '') +
             '</div></div>'
         : '') +
-      (warehouses.length > 1
+      (warehouses.length > 1 && !isCustom
         ? '<div class="f" style="margin-top:6px"><label>Warehouse</label><select class="lwh" data-k="' + l.key + '">' +
             warehouses.map(function (w) {
               return '<option value="' + esc(w.id) + '"' +
@@ -1312,6 +1319,15 @@
       el.addEventListener('input', function () {
         var l = lineByKey(this.getAttribute('data-k')); if (!l) return;
         l.description = this.value; dirty = true;
+      });
+    });
+    $('edBody').querySelectorAll('.lcu').forEach(function (el) {
+      el.addEventListener('input', function () {
+        var l = lineByKey(this.getAttribute('data-k')); if (!l) return;
+        l.custom_unit = this.value; dirty = true;
+        var lnBox = this.closest('.ln');
+        var lbl = lnBox && lnBox.querySelector('.lq').closest('.f').querySelector('label');
+        if (lbl) lbl.textContent = 'Qty' + (this.value.trim() ? ' (' + this.value.trim() + ')' : ' (pcs)');
       });
     });
     $('edBody').querySelectorAll('.lq, .lr, .lf').forEach(function (el) {
@@ -1626,7 +1642,8 @@
       return { id:l.id, item_id:l.item_id, qty:num(l.qty), rate:num(l.rate),
                tax_pct:num(l.tax_pct), amount:num(l.amount),
                pcs_on:!!l.pcs_on, pcs:l.pcs, description:l.description || null,
-               custom_name:isQ ? (l.custom_name || null) : undefined };
+               custom_name:isQ ? (l.custom_name || null) : undefined,
+               custom_unit:isQ ? (l.custom_unit || null) : undefined };
     }) : null;
     dirty = false;
     $('edTitle').textContent = (rec ? 'Edit ' : 'New ') + (isQ ? 'quotation' : 'purchase order');
@@ -1692,7 +1709,10 @@
                tax_pct:num(l.tax_pct), amount:round2(num(l.qty) * num(l.rate)),
                pcs_on:!!l.pcs_on, pcs:l.pcs_on ? num(l.pcs) : null,
                description:l.description || null };
-      if (isQ) o.custom_name = l.item_id ? null : (String(l.custom_name || '').trim() || null);
+      if (isQ) {
+        o.custom_name = l.item_id ? null : (String(l.custom_name || '').trim() || null);
+        o.custom_unit = l.item_id ? null : (String(l.custom_unit || '').trim() || null);
+      }
       return o;
     });
     var linesPayload = linesForMerge.map(function (l) { var o = Object.assign({}, l); delete o.id; return o; });
@@ -4059,7 +4079,7 @@
          wazan bhi \u2014 taake party ko dono nazar aayen. */
       var alt = l.sale_unit && String(l.sale_unit) !== String(it ? it.unit : '');
       var shownQty  = alt ? num(l.sale_qty) : num(l.qty);
-      var shownUnit = alt ? l.sale_unit : (it ? it.unit : '');
+      var shownUnit = alt ? l.sale_unit : (it ? it.unit : (l.custom_unit || (l.custom_name ? 'pcs' : '')));
       return '<tr><td class="c">' + (i + 1) + '</td><td>' + esc(nameShown) +
              (l.description
                ? '<div style="font-size:8.5pt;color:#9C9384;white-space:pre-wrap">' +
