@@ -7,7 +7,7 @@
    nahi. Version badhane ke liye sirf CACHE_VERSION number badlein.
    ═══════════════════════════════════════════════════════════════ */
 
-var CACHE_VERSION = 'oht-shell-v2';
+var CACHE_VERSION = 'oht-shell-v3';
 
 var SHELL_FILES = [
   './',
@@ -26,10 +26,13 @@ self.addEventListener('install', function (event) {
       return cache.addAll(SHELL_FILES);
     })
   );
-  // Naya SW turant "waiting" state mein na atka rahe — lekin activate
-  // hone ke baad bhi hum kabhi bhi khud page ko reload force nahi karte
-  // (wo faisla page ke JS/user par chhoda hai — dekhein index.html)
-  self.skipWaiting();
+  // ZAROORI FIX: pehle yahan self.skipWaiting() UNCONDITIONAL tha — jis
+  // se naya SW turant apne aap activate ho jata tha, chahe user ne
+  // "Update karein" na dabaya ho. Isi wajah se update-banner ka reg.waiting
+  // check har app-open par (chahy koi asli naya update ho ya na ho) ghalat
+  // tareeqy se trigger hota tha. Ab hum WAAQI (genuinely) wait karte hain —
+  // activate sirf tab hota hai jab user khud "Update karein" dabaye
+  // (dekhein index.html ka updateNowBtn, jo 'SKIP_WAITING' message bhejta hai).
 });
 
 self.addEventListener('activate', function (event) {
@@ -100,5 +103,10 @@ self.addEventListener('fetch', function (event) {
 
 // Page se "SKIP_WAITING" message aaye (jab user "Update" button dabaye)
 self.addEventListener('message', function (event) {
-  if (event.data === 'SKIP_WAITING') self.skipWaiting();
+  if (event.data === 'SKIP_WAITING') { self.skipWaiting(); return; }
+  // Page yeh puchta hai ke "waiting" SW ka version kya hai, taake wo
+  // banner ko sirf ek dafa (per-version) dikha sakay, har app-open par nahi.
+  if (event.data && event.data.type === 'GET_VERSION' && event.source) {
+    event.source.postMessage({ type: 'SW_VERSION', version: CACHE_VERSION });
+  }
 });
