@@ -1115,7 +1115,8 @@
     var cur  = lineUnit(l);
     var base = list[0].unit;
     var showUnits = isSale() && list.length > 1;   // unit ka option sirf sale par
-    var isCustomAllowed = bill.doc === 'quotation';
+    /* Custom (stock mein na hone wala) item: Quotation aur Purchase Order dono par */
+    var isCustomAllowed = bill.doc === 'quotation' || bill.doc === 'po';
     var isCustom = isCustomAllowed && !it;
     var itName = it ? it.name : (isCustomAllowed ? (l.custom_name || '') : '');
     var qtyUnitLabel = isCustom ? (l.custom_unit || 'pcs') : (cur ? cur.unit : '');
@@ -1124,8 +1125,9 @@
         isCustomAllowed ? 'Which item? (ya naya naam likhein)' : 'Which item?') +
         '<button class="rm" data-rm="' + l.key + '" aria-label="Remove line">×</button></div>' +
       (isCustom
-        ? '<div class="hint" style="margin:-4px 0 6px">Stock mein na ho to bhi naam likh kar quotation ' +
-          'mein daal sakte hain — is line ka stock/costing se koi taluq nahi hoga.</div>' : '') +
+        ? '<div class="hint" style="margin:-4px 0 6px">Stock mein na ho to bhi naam likh kar ' +
+          (bill.doc === 'po' ? 'purchase order' : 'quotation') +
+          ' mein daal sakte hain — is line ka stock/costing se koi taluq nahi hoga.</div>' : '') +
       '<div class="f" style="margin-bottom:6px"><label>Description</label>' +
         '<textarea class="ld" data-k="' + l.key + '" rows="2" ' +
         'placeholder="Bill par item ke naam ke neeche chapega">' + esc(l.description || '') + '</textarea></div>' +
@@ -1273,7 +1275,7 @@
       }, function (r, typing) {
         if (typing) {
           l.item_id = null;
-          if (b.doc === 'quotation') l.custom_name = ($('it_' + l.key) || {}).value || '';
+          if (b.doc === 'quotation' || b.doc === 'po') l.custom_name = ($('it_' + l.key) || {}).value || '';
           return;
         }
         var it = itemById(r.id);
@@ -1642,8 +1644,8 @@
       return { id:l.id, item_id:l.item_id, qty:num(l.qty), rate:num(l.rate),
                tax_pct:num(l.tax_pct), amount:num(l.amount),
                pcs_on:!!l.pcs_on, pcs:l.pcs, description:l.description || null,
-               custom_name:isQ ? (l.custom_name || null) : undefined,
-               custom_unit:isQ ? (l.custom_unit || null) : undefined };
+               custom_name:(isQ || !l.item_id) ? (l.custom_name || null) : undefined,
+               custom_unit:(isQ || !l.item_id) ? (l.custom_unit || null) : undefined };
     }) : null;
     dirty = false;
     $('edTitle').textContent = (rec ? 'Edit ' : 'New ') + (isQ ? 'quotation' : 'purchase order');
@@ -1672,7 +1674,7 @@
     var walkin = isQ ? String(b.walkin_name || '').trim() : '';
     if (!b.party_id && !walkin) { toast('Pick a party first', true); return; }
     var good = b.lines.filter(function (l) {
-      return (l.item_id || (isQ && String(l.custom_name || '').trim())) && num(l.qty) > 0;
+      return (l.item_id || String(l.custom_name || '').trim()) && num(l.qty) > 0;
     });
     if (!good.length) { toast('Add at least one item with a quantity', true); return; }
     var uErr = unitError(good);
@@ -1701,9 +1703,11 @@
     /* Quotation aur PO ki lines par sale_unit/sale_qty/unit_factor NAHI
        hote — wo khaane sirf voucher_lines aur sales_return_lines par
        banaye gaye thay. Yahan bhejne se "column nahi mila" wali error
-       aati hai. custom_name sirf quotation_lines par hai (Stock mein na
-       ho to bhi naam likh kar quotation mein daala hua item) — PO par
-       yeh column hi nahi, is liye wahan nahi bhejte. */
+       aati hai. custom_name/custom_unit (Stock mein na ho to bhi naam
+       likh kar daala hua item) quotation_lines aur po_lines dono par hain.
+       PO par ye khaane sirf custom line ke saath bhejte hain, taake purane
+       database par (jahan po_lines mein ye khaane abhi nahi) aam stock
+       wali PO pehle ki tarah save hoti rahe. */
     var linesForMerge = good.map(function (l) {
       var o = { id:l.id || null, item_id:l.item_id, qty:num(l.qty), rate:num(l.rate),
                tax_pct:num(l.tax_pct), amount:round2(num(l.qty) * num(l.rate)),
@@ -1712,6 +1716,9 @@
       if (isQ) {
         o.custom_name = l.item_id ? null : (String(l.custom_name || '').trim() || null);
         o.custom_unit = l.item_id ? null : (String(l.custom_unit || '').trim() || null);
+      } else if (!l.item_id) {
+        o.custom_name = String(l.custom_name || '').trim() || null;
+        o.custom_unit = String(l.custom_unit || '').trim() || null;
       }
       return o;
     });
@@ -4067,7 +4074,7 @@
     if (!b.party_id && !walkin) { toast('Pick a party before printing', true); return; }
     var p = partyById(b.party_id), t = totals(b);
     var good = b.lines.filter(function (l) {
-      return (l.item_id || (isQ && String(l.custom_name || '').trim())) && num(l.qty) > 0;
+      return (l.item_id || ((isQ || b.doc === 'po') && String(l.custom_name || '').trim())) && num(l.qty) > 0;
     });
     if (!good.length) { toast('Add an item before printing', true); return; }
 
