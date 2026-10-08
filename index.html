@@ -183,6 +183,14 @@
     });
   }
   $('updateNowBtn').addEventListener('click', function () {
+    // ZAROORI FIX: "Update karein" dabane ke baad bhi is version ko yaad
+    // rakhte hain — kuch browsers/devices par reload ke baad bhi
+    // reg.waiting usi version ko dobara "waiting" bata sakta hai, aur
+    // pehle yahan kuch save na hone ki wajah se banner har app-open par
+    // dobara dikh jata tha, chahe user ne update kabhi ka dabaya hua ho.
+    if (pendingVersion) {
+      try { localStorage.setItem(DISMISS_KEY, pendingVersion); } catch (e) {}
+    }
     navigator.serviceWorker.getRegistration().then(function (reg) {
       if (reg && reg.waiting) reg.waiting.postMessage('SKIP_WAITING');
     });
