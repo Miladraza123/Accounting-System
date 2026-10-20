@@ -160,7 +160,14 @@
       if (event.data && event.data.type === 'SW_VERSION') showBannerForVersion(event.data.version);
     });
 
-    navigator.serviceWorker.register('sw.js').then(function (reg) {
+    // ZAROORI FIX: 'updateViaCache: none' zabardasti lagate hain — warna
+    // GitHub Pages jaisi static hosting sw.js ko kuch der ke liye apne
+    // CDN/browser HTTP-cache mein rakh sakti hai, aur browser update-check
+    // ke waqt wahi PURANI (stale) copy se compare kar sakta hai — jis se
+    // update kabhi theek se detect hi nahi hota ya ghalat tareeqy se
+    // baar baar hota hai. Yeh zaroori karta hai ke har update-check
+    // waqai internet se, taazi sw.js se ho.
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(function (reg) {
       function askWaitingVersion() {
         if (reg.waiting) reg.waiting.postMessage({ type: 'GET_VERSION' });
       }
@@ -174,6 +181,9 @@
           }
         });
       });
+      // Har app-open par khud zabardasti ek taaza update-check karao —
+      // browser ke apne (kabhi der wale) schedule ka intizaar nahi karte.
+      try { reg.update(); } catch (e) {}
     }).catch(function () {});
 
     var refreshedOnce = false;
