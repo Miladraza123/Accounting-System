@@ -544,6 +544,17 @@
     var d = new Date(Date.now() + 5 * 60 * 60000);
     return d.toISOString().slice(0, 10);
   }
+  /* Date ko YYYY-MM-DD mein \u2014 device ki APNI tareekh ke hisse se.
+     toISOString() UTC deta hai: Pakistan (UTC+5) mein raat 12 baje ki
+     tareekh UTC mein pichla din hoti hai, aur har hisaab ek din peeche. */
+  function isoLocal(d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+  function addDaysIso(iso, n) {
+    var d = new Date(iso + 'T00:00:00');
+    d.setDate(d.getDate() + (Number(n) || 0));
+    return isoLocal(d);
+  }
   function human(iso) {
     if (!iso) return '';
     return new Date(iso + 'T00:00:00').toLocaleDateString('en-PK', { day:'2-digit', month:'short', year:'numeric' });
@@ -634,7 +645,10 @@
 
   /* ---------- totals ---------- */
   /* Unit ka option sirf SALE par — purchase par item ka apna unit hi */
-  function isSale() { return !!(bill && bill.vtype === 'sale'); }
+  /* Quotation bhi vtype 'sale' rakhti hai, magar us ki lines par unit/
+     conversion save hi nahi hota \u2014 wahan unit chunne dena header aur
+     lines ka hisaab alag kar deta tha. Is liye sirf asal Sale bill. */
+  function isSale() { return !!(bill && bill.vtype === 'sale' && !bill.doc); }
 
 
   function unitsOf(itemId) {
@@ -973,15 +987,23 @@
       if (!l.key) l.key = 'L' + (++lineSeq); return l;
     });
     if (!bill.lines.length) bill.lines.push(newLine());
+    /* Smart-merge ka "pehla version" bilkul wohi ho jo database mein hai,
+       aur un hi khaanon ke saath jo save par jate hain (linesForMerge).
+       Koi khaana kam ho ya badla hua ho (masalan warehouse_id, ya khali
+       sale_qty ki jagah qty) to har tabdeeli "kisi aur ne badla" ban jati hai. */
     originalLineSnapshot = rec ? bill.lines.map(function (l) {
-      return { id:l.id, item_id:l.item_id, qty:num(l.qty), rate:num(l.rate),
-               tax_pct:num(l.tax_pct), amount:num(l.amount), pcs_on:!!l.pcs_on, pcs:l.pcs,
-               description:l.description || null,
-               /* purani lines par yeh khaane khali hote hain \u2014 us surat mein
-                  item ka apna unit hi maana jata hai */
-               sale_unit:l.sale_unit || null, unit_factor:num(l.unit_factor) || 1,
-               sale_qty:(l.sale_qty == null || l.sale_qty === '') ? num(l.qty) : num(l.sale_qty) };
+      return { id:l.id, item_id:l.item_id, qty:l.qty, rate:l.rate,
+               tax_pct:l.tax_pct, amount:l.amount, pcs_on:l.pcs_on, pcs:l.pcs,
+               description:l.description == null ? null : l.description,
+               sale_unit:l.sale_unit == null ? null : l.sale_unit,
+               unit_factor:l.unit_factor, sale_qty:l.sale_qty == null ? null : l.sale_qty,
+               warehouse_id:l.warehouse_id || null };
     }) : null;
+    /* purani lines par sale_qty khali hoti hai \u2014 qty box usi se bharta hai,
+       warna box khali dikhta aur sirf rate badalne par line hi gum ho jati */
+    bill.lines.forEach(function (l) {
+      if (l.sale_qty == null || l.sale_qty === '') l.sale_qty = round2(num(l.qty) / (l.sale_unit ? (num(l.unit_factor) || 1) : 1));
+    });
     originalHeadSnapshot = rec ? JSON.parse(JSON.stringify(rec)) : null;
     dirty = false;
     $('edTitle').textContent = (rec ? 'Edit ' : 'New ') + (bill.vtype === 'purchase' ? 'purchase' : 'sale');
@@ -1437,6 +1459,34 @@
     });
     return msgs.length ? msgs : null;
   }
+  /* Naya document: header ban gaya magar lines (ya baad ka qadam) fail ho
+     gaya — to adhoora header database mein na chhorein, warna bina items
+     ka bill ledger/balance mein gin liya jata hai. Pehle asal delete
+     (sirf admin kar sakta hai), na ho sake to Recycle Bin (soft delete). */
+  function undoNewHeader(table, id) {
+    return sb.from(table).delete().eq('id', id).select('id').then(function (r) {
+      if (!r.error && r.data && r.data.length) return true;
+      return sb.from(table).update({ deleted_at:new Date().toISOString() }).eq('id', id).select('id')
+        .then(function (r2) {
+          if (!r2.error && r2.data && r2.data.length) return true;
+          console.error('adhoora header hata nahi saka:', table, id, (r2.error || r.error || {}).message);
+          toast('Bill poora save nahi hua aur adhoora hissa hataya bhi nahi ja saka — admin ko batayein (' + table + ')', true);
+          return false;
+        });
+    }).catch(function (e) { console.error(e); return false; });
+  }
+  /* Save fail hua aur editor band ho chuka hai — user ka likha hua
+     wapas khol do taake dobara likhna na pare. Koi aur editor khula ho
+     to usay nahi chherte. */
+  function reopenTyped(typed, open) {
+    if (bill || !typed) return;
+    open();
+    bill = typed;
+    dirty = true;
+    if (bill.isReturn) drawReturnEditor();
+    else if (bill.isTransfer) drawTransferEditor();
+    else drawEditor();
+  }
   function fetch_lines(table, fkCol, fkId) {
     return sb.from(table).select('*').eq(fkCol, fkId).then(function (r) {
       if (r.error) throw r.error;
@@ -1458,8 +1508,15 @@
     return { sub:sub, tax:tax, disc:disc, extras:extras, grand:grand, paid:paid, due:round2(grand - paid) };
   }
   function finishBillSave(row, finalLines, recId, head, t, diff, priorBill) {
-    return sb.from('vouchers').update({ sub_total:t.sub, tax_total:t.tax, grand_total:t.grand })
-      .eq('id', recId).select().then(function (r3) {
+    /* Naye bill ke header mein totals pehle hi ja chuke hain (isi hisaab
+       se) — dobara update ki zaroorat nahi, aur jis ke paas sirf
+       bill_create hai us ka update waise bhi ruk jata hai. Edit par yehi
+       totals ka akela likhne wala hai, is liye us ki error chhupani nahi. */
+    var upd = priorBill
+      ? sb.from('vouchers').update({ sub_total:t.sub, tax_total:t.tax, grand_total:t.grand }).eq('id', recId).select()
+      : Promise.resolve({ data:null, error:null });
+    return upd.then(function (r3) {
+        if (r3.error) throw r3.error;
         var saved = Object.assign({}, row || head, r3.data ? r3.data[0] : {}, { id:recId, lines:finalLines || [] });
         bills = bills.map(function (x) { return x.id === recId ? saved : x; });
         cacheSave('bills', bills);
@@ -1505,6 +1562,7 @@
     });
     var priorBill = isNew ? null : bills.filter(function (x) { return x.id === recId; })[0];
     var diff = !isNew ? lineDiffSummary(originalLineSnapshot, good) : null;
+    var typed = isNew ? JSON.parse(JSON.stringify(b)) : null, headDone = false;
 
     // Local-first: turant screen par, editor band — internet ka wait nahi
     var optimistic = Object.assign({}, priorBill || {}, head, {
@@ -1513,6 +1571,8 @@
     });
     if (isNew) bills.push(optimistic);
     else bills = bills.map(function (x) { return x.id === recId ? optimistic : x; });
+    // yeh number ab istemal mein \u2014 agla "+ Sale" isi ko dobara na de (realtime refresh na aaye tab bhi)
+    if (isNew && head.vno) allVnos.push({ vno:head.vno, vtype:head.vtype });
     try { window.parent.postMessage({ oht:'refresh', kind:'bills' }, '*'); } catch (err) {}
     toast((isNew ? 'Saved ' : 'Updated ') + (head.vno || 'bill'));
     cacheSave('bills', bills);
@@ -1558,6 +1618,7 @@
       }
       var row = isNew ? (res.data || [])[0] : res.data.row;
       if (isNew) {
+        headDone = true;
         var payload = linesPayload.map(function (l, i) { return Object.assign({ voucher_id:recId, line_no:i + 1 }, l); });
         return sb.from('voucher_lines').insert(payload).select().then(function (r2) {
           if (r2.error) throw r2.error;
@@ -1600,7 +1661,11 @@
         else bills = bills.map(function (x) { return x.id === recId ? priorBill : x; });
         cacheSave('bills', bills); render();
         syncNote('');
+        if (isNew && headDone) undoNewHeader('vouchers', recId);
         sayErr(e, 'save');
+        if (isNew) reopenTyped(typed, function () {
+          openBill(null); $('edTitle').textContent = 'New ' + (typed.vtype === 'purchase' ? 'purchase' : 'sale');
+        });
       }
     });
   }
@@ -1645,6 +1710,12 @@
                custom_name:isQ ? (l.custom_name || null) : undefined,
                custom_unit:isQ ? (l.custom_unit || null) : undefined };
     }) : null;
+    /* Quotation/PO ki lines par sale_qty ka khaana hi nahi \u2014 qty box usi
+       se bharta hai. Na bharein to box khali dikhta hai aur rate badalte hi
+       qty 0 ho kar line save par gum ho jati hai. */
+    bill.lines.forEach(function (l) {
+      if (l.sale_qty == null || l.sale_qty === '') l.sale_qty = num(l.qty);
+    });
     dirty = false;
     $('edTitle').textContent = (rec ? 'Edit ' : 'New ') + (isQ ? 'quotation' : 'purchase order');
     $('edSave').textContent = isQ ? 'Save quotation' : 'Save purchase order';
@@ -1657,9 +1728,13 @@
     $('edBody').scrollTop = 0;
     $('ed').classList.add('on');
   }
-  function finishDocSave(row, finalLines, recId, head, t, table, noField, isQ) {
-    return sb.from(table).update({ subtotal:t.sub, tax_total:t.tax, grand_total:t.grand })
-      .eq('id', recId).select().then(function (r3) {
+  function finishDocSave(row, finalLines, recId, head, t, table, noField, isQ, isNew) {
+    // naye doc ke header mein totals pehle hi ja chuke — edit par yehi akela likhne wala hai
+    var upd = !isNew
+      ? sb.from(table).update({ subtotal:t.sub, tax_total:t.tax, grand_total:t.grand }).eq('id', recId).select()
+      : Promise.resolve({ data:null, error:null });
+    return upd.then(function (r3) {
+        if (r3.error) throw r3.error;
         var saved = Object.assign({}, row || head, r3.data ? r3.data[0] : {}, { id:recId, lines:finalLines || [] });
         if (isQ) quotes = quotes.map(function (x) { return x.id === recId ? saved : x; });
         else pos = pos.map(function (x) { return x.id === recId ? saved : x; });
@@ -1718,6 +1793,7 @@
     var linesPayload = linesForMerge.map(function (l) { var o = Object.assign({}, l); delete o.id; return o; });
 
     var priorRow = isNew ? null : (isQ ? quotes : pos).filter(function (x) { return x.id === recId; })[0];
+    var typed = isNew ? JSON.parse(JSON.stringify(b)) : null, headDone = false;
     var optimistic = Object.assign({}, priorRow || {}, head, {
       id:recId, version:isNew ? 1 : (b.version || 1),
       lines:linesPayload.map(function (l, i) { return Object.assign({ id:'temp-' + i, line_no:i + 1 }, l); })
@@ -1756,12 +1832,13 @@
       }
       var row = isNew ? (res.data || [])[0] : res.data.row;
       if (isNew) {
+        headDone = true;
         var payload = linesPayload.map(function (l, i) {
           var o = Object.assign({ line_no:i + 1 }, l); o[fkCol] = recId; return o;
         });
         return sb.from(lineTable).insert(payload).select().then(function (r2) {
           if (r2.error) throw r2.error;
-          return finishDocSave(row, r2.data, recId, head, t, table, noField, isQ);
+          return finishDocSave(row, r2.data, recId, head, t, table, noField, isQ, true);
         });
       }
       return sb.rpc('smart_merge_lines', {
@@ -1801,7 +1878,10 @@
           if (isNew) pos = pos.filter(function (x) { return x.id !== recId; });
           else pos = pos.map(function (x) { return x.id === recId ? priorRow : x; });
         }
-        render(); syncNote(''); sayErr(e, 'save');
+        render(); syncNote('');
+        if (isNew && headDone) undoNewHeader(table, recId);
+        sayErr(e, 'save');
+        if (isNew) reopenTyped(typed, function () { openDoc(typed.doc, null); });
       }
     });
   }
@@ -2047,8 +2127,14 @@
       lines:retLines
     };
     originalHeadSnapshot = existingReturn ? JSON.parse(JSON.stringify(existingReturn)) : null;
-    originalLineSnapshot = existingReturn ? retLines.map(function (l) {
-      return { id:l.id, sale_line_id:l.sale_line_id, item_id:l.item_id, qty:l.qty, rate:l.rate };
+    /* Smart-merge ka pehla version = database wali return lines, unhi
+       khaanon aur unhi units (qty item ke apne unit mein) ke saath jo save
+       par jate hain. Pehle yahan qty sale-unit mein thi aur amount/sale_qty
+       waghera thay hi nahi \u2014 is liye har edit "kisi aur ne badla" ban jata tha. */
+    originalLineSnapshot = existingReturn ? (existingReturn.lines || []).map(function (l) {
+      return { id:l.id, sale_line_id:l.sale_line_id, item_id:l.item_id, qty:l.qty,
+               sale_qty:l.sale_qty == null ? null : l.sale_qty, sale_unit:l.sale_unit == null ? null : l.sale_unit,
+               unit_factor:l.unit_factor, rate:l.rate, amount:l.amount, warehouse_id:l.warehouse_id || null };
     }) : null;
     dirty = false;
     originalHeadSnapshot = existingReturn ? JSON.parse(JSON.stringify(existingReturn)) : null;
@@ -2136,9 +2222,13 @@
     });
   }
 
-  function finishReturnSave(row, finalLines, recId, head, t) {
-    return sb.from('sales_returns').update({ subtotal:t.total, grand_total:t.total })
-      .eq('id', recId).select().then(function (r3) {
+  function finishReturnSave(row, finalLines, recId, head, t, isNew) {
+    // naye return ke header mein totals pehle hi ja chuke — edit par yehi akela likhne wala hai
+    var upd = !isNew
+      ? sb.from('sales_returns').update({ subtotal:t.total, grand_total:t.total }).eq('id', recId).select()
+      : Promise.resolve({ data:null, error:null });
+    return upd.then(function (r3) {
+        if (r3.error) throw r3.error;
         var saved = Object.assign({}, row || head, r3.data ? r3.data[0] : {}, { id:recId, lines:finalLines || [] });
         returns = returns.map(function (x) { return x.id === recId ? saved : x; });
         syncNote('Saved', '#7DC9A9');
@@ -2168,6 +2258,7 @@
     });
     var linesPayload = linesForMerge.map(function (l) { var o = Object.assign({}, l); delete o.id; return o; });
     var priorRow = isNew ? null : returns.filter(function (x) { return x.id === recId; })[0];
+    var typed = isNew ? JSON.parse(JSON.stringify(b)) : null, headDone = false;
     var optimistic = Object.assign({}, priorRow || {}, head, {
       id:recId, version:isNew ? 1 : (b.version || 1),
       lines:linesPayload.map(function (l, i) { return Object.assign({ id:'temp-' + i }, l); })
@@ -2205,10 +2296,11 @@
       }
       var row = isNew ? (res.data || [])[0] : res.data.row;
       if (isNew) {
+        headDone = true;
         var payload = linesPayload.map(function (l, i) { return Object.assign({ return_id:recId, line_no:i + 1 }, l); });
         return sb.from('sales_return_lines').insert(payload).select().then(function (r2) {
           if (r2.error) throw r2.error;
-          return finishReturnSave(row, r2.data, recId, head, t);
+          return finishReturnSave(row, r2.data, recId, head, t, true);
         });
       }
       return sb.rpc('smart_merge_lines', {
@@ -2245,6 +2337,8 @@
         if (isNew) returns = returns.filter(function (x) { return x.id !== recId; });
         else returns = returns.map(function (x) { return x.id === recId ? priorRow : x; });
         render(); syncNote('');
+        if (isNew && headDone) undoNewHeader('sales_returns', recId);
+        if (isNew) reopenTyped(typed, function () { startReturn(typed.sale_id, null); });
         // returnable-qty se zyada ka masla ho to saaf batayein, warna generic error
         if (/Sirf .* tak hi return/.test(e.message || '')) toast(e.message, true);
         else sayErr(e, 'save');
@@ -2315,9 +2409,7 @@
     var p = partyById(inv.party_id);
     var days = p ? (Number(p.credit_days) || 0) : 0;
     if (!inv.sidate) return null;
-    var d = new Date(inv.sidate + 'T00:00:00');
-    d.setDate(d.getDate() + days);
-    return d.toISOString().slice(0, 10);
+    return addDaysIso(inv.sidate, days);
   }
 
   /* Status kahin mehfooz nahi karte \u2014 paid aur due date se khud nikalta
@@ -2464,22 +2556,26 @@
 
   /* Frequency ke hisaab se agli tareekh. Mahine ki hadd khud sambhalta
      hai \u2014 31 January + 1 mahina = 28/29 February. */
-  function nextRecurDate(from, freq, n) {
+  /* anchor = khake ki start_date. 31 Jan se shuru ho to: 28/29 Feb, phir
+     wapas 31 Mar (28 Mar nahi) \u2014 yaani mahine ke aakhir wala din yaad rehta hai. */
+  function nextRecurDate(from, freq, n, anchor) {
     if (!from) return null;
     var d = new Date(from + 'T00:00:00');
     var add = { monthly:1, quarterly:3, half_yearly:6, yearly:12 }[freq];
     if (freq === 'custom_months') add = Math.max(1, num(n) || 1);
-    if (freq === 'custom_days') {
-      d.setDate(d.getDate() + Math.max(1, num(n) || 1));
-      return d.toISOString().slice(0, 10);
-    }
+    if (freq === 'custom_days') return addDaysIso(from, Math.max(1, num(n) || 1));
     if (!add) add = 1;
     var day = d.getDate();
+    if (anchor) {
+      var aDay = new Date(anchor + 'T00:00:00').getDate();
+      var fromLast = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+      if (aDay > day && day === fromLast) day = aDay;   // pichli tareekh mahine ki hadd par kati thi
+    }
     d.setDate(1);
     d.setMonth(d.getMonth() + add);
     var last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
     d.setDate(Math.min(day, last));
-    return d.toISOString().slice(0, 10);
+    return isoLocal(d);
   }
 
   function recurDue(t) {
@@ -2701,6 +2797,9 @@
       b.active = !b.active; dirty = true; drawRecurEditor();
     });
     if ($('rcMake')) $('rcMake').addEventListener('click', function () {
+      // kaam ke dauraan button band \u2014 do dafa dabane se do invoices nahi
+      if (this.disabled) return;
+      this.disabled = true; this.textContent = 'Invoice ban rahi hai\u2026';
       makeInvoiceFromTemplate(b.id);
     });
   }
@@ -2767,35 +2866,54 @@
   /* Khake se invoice banao. Invoice banne ke baad TEMPLATE SE AZAD hai \u2014
      us mein jo bhi badlein, khake par koi asar nahi, aur khaka badlein to
      ban chuki invoice par koi asar nahi. */
+  var recurMaking = false;
   function makeInvoiceFromTemplate(id) {
     var t = recurTemplates.filter(function (x) { return x.id === id; })[0];
-    if (!t) { toast('Khaka mila nahi', true); return; }
+    function release() {
+      recurMaking = false;
+      var btn = $('rcMake');
+      if (btn) { btn.disabled = false; btn.textContent = 'Is khake se invoice banayein'; }
+    }
+    if (!t) { toast('Khaka mila nahi', true); release(); return; }
+    if (recurMaking) return;
+    recurMaking = true;
     var p = partyById(t.party_id);
     var invId = uuid();
     var d = t.next_date || today();
     var dueDays = (t.due_days === null || t.due_days === undefined)
       ? (p ? (Number(p.credit_days) || 0) : 0) : Number(t.due_days);
-    var dd = new Date(d + 'T00:00:00');
-    dd.setDate(dd.getDate() + dueDays);
-    var dueDate = dd.toISOString().slice(0, 10);
+    var dueDate = addDaysIso(d, dueDays);
 
     // billing period: is tareekh se agli tareekh se ek din pehle tak
-    var nx = nextRecurDate(d, t.frequency, t.interval_n);
-    var toD = nx ? (function () { var x = new Date(nx + 'T00:00:00'); x.setDate(x.getDate() - 1);
-                                  return x.toISOString().slice(0, 10); })() : null;
+    var nx = nextRecurDate(d, t.frequency, t.interval_n, t.start_date);
+    var toD = nx ? addDaysIso(nx, -1) : null;
     var MON = ['January','February','March','April','May','June',
                'July','August','September','October','November','December'];
     var sd = new Date(d + 'T00:00:00');
     var label = MON[sd.getMonth()] + ' ' + sd.getFullYear();
 
     syncNote('Invoice ban rahi hai\u2026');
-    sb.from('service_invoices').insert({
-      id:invId, party_id:t.party_id, company_id:t.company_id,
-      sidate:d, due_date:dueDate,
-      billing_from:d, billing_to:toD, billing_label:label,
-      narration:t.description || null,
-      tax_on:!!t.tax_on, discount:0, paid:0, status:'active',
-      template_id:t.id
+    /* Pehle is muddat par QABZA: next_date sirf tab aage barhe jab wo abhi
+       bhi wohi ho jo humne dekhi thi. Doosra tap / doosra device yahan ruk
+       jata hai \u2014 is tarah ek muddat ki do invoices nahi banti. */
+    var claimed = false;
+    var claim = sb.from('recurring_service_templates').update({ next_date:nx, last_made_on:d }).eq('id', t.id);
+    claim = t.next_date ? claim.eq('next_date', t.next_date) : claim.is('next_date', null);
+    claim.select('id').then(function (r0) {
+      if (r0.error) throw r0.error;
+      if (!r0.data || !r0.data.length) {
+        var e0 = new Error('Is muddat ki invoice pehle hi ban chuki hai \u2014 taaza list dekhein');
+        e0.alreadyMade = true; throw e0;
+      }
+      claimed = true;
+      return sb.from('service_invoices').insert({
+        id:invId, party_id:t.party_id, company_id:t.company_id,
+        sidate:d, due_date:dueDate,
+        billing_from:d, billing_to:toD, billing_label:label,
+        narration:t.description || null,
+        tax_on:!!t.tax_on, discount:0, paid:0, status:'active',
+        template_id:t.id
+      });
     }).then(function (r1) {
       if (r1.error) throw r1.error;
       return sb.from('service_invoice_lines').insert({
@@ -2808,11 +2926,7 @@
       });
     }).then(function (r2) {
       if (r2 && r2.error) throw r2.error;
-      // khake ki agli tareekh aage barha do
-      return sb.from('recurring_service_templates')
-        .update({ next_date:nx, last_made_on:d }).eq('id', t.id);
-    }).then(function (r3) {
-      if (r3 && r3.error) throw r3.error;
+      release();
       syncNote('Saved', '#7DC9A9');
       toast('Invoice ban gayi \u2014 ab isay jaisa chahein badal sakte hain');
       return Promise.all([loadRecurring(), loadServiceInvoices()]);
@@ -2824,10 +2938,15 @@
       render();
       openServiceInvoice(invId);
     }).catch(function (e) {
-      syncNote('');
+      syncNote(''); release();
+      if (e && e.alreadyMade) { toast(e.message, true); loadRecurring(); return; }
       sb.from('service_invoice_lines').delete().eq('invoice_id', invId).then(function () {
         sb.from('service_invoices').delete().eq('id', invId).then(function () {});
       });
+      // qabza wapas \u2014 taake dobara koshish ho sake
+      if (claimed) sb.from('recurring_service_templates')
+        .update({ next_date:t.next_date || null, last_made_on:t.last_made_on || null })
+        .eq('id', t.id).eq('next_date', nx).then(function () { loadRecurring(); });
       sayErr(e, 'invoice banane');
     });
   }
@@ -3434,7 +3553,8 @@
       narration:b.narration || null, notes:b.notes || null,
       tax_on:!!b.tax_on, discount:num(b.discount),
       sub_total:t.sub, tax_total:t.tax, grand_total:t.grand,
-      status:b.status || 'open',
+      /* status yahan NAHI bhejte \u2014 purana khula editor save ho to
+         "converted" wapas "open" ban jata aur quotation dobara convert ho sakti */
       updated_at:new Date().toISOString()
     };
     /* Do log ek hi waqt mein ek quotation kholein to jo baad mein save
@@ -3454,7 +3574,7 @@
     closeBill(); render();
 
     var step = isNew
-      ? sb.from('service_quotations').insert(Object.assign({ id:recId, version:1 }, head))
+      ? sb.from('service_quotations').insert(Object.assign({ id:recId, version:1, status:'open' }, head))
       : sb.from('service_quotations').update(head)
           .eq('id', recId).eq('version', baseVersion).select();
 
@@ -3517,6 +3637,14 @@
     var b = bill;
     if (!b || !b.id) { toast('Pehle quotation save karein', true); return; }
     if (!can('bill_create')) { toast('Is ki ijazat nahi', true); return; }
+    /* Ek quotation se ek hi invoice \u2014 converted (ya cancelled) ho chuki
+       ho to dobara nahi. Taaza list wala status dekhte hain, editor wala purana ho sakta hai. */
+    var curQ = svcQuoteById(b.id) || b;
+    if ((curQ.status || 'open') !== 'open') {
+      toast('Is quotation se invoice pehle hi ban chuki hai (' + (curQ.status === 'converted' ? 'converted' : curQ.status) +
+            ') \u2014 dobara convert nahi ho sakti', true);
+      return;
+    }
     var good = (b.lines || []).filter(function (l) {
       return l.service_id && (num(l.qty) > 0 || num(l.rate) > 0);
     });
@@ -3556,11 +3684,17 @@
      dete hain, magar console mein likh kar. */
   function markQuoteConverted(quoteId, invoiceId) {
     if (!quoteId) return Promise.resolve();
+    // sirf 'open' quotation par \u2014 pehle se converted ka link nahi badalte
     return sb.from('service_quotations').update({
       status:'converted', converted_invoice_id:invoiceId || null,
       converted_at:new Date().toISOString()
-    }).eq('id', quoteId).then(function (r) {
-      if (r && r.error) console.error('quotation par nishan nahi lag saka:', r.error.message);
+    }).eq('id', quoteId).eq('status', 'open').select('id').then(function (r) {
+      if (r && r.error) {
+        console.error('quotation par nishan nahi lag saka:', r.error.message);
+        toast('Invoice ban gayi, magar quotation par "converted" ka nishan nahi lag saka: ' + r.error.message, true);
+      } else if (r && Array.isArray(r.data) && !r.data.length) {
+        toast('Invoice ban gayi \u2014 magar yeh quotation pehle hi kisi aur invoice mein convert ho chuki thi', true);
+      }
       return loadServiceQuotes();
     }).catch(function (e) { console.error(e); });
   }
@@ -3709,6 +3843,7 @@
     var linesForMerge = good.map(function (l) { return { id:l.id || null, item_id:l.item_id, qty:num(l.qty) }; });
     var linesPayload = linesForMerge.map(function (l) { var o = Object.assign({}, l); delete o.id; return o; });
     var priorRow = isNew ? null : transfers.filter(function (x) { return x.id === recId; })[0];
+    var typed = isNew ? JSON.parse(JSON.stringify(b)) : null, headDone = false;
 
     var optimistic = Object.assign({}, priorRow || {}, head, {
       id:recId, version:isNew ? 1 : (b.version || 1),
@@ -3743,6 +3878,7 @@
       }
       var row = isNew ? (res.data || [])[0] : res.data.row;
       if (isNew) {
+        headDone = true;
         var payload = linesPayload.map(function (l, i) { return Object.assign({ transfer_id:recId, line_no:i + 1 }, l); });
         return sb.from('stock_transfer_lines').insert(payload).select().then(function (r2) {
           if (r2.error) throw r2.error;
@@ -3778,7 +3914,10 @@
       } else {
         if (isNew) transfers = transfers.filter(function (x) { return x.id !== recId; });
         else transfers = transfers.map(function (x) { return x.id === recId ? priorRow : x; });
-        render(); syncNote(''); sayErr(e, 'save');
+        render(); syncNote('');
+        if (isNew && headDone) undoNewHeader('stock_transfers', recId);
+        sayErr(e, 'save');
+        if (isNew) reopenTyped(typed, function () { openTransfer(null); });
       }
     });
   }
@@ -4442,7 +4581,7 @@
         if (active) obRows.forEach(function (r) { ob[r.party_id] = num(r.balance); });
 
         var ledgerVoucherQuery = sb.from('vouchers').select('id,party_id,vdate,vtype,grand_total,paid').is('deleted_at', null);
-        var ledgerSheetQuery   = sb.from('sheets').select('sheet_date,rows');
+        var ledgerSheetQuery   = sb.from('sheets').select('sheet_date,rows').is('deleted_at', null);   // Recycle Bin wale sheets balance mein nahi
         var ledgerReturnQuery  = sb.from('sales_returns').select('grand_total,party_id,rdate').is('deleted_at', null);
         if (active) {
           ledgerVoucherQuery = ledgerVoucherQuery.gte('vdate', ld);
@@ -4723,7 +4862,10 @@
       e.preventDefault(); tryClose();
     }
     if ((e.ctrlKey || e.metaKey) && e.key === 's' && $('ed').classList.contains('on')) {
-      e.preventDefault(); saveBill();
+      /* Wohi kaam jo screen wala Save button karta hai — seedha saveBill()
+         nahi, warna Quotation/PO/Return par bhi asal Sale/Purchase ban jata hai */
+      e.preventDefault();
+      if ($('edSave').style.display !== 'none') $('edSave').click();
     }
     if ((e.ctrlKey || e.metaKey) && e.key === 'k' && !$('ed').classList.contains('on')) {
       e.preventDefault(); $('q').focus(); $('q').select();

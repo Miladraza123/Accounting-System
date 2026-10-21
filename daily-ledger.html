@@ -703,6 +703,20 @@
   /* ─── cloud ─── */
   var CFG = 'ledger-cfg';
   var sb = null, pendingSync = {}, syncTimer = null, online = navigator.onLine;
+  /* na-bheji hui tareekhon ki list bhi phone par mehfooz — warna app band/reload hote hi
+     yeh list mit jati thi aur pullAll offline wala kaam cloud ki purani copy se dabaa deta tha */
+  var PKEY = 'ledger-app-pk-pending';
+  function savePending() { store.set(PKEY, JSON.stringify(pendingSync)); }
+  function loadPending() {
+    return store.get(PKEY).then(function (raw) {
+      var p = null;
+      try { p = JSON.parse(raw || 'null'); } catch (e) {}
+      pendingSync = (p && typeof p === 'object') ? p : {};
+    });
+  }
+  /* jo tareekh cloud ne pakki tor par mana kar di (lock, ijazat, Recycle Bin) — is session me
+     dobara baar baar mat bhejo; data phir bhi pending rehta hai, agli dafa app khulne par phir koshish */
+  var parked = {};
 
   function syncNote(text, colour) {
     var n = $('syncNote');
@@ -789,6 +803,9 @@
   function pullAll() {
     if (!sb || !online) return Promise.resolve(false);
     syncNote('Syncing\u2026');
+    // jo tareekh pull shuru hote waqt pending thi us ka cloud jawab purana ho sakta hai — usay bhi mat chhero
+    var pendAtStart = JSON.parse(JSON.stringify(pendingSync));
+    function isPending(iso) { return !!(pendingSync[iso] || pendAtStart[iso]); }
     return fetchAllSheets().then(function (res) {
       if (res.error) {
         if (isNetErr(res.error)) {
@@ -811,6 +828,8 @@
         // warna abhi-abhi ki gayi tabdeeli (jaise opening balance clear karna) cloud ki purani
         // (abhi tak na-bheji hui) value se dab jayegi, khaas kar Realtime ki tezi ki wajah se
         if (row.sheet_date === active && Date.now() - lastEditTime < 3000) return;
+        // is din ki tabdeeli abhi cloud par nahi gayi (offline / reload se pehle) — local hi sahi hai
+        if (isPending(row.sheet_date)) return;
         data.sheets[row.sheet_date] = {
           opening: row.opening || '', side: row.side || 'cr',
           page: row.page || '', rows: row.rows || []
@@ -828,7 +847,7 @@
       // adhoora kaam bhi saath mit jayega.
       Object.keys(data.sheets).forEach(function (iso) {
         if (seen[iso]) return;
-        if (pendingSync[iso]) return;
+        if (isPending(iso)) return;
         if (iso === active && Date.now() - lastEditTime < 3000) return;
         delete data.sheets[iso];
         if (data.sheetBase) delete data.sheetBase[iso];
@@ -846,8 +865,48 @@
      agar dono ne isi jagah par ALAG ALAG nayi line daali ho (jo pehle kisi ke paas nahi thi),
      to unhe ek hi line na samjho — dono ko alag alag rakho. */
   function rowsEqual(a, b) { return JSON.stringify(a || null) === JSON.stringify(b || null); }
+  function mergeCells(b, l, r) {
+    var cellLen = Math.max((b || []).length, l.length, r.length);
+    var row = [];
+    for (var c = 0; c < cellLen; c++) {
+      var bc = b ? b[c] : undefined, lc = l[c], rc = r[c];
+      var localChanged = JSON.stringify(lc) !== JSON.stringify(bc);
+      row[c] = localChanged ? lc : (rc !== undefined ? rc : lc);
+    }
+    return row;
+  }
+  /* har line ki apni pakki pehchaan (r[8]) — jagah (index) se milaan karne par beech ki line
+     mitane se neeche wali line do dafa aa jati thi, aur aakhri line mitao to wapas aa jati thi */
+  function allHaveIds(list) {
+    for (var i = 0; i < list.length; i++) if (!list[i] || !list[i][8]) return false;
+    return true;
+  }
+  function mergeById(baseRows, localRows, remoteRows) {
+    function byId(list) { var m = {}; list.forEach(function (r) { m[r[8]] = r; }); return m; }
+    function at(list, id) { for (var k = 0; k < list.length; k++) if (list[k][8] === id) return k; return -1; }
+    var B = byId(baseRows), L = byId(localRows), R = byId(remoteRows), out = [];
+    localRows.forEach(function (l) {
+      var id = l[8], b = B[id], r = R[id];
+      if (r) { out.push(b ? mergeCells(b, l, r) : l); return; }
+      if (b && rowsEqual(l, b)) return;      // doosre device ne mitayi, hum ne nahi chheri — mitayi hi rahe
+      out.push(l);                            // nayi line, ya hum ne badli — apni rakho
+    });
+    remoteRows.forEach(function (r, i) {
+      if (L[r[8]]) return;
+      var b = B[r[8]];
+      if (b && rowsEqual(r, b)) return;      // hum ne mitayi, doosre ne nahi chheri — mitayi hi rahe
+      // doosre ki nayi (ya badli hui) line — us ki pichli line ke baad rakho
+      var pos = 0;
+      for (var j = i - 1; j >= 0; j--) { var k = at(out, remoteRows[j][8]); if (k !== -1) { pos = k + 1; break; } }
+      out.splice(pos, 0, r);
+    });
+    return out;
+  }
   function mergeRows(baseRows, localRows, remoteRows) {
     baseRows = baseRows || []; localRows = localRows || []; remoteRows = remoteRows || [];
+    // cloud par pichli baar ke baad kisi ne kuch nahi badla — is device ki copy hi sach hai (mitayi lines samait)
+    if (rowsEqual(baseRows, remoteRows)) return localRows;
+    if (allHaveIds(baseRows) && allHaveIds(localRows) && allHaveIds(remoteRows)) return mergeById(baseRows, localRows, remoteRows);
     var maxLen = Math.max(baseRows.length, localRows.length, remoteRows.length);
     var merged = [], extras = [];
     for (var i = 0; i < maxLen; i++) {
@@ -859,14 +918,7 @@
         // dono ne isi jagah bilkul nayi, alag line daali — dono ko rakho, mitao mat
         merged[i] = l; extras.push(r); continue;
       }
-      var cellLen = Math.max((b || []).length, l.length, r.length);
-      var row = [];
-      for (var c = 0; c < cellLen; c++) {
-        var bc = b ? b[c] : undefined, lc = l[c], rc = r[c];
-        var localChanged = JSON.stringify(lc) !== JSON.stringify(bc);
-        row[c] = localChanged ? lc : (rc !== undefined ? rc : lc);
-      }
-      merged[i] = row;
+      merged[i] = mergeCells(b, l, r);
     }
     return merged.concat(extras);
   }
@@ -877,6 +929,7 @@
     rowsEl.innerHTML = '';
     (s.rows || []).forEach(function (r) {
       var tr = makeRow();
+      if (r[8]) tr.setAttribute('data-rid', r[8]);
       tr.querySelectorAll('input, textarea').forEach(function (el) {
         el.value = r[+el.getAttribute('data-k')] || '';
         if (el.tagName === 'TEXTAREA') {
@@ -898,13 +951,19 @@
     return sb.from('sheets').select('*').in('sheet_date', dates).then(function (res) {
       if (res.error) throw res.error;
       var remoteByDate = {};
-      (res.data || []).forEach(function (row) { remoteByDate[row.sheet_date] = row; });
+      (res.data || []).forEach(function (row) {
+        if (!remoteByDate[row.sheet_date] || !row.deleted_at) remoteByDate[row.sheet_date] = row;
+      });
 
       return Promise.all(dates.map(function (iso) {
         if (!data.sheets[iso]) data.sheets[iso] = { opening:'', side:'cr', page:'', rows:[] };
         var sh = data.sheets[iso];
         var remote = remoteByDate[iso];
-        var baseRows = (data.sheetBase && data.sheetBase[iso]) || [];
+        // is tareekh ki purani sheet Recycle Bin me hai (delete hui) — us par likhna kuch nahi
+        // dikhata (row deleted hi rehti hai), aur us ki lines ko apni base bhi mat samjho
+        var binned = remote && remote.deleted_at ? remote : null;
+        if (binned) remote = null;
+        var baseRows = (!binned && data.sheetBase && data.sheetBase[iso]) || [];
         var mergedRows = mergeRows(baseRows, sh.rows || [], remote ? (remote.rows || []) : []);
         var payloadRow = {
           sheet_date: iso, firm: data.firm || '',
@@ -926,6 +985,11 @@
         if (!remote) {
           // is din ki sheet ab tak kisi ne cloud par nahi banayi — nayi banao
           return sb.from('sheets').insert(payloadRow).select().then(function (r) {
+            if (r.error && String(r.error.code) === '23505' && binned) {
+              return { iso: iso, error: { code: 'P0001', message: longDate(iso) +
+                ' ki sheet Recycle Bin mein hai. Pehle Masters \u2192 Recycle Bin se restore karein \u2014 ' +
+                'aap ki nayi entries is device par mehfooz hain aur restore ke baad cloud par chali jayengi.' } };
+            }
             if (r.error && String(r.error.code) === '23505') return { iso: iso, conflict: true };  // isi lamhe kisi ne bana di
             if (r.error) return { iso: iso, error: r.error };
             return settled();
@@ -947,14 +1011,18 @@
   function pushPending(attempt) {
     attempt = attempt || 1;
     if (!sb || !online) { syncNote('Offline \u2014 saved on this device', '#B08A3E'); return; }
-    var dates = Object.keys(pendingSync);
-    if (!dates.length) return;
+    var dates = Object.keys(pendingSync).filter(function (d) { return !parked[d]; });
+    if (!dates.length) {
+      if (Object.keys(pendingSync).length) syncNote('Not saved to cloud', '#E89A9A');
+      return;
+    }
 
     syncNote('Saving\u2026');
     pushOnce(dates).then(function (results) {
       var conflicts = results.filter(function (r) { return r.conflict; });
       var failed = results.filter(function (r) { return r.error; });
       results.filter(function (r) { return r.ok; }).forEach(function (r) { delete pendingSync[r.iso]; });
+      savePending();
 
       if (failed.length) {
         var e = failed[0].error;
@@ -966,6 +1034,8 @@
         }
         syncNote('Cloud error', '#E89A9A');
         console.error('Supabase save failed:', e);
+        failed.forEach(function (f) { parked[f.iso] = 1; });   // har save par dobara popup na aaye
+        if (conflicts.length) setTimeout(function () { pushPending(attempt + 1); }, 150 * attempt);
         var isCustomMsg = String(e.code) === 'P0001';   // hamari apni "period locked" jaisi Roman Urdu wali error
         ask('Could not save to cloud',
             (e.message || 'Unknown error') + (e.hint ? '  \u2014  ' + e.hint : '') +
@@ -996,6 +1066,7 @@
   function queueSync(iso) {
     if (!iso) return;
     pendingSync[iso] = 1;
+    savePending();
     clearTimeout(syncTimer);
     syncTimer = setTimeout(pushPending, 1200);
   }
@@ -1227,8 +1298,10 @@
     if (pkTa && !e.target.closest('.ptywrap')) pkClose();
   });
 
+  function newRid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
   function makeRow() {
     var tr = document.createElement('tr');
+    tr.setAttribute('data-rid', newRid());
     tr.innerHTML =
       '<td class="cash" data-c="4"><span class="hit" tabindex="0"><span class="tick">\u2713</span></span></td>' +
       '<td class="amt cr"><input type="text" inputmode="numeric" maxlength="15" data-k="2"></td>' +
@@ -1298,7 +1371,7 @@
     if (!active) return;
     var rows = [];
     rowsEl.querySelectorAll('tr').forEach(function (tr) {
-      var r = ['', '', '', '', 0, 0, '', ''];
+      var r = ['', '', '', '', 0, 0, '', '', tr.getAttribute('data-rid') || ''];   // 8 = line ki pehchaan
       tr.querySelectorAll('input, textarea').forEach(function (el) {
         r[+el.getAttribute('data-k')] = el.value;
         if (el.tagName === 'TEXTAREA') {
@@ -1315,18 +1388,24 @@
                             page:$('pageNo').value, rows:rows };
     data.firm = $('firmName').value;
   }
-  var lastEditTime = 0;
+  var lastEditTime = 0, saveIso = null;
   function save() {
     if (!ready) return;
     lastEditTime = Date.now();
     harvest();
+    // jis din par likha gaya wohi yaad rakho — 400ms me doosre din par chale gaye to
+    // pehle wala din kabhi sync-list me hi nahi aata tha (aur agla pull usay mita deta)
+    var iso = active;
+    if (saveIso && saveIso !== iso) queueSync(saveIso);
+    saveIso = iso;
     clearTimeout(saveTimer);
     saveTimer = setTimeout(function () {
+      saveIso = null;
       store.set(KEY, JSON.stringify(data)).then(function () {
         var n = $('savedNote'); n.textContent = 'Saved';
         clearTimeout(n._t); n._t = setTimeout(function () { n.textContent = ''; }, 1500);
       });
-      queueSync(active);
+      queueSync(iso);
     }, 400);
   }
 
@@ -1364,6 +1443,7 @@
     rowsEl.innerHTML = '';
     (s.rows || []).forEach(function (r) {
       var tr = makeRow();
+      if (r[8]) tr.setAttribute('data-rid', r[8]);
       tr.querySelectorAll('input, textarea').forEach(function (el) {
         el.value = r[+el.getAttribute('data-k')] || '';
         if (el.tagName === 'TEXTAREA') {
@@ -1637,18 +1717,36 @@
 
   function doDeleteSheet() {
     var gone = active;
-    if (sb && online) {
-      sb.from('sheets').update({ deleted_at: new Date().toISOString() }).eq('sheet_date', gone).then(function () {}).catch(function () {});
+    var inCloud = !!(data.sheetBase && data.sheetBase[gone]);
+    function dropLocal() {
+      delete pendingSync[gone]; delete parked[gone]; savePending();
+      delete data.sheets[gone];
+      if (data.sheetBase) delete data.sheetBase[gone];   // purani lines agli dafa milaan ki base na banein
+      if (active === gone) {
+        selectedRow = null;
+        active = null;                   // stop openSheet from saving the sheet back
+        var left = Object.keys(data.sheets).sort().reverse();
+        var next = left.length ? left[0] : todayISO();
+        if (next === gone) delete data.sheets[gone];
+        openSheet(next);
+      } else { renderList(); }
+      store.set(KEY, JSON.stringify(data));
     }
-    delete pendingSync[gone];
-    delete data.sheets[gone];
-    selectedRow = null;
-    active = null;                     // stop openSheet from saving the sheet back
-    var left = Object.keys(data.sheets).sort().reverse();
-    var next = left.length ? left[0] : todayISO();
-    if (next === gone) delete data.sheets[gone];
-    openSheet(next);
-    store.set(KEY, JSON.stringify(data));
+    function failed(msg) { ask('Could not delete sheet', msg, 'OK', true); }
+    if (!sb || !online) {
+      // cloud par pehle se hai to offline delete sirf is phone se hatata — agle sync par wapas aa jati
+      if (inCloud) { failed('Internet nahi hai. Cloud par mehfooz sheet delete karne ke liye internet zaroori hai.'); return; }
+      dropLocal(); return;
+    }
+    sb.from('sheets').update({ deleted_at: new Date().toISOString() })
+      .eq('sheet_date', gone).is('deleted_at', null).select('sheet_date').then(function (r) {
+        if (r.error) {
+          failed(isNetErr(r.error) ? 'Internet nahi hai. Dobara koshish karein.'
+            : (r.error.message || 'Unknown error') + (r.error.hint ? '  \u2014  ' + r.error.hint : ''));
+          return;
+        }
+        dropLocal();
+      }).catch(function () { failed('Internet nahi hai. Dobara koshish karein.'); });
   }
 
   function applyZoom() {
@@ -1963,6 +2061,7 @@
     openSheet(all.length ? all[0] : todayISO());
     store.set(KEY, JSON.stringify(data));
     Object.keys(data.sheets).forEach(function (iso) { pendingSync[iso] = 1; });
+    savePending();
     pushPending();
 
     var n = $('savedNote');
@@ -2033,7 +2132,8 @@
       $('delSheet').style.display = can('ledger_delete') ? '' : 'none';
       $('newSheet').style.display = can('ledger_create') ? '' : 'none';
       if (!can('ledger_create')) rowsEl.classList.add('readonly-grid');
-      store.get(KEY).then(function (raw) {
+      Promise.all([store.get(KEY), loadPending()]).then(function (got) {
+        var raw = got[0];
         if (raw) { try { data = JSON.parse(raw); } catch (e) {} }
         if (!data.sheets) data.sheets = {};
         $('firmName').value = data.firm || '';
@@ -2045,6 +2145,7 @@
         pullAll().then(function (ok) {
           if (ok) { renderList(); openSheet(active || todayISO()); }
           loadParties();
+          pushPending();   // pichli dafa (offline / reload se pehle) jo cloud par nahi gaya tha, ab bhejo
         });
         subscribeRealtime();
       });
@@ -2054,7 +2155,8 @@
         $('delSheet').style.display = can('ledger_delete') ? '' : 'none';
         $('newSheet').style.display = can('ledger_create') ? '' : 'none';
         if (!can('ledger_create')) rowsEl.classList.add('readonly-grid');
-        store.get(KEY).then(function (raw) {
+        Promise.all([store.get(KEY), loadPending()]).then(function (got) {
+          var raw = got[0];
           if (raw) { try { data = JSON.parse(raw); } catch (e2) {} }
           if (!data.sheets) data.sheets = {};
           $('firmName').value = data.firm || '';
