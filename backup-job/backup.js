@@ -430,25 +430,34 @@ function buildRestoreJson(res) {
 
    app_users sab se upar hai kyunki taqreeban har table us se bandhi
    hui hai (created_by / updated_by). audit_log sab se neeche, kyunki
-   wo app_users par khadi hai. */
+   wo app_users par khadi hai.
+
+   recurring_service_templates service_invoices se PEHLE — invoice ka
+   template_id usi par khada hai (service_invoices_template_fkey), warna
+   template se bani har invoice restore par 23503 deti hai.
+
+   period_lock bilkul AAKHIR mein — sheets/vouchers ke lock trigger
+   locked_before se purani tareekh ki row daalne nahi dete; lock pehle
+   lag gaya to lock wali kisi bhi backup ki purani history wapas nahi
+   aati. */
 const RESTORE_ORDER = [
   'app_settings',
   'app_users',
-  'period_lock',
   'warehouses', 'companies', 'parties', 'party_kinds', 'items',
   'item_units', 'item_specs', 'item_cost_snapshot',
   'party_opening_balances',
   'services',
+  'recurring_service_templates',
   'vouchers', 'voucher_lines',
   'sales_returns', 'sales_return_lines',
   'service_invoices', 'service_invoice_lines',
   'service_quotations', 'service_quotation_lines',
-  'recurring_service_templates',
   'quotations', 'quotation_lines',
   'purchase_orders', 'po_lines',
   'stock_transfers', 'stock_transfer_lines', 'stock_adjustments',
   'sheets',
-  'audit_log'
+  'audit_log',
+  'period_lock'
 ];
 
 /* Har table se kitni rows aayin — email aur log dono mein. Agar kabhi

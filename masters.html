@@ -1516,9 +1516,9 @@
        rate invoice par diya ja sakta hai. */
     if (tab === 'services') {
       return '' +
-      '<div class="f"><label>Service name</label>' +
+      '<div class="f" id="fName"><label>Service name</label>' +
         '<input id="eName" type="text" value="' + esc(r.name) + '" placeholder="Monthly Subscription" ' +
-        'autocomplete="off"></div>' +
+        'autocomplete="off"><div class="hint" id="hName">Bill par yehi naam chapega.</div></div>' +
       '<div class="f"><label>Description</label>' +
         '<textarea id="eDesc" rows="2" placeholder="Bill par yeh matn khud aa jayega">' +
         esc(r.description) + '</textarea></div>' +
@@ -1775,7 +1775,7 @@
   function computeAndSaveOpeningBalances(lockDateValue) {
     return Promise.all([
       sb.from('vouchers').select('party_id,vdate,vtype,grand_total,paid').is('deleted_at', null),
-      sb.from('sheets').select('sheet_date,rows'),
+      sb.from('sheets').select('sheet_date,rows').is('deleted_at', null),   // Recycle Bin wale din hisaab mein nahi
       sb.from('sales_returns').select('party_id,rdate,grand_total').is('deleted_at', null)
     ]).then(function (r) {
       if (r[0].error) throw r[0].error;
@@ -1825,7 +1825,7 @@
         });
 
         var voucherQuery = sb.from('vouchers').select('*').is('deleted_at', null);
-        var sheetQuery   = sb.from('sheets').select('sheet_date,rows');
+        var sheetQuery   = sb.from('sheets').select('sheet_date,rows').is('deleted_at', null);
         var returnQuery  = sb.from('sales_returns').select('*').is('deleted_at', null);
         if (snapshotActive) {
           voucherQuery = voucherQuery.gte('vdate', lockDate);
@@ -1920,7 +1920,7 @@
     Promise.all([
       sb.from('vouchers').select('*').is('deleted_at', null),
       sb.from('voucher_lines').select('*'),
-      sb.from('sheets').select('sheet_date,rows'),
+      sb.from('sheets').select('sheet_date,rows').is('deleted_at', null),
       sb.from('sales_returns').select('*').is('deleted_at', null)
     ]).then(function (r) {
       r.slice(0, 3).forEach(function (x) { if (x.error) throw x.error; });
@@ -2720,9 +2720,10 @@
       if (dr && dr.error) throw dr.error;
       if (!good.length) return null;
       return sb.from('item_specs').upsert(good.map(function (s, i) {
-        var row = { item_id:itemId, label:String(s.label).trim(), value:String(s.value).trim(), line_no:i };
-        if (s.id) row.id = s.id;
-        return row;
+        /* Naye row ko bhi id yahin do — purane (id wale) aur naye rows ek
+           hi upsert mein hon to PostgREST naye rows ka id NULL bhejta hai */
+        return { id:s.id || uuid(), item_id:itemId, label:String(s.label).trim(),
+                 value:String(s.value).trim(), line_no:i };
       }));
     }).then(function (sr) {
       if (sr && sr.error) throw sr.error;
@@ -2750,7 +2751,8 @@
         var row = { item_id:itemId, unit:String(u.unit).trim(), factor:n(u.factor),
                     rate:String(u.rate).trim() === '' ? null : n(u.rate),
                     is_default:!!u.is_default, line_no:i };
-        if (u.id) row.id = u.id;
+        // Naye unit ka id bhi yahin — mixed (purane + naye) upsert mein warna id NULL jata tha (23502)
+        row.id = u.id || uuid();
         return row;
       }));
     }).then(function (ur) {
@@ -3245,8 +3247,21 @@
         }
         offQRemove(q[i].opId);
         step(i + 1);
-      }).catch(function () {
-        syncingQueue = false; syncNote('');   // network dobara chali gayi — baad mein retry hoga
+      }).catch(function (e) {
+        if (isNetErr(e)) { syncingQueue = false; syncNote(''); return; }   // network dobara chali gayi — baad mein retry hoga
+        /* Asal error (permission/validation/duplicate naam) — retry se kabhi theek
+           nahi hoga. Pehle yeh poori queue hamesha ke liye rok deta tha aur kuch
+           batata bhi nahi tha. Ab: error dikhao, op ko alag "failed" list mein
+           rakh do (data zaya na ho) aur baaqi ops chalate raho. */
+        console.error(e);
+        toast('"' + (q[i].label || 'ek record') + '" sync nahi hua — ' + ((e && e.message) || 'error'), true);
+        try {
+          var failed = JSON.parse(localStorage.getItem(OFFQ_KEY + '-failed') || '[]');
+          failed.push(Object.assign({}, q[i], { error:(e && e.message) || String(e) }));
+          localStorage.setItem(OFFQ_KEY + '-failed', JSON.stringify(failed));
+        } catch (err) {}
+        offQRemove(q[i].opId);
+        step(i + 1);
       });
     }
   }
@@ -3254,7 +3269,9 @@
     if (op.op === 'insert') {
       return sb.from(op.table).insert(op.payload).select().then(function (res) {
         if (res.error) {
-          if (/duplicate key/i.test(res.error.message || '')) return 'ok';   // pehle hi chala gaya tha
+          // Sirf primary key (id) ka duplicate = pehle hi chala gaya tha. Naam ka duplicate
+          // (parties_name_uniq waghera) asal error hai — use chup chaap "ok" mat maano
+          if (String(res.error.code) === '23505' && /_pkey/.test(res.error.message || '')) return 'ok';
           throw res.error;
         }
         return 'ok';
@@ -3335,6 +3352,20 @@
     });
   }
 
+  /* Ek hi default firm — baaqi sab ka is_default hatao. Error chupao mat. */
+  function clearOtherDefaults(recId) {
+    var others = db.companies.filter(function (c) { return c.is_default && c.id !== recId; });
+    db.companies = db.companies.map(function (c) {
+      return (c.is_default && c.id !== recId) ? Object.assign({}, c, { is_default:false }) : c;
+    });
+    cacheSave('companies', db.companies);
+    others.forEach(function (c) {
+      sb.from('companies').update({ is_default:false }).eq('id', c.id).then(function (res) {
+        if (res.error) { sayErr(res.error, 'save'); loadAll(); }
+      });
+    });
+  }
+
   function saveRec() {
     if ($('edSave').disabled) return;
     var body = collect();
@@ -3383,6 +3414,8 @@
       if (isNew) {
         var row0 = (res.data || [])[0];
         if (row0) db[tab] = db[tab].map(function (r) { return r.id === recId ? row0 : r; });
+        // Nayi firm "default" ho to purani default hatao — pehle yeh sirf edit par hota tha
+        if (tab === 'companies' && body.is_default) clearOtherDefaults(recId);
         cacheSave(tab, db[tab]);
         // Naye item ke sale units bhi \u2014 pehle yeh raasta unhein chhod deta tha
         if (tab === 'items') afterItemSave(recId);
@@ -3419,15 +3452,7 @@
       var row = result.row;
       if (row) db[tab] = db[tab].map(function (r) { return r.id === recId ? row : r; });
       cacheSave(tab, db[tab]);
-      if (tab === 'companies' && body.is_default) {
-        var others = db.companies.filter(function (c) { return c.is_default && c.id !== recId; });
-        db.companies = db.companies.map(function (c) {
-          return (c.is_default && c.id !== recId) ? Object.assign({}, c, { is_default:false }) : c;
-        });
-        others.forEach(function (c) {
-          sb.from('companies').update({ is_default:false }).eq('id', c.id).then(function () {});
-        });
-      }
+      if (tab === 'companies' && body.is_default) clearOtherDefaults(recId);
       // Sale units item ke saath save hote hain (alag table mein rehte hain)
       if (tab === 'items') afterItemSave(recId);
       try { window.parent.postMessage({ oht:'refresh', kind:tab }, '*'); } catch (err) {}
@@ -3566,8 +3591,14 @@
           'Delete forever').then(function (ok) {
           if (!ok) return;
           btn.disabled = true; btn.textContent = 'Deleting\u2026';
-          sb.from(t).delete().eq(keyCol, id).then(function (res) {
+          sb.from(t).delete().eq(keyCol, id).select(keyCol).then(function (res) {
             if (res.error) { sayErr(res.error, 'permanently delete'); btn.disabled = false; btn.textContent = 'Delete forever'; return; }
+            /* RLS error nahi deta — sirf 0 rows mitata hai (permanent delete sirf admin kar sakta hai).
+               Ginti dekho, warna "Permanently deleted" jhoot hota tha. */
+            if (!(res.data || []).length) {
+              toast('Delete nahi hua — hamesha ke liye mitana sirf Admin kar sakta hai', true);
+              btn.disabled = false; btn.textContent = 'Delete forever'; return;
+            }
             toast('Permanently deleted');
             openRecycleBin();
           });
@@ -3775,7 +3806,7 @@
             var svcQ = sb.from('service_invoices')
               .select('sub_total,discount,grand_total,sidate,status')
               .is('deleted_at', null).neq('status', 'cancelled')
-              .gte('sidate', range.from).lte('sidate', range.to);
+              .gte('sidate', from).lte('sidate', to);
 
             return Promise.all([allTimeReturnsQ, svcQ]).then(function (both) {
             var atr = both[0];
@@ -3966,7 +3997,8 @@
                      quotations:'quotation', purchase_orders:'purchase order', sales_returns:'sales return' };
   function activityLine(row) {
     var who = activityUsers[row.changed_by] || 'Someone';
-    var kind = TABLE_KIND[row.table_name] || row.table_name;
+    // HAR cheez esc() karo — audit_log ka table_name/changes user ki bheji RPC se bhi aa sakta hai (XSS)
+    var kind = esc(TABLE_KIND[row.table_name] || row.table_name);
     var label = row.record_label || '';
     if (row.action === 'create') return esc(who) + ' created ' + kind + ' <b>' + esc(label) + '</b>';
     if (row.action === 'delete') return esc(who) + ' deleted ' + kind + ' <b>' + esc(label) + '</b>';
@@ -3974,11 +4006,11 @@
     var parts = [];
     var ch = row.changes || {};
     if (ch.lines) {
-      parts = ch.lines;
+      parts = [].concat(ch.lines).map(function (x) { return esc(x); });
     } else {
       Object.keys(ch).forEach(function (k) {
         var pair = ch[k];
-        if (Array.isArray(pair)) parts.push(k + ': ' + esc(pair[0] == null ? '\u2014' : pair[0]) + ' \u2192 ' + esc(pair[1] == null ? '\u2014' : pair[1]));
+        if (Array.isArray(pair)) parts.push(esc(k) + ': ' + esc(pair[0] == null ? '\u2014' : pair[0]) + ' \u2192 ' + esc(pair[1] == null ? '\u2014' : pair[1]));
       });
     }
     var detail = parts.length ? parts.slice(0, 4).join(', ') + (parts.length > 4 ? ' \u2026' : '') : 'made changes';
@@ -4047,7 +4079,7 @@
     $('wipeConfirm').textContent = 'Wiping\u2026';
     sb.rpc('wipe_test_data', { p_include_masters:$('wipeIncludeMasters').checked }).then(function (res) {
       $('wipeConfirm').textContent = 'Wipe Everything';
-      if (res.error) { sayErr(res.error, 'wipe'); return; }
+      if (res.error) { $('wipeConfirm').disabled = false; sayErr(res.error, 'wipe'); return; }
       $('wipeModal').classList.remove('on');
       toast('Sab test data mit gaya');
       localStorage.removeItem(OFFQ_KEY);
@@ -4174,22 +4206,36 @@
   var RESTORE_ORDER = [
     'app_settings',
     'app_users',
-    'period_lock',
     'warehouses', 'companies', 'parties', 'party_kinds', 'items',
     'item_units', 'item_specs', 'item_cost_snapshot',
-    'party_opening_balances',
     'services',
     'vouchers', 'voucher_lines',
     'sales_returns', 'sales_return_lines',
+    // template PEHLE — service_invoices.template_id usi ko refer karta hai (FK)
+    'recurring_service_templates',
     'service_invoices', 'service_invoice_lines',
     'service_quotations', 'service_quotation_lines',
-    'recurring_service_templates',
     'quotations', 'quotation_lines',
     'purchase_orders', 'po_lines',
     'stock_transfers', 'stock_transfer_lines', 'stock_adjustments',
     'sheets',
+    /* period_lock AAKHIR mein — pehle lag gaya to band tareekh wale
+       bills/din ka restore trigger rok deta tha (aadha restore). Lock
+       badalne par party_opening_balances khud mit jata hai, is liye wo
+       us ke BAAD. */
+    'period_lock',
+    'party_opening_balances',
     'audit_log'
   ];
+  /* Purani files apni "order" saath laati hain (ghalat tarteeb wali bhi).
+     Restore hamesha hamari tarteeb mein chale. */
+  function restoreOrder(fileOrder) {
+    function at(t) { var i = RESTORE_ORDER.indexOf(t); return i === -1 ? RESTORE_ORDER.length : i; }
+    return fileOrder.slice().sort(function (a, b) { return at(a) - at(b); });
+  }
+  /* Replace mein bhi in tables ki rows kabhi nahi urhti: app_users se
+     abhi wala admin khud hi bahar ho jata; period_lock ki ek hi row hai. */
+  var RESTORE_NO_DELETE = { app_users: true, period_lock: true };
 
   /* Har table ki chabi 'id' nahi hoti — kuch us cheez se bandhi hui
      hain jis ki wo tafseel hain. Restore ko sahi column par kaam karna
@@ -4435,7 +4481,7 @@
         r.rows.forEach(function (x) { have[x[k]] = true; });
         var add = 0, upd = 0;
         rows.forEach(function (x) { if (have[x[k]]) upd++; else add++; });
-        var del = mode === 'replace'
+        var del = mode === 'replace' && !RESTORE_NO_DELETE[t]
           ? Object.keys(have).filter(function (id) {
               return !rows.some(function (x) { return String(x[k]) === String(id); });
             }).length
@@ -4529,8 +4575,10 @@
       rsPlan = plan;
       drawRestorePlan(plan);
       var any = plan.some(function (p) { return p.add || p.upd || p.del; });
-      $('rsConfirmBox').style.display = any ? '' : 'none';
-      $('rsGo').style.display = any ? '' : 'none';
+      // Koi table parhi na ja saki to plan adhoora hai — Restore button mat dikhao
+      var bad = plan.some(function (p) { return p.err; });
+      $('rsConfirmBox').style.display = any && !bad ? '' : 'none';
+      $('rsGo').style.display = any && !bad ? '' : 'none';
       btn.disabled = false; btn.textContent = 'Check karein';
     }).catch(function (e) {
       btn.disabled = false; btn.textContent = 'Check karein';
@@ -4632,19 +4680,46 @@
 
   /* Asal kaam. Tarteeb ahem hai — pehle wo cheezein jin par baqi khadi
      hain. Urhana ulti tarteeb mein, warna foreign key rok deti hai. */
+  /* period_lock par INSERT ki ijazat (RLS) nahi — upsert hamesha 42501
+     deta tha. Us ki ek hi row (id 1) hai, is liye sirf update. */
+  function setLock(v) {
+    return sb.from('period_lock').update({ locked_before:v || null }).eq('id', 1).then(function (r) {
+      if (r.error) throw new Error('period_lock: ' + r.error.message);
+    });
+  }
+
   function runRestore(j, mode) {
-    var order = j.order, done = 0;
-    var chain = Promise.resolve();
+    var order = restoreOrder(j.order), done = 0;
+    var lockRow = (j.tables.period_lock || [])[0];
+    var prevLock, lockOff = false;
+    /* Restore ke dauran lock hata do (warna band tareekh ki rows ka
+       insert/delete trigger rok deta hai), aakhir mein wapas lagao. */
+    var chain = sb.from('period_lock').select('locked_before').eq('id', 1).then(function (r) {
+      if (r.error) throw new Error('period_lock: ' + r.error.message);
+      prevLock = (r.data && r.data[0]) ? r.data[0].locked_before : null;
+      if (!prevLock) return;
+      return setLock(null).then(function () { lockOff = true; });
+    });
 
     if (mode === 'replace') {
       order.slice().reverse().forEach(function (t) {
-        if (RESTORE_SKIP[t]) return;
+        if (RESTORE_SKIP[t] || RESTORE_NO_DELETE[t]) return;
         chain = chain.then(function () { return deleteMissing(t, j.tables[t] || []); });
       });
     }
 
     order.forEach(function (t) {
       if (RESTORE_SKIP[t]) return;
+      if (t === 'period_lock') {
+        // Replace = file wala lock; "sirf ghaayab" = jo pehle laga tha wohi
+        chain = chain.then(function () {
+          var v = mode === 'replace' ? (lockRow ? lockRow.locked_before : null) : prevLock;
+          lockOff = false;
+          if (!v && !prevLock) return;
+          return setLock(v).then(function () { if (lockRow) done += 1; });
+        });
+        return;
+      }
       chain = chain.then(function () {
         var rows = j.tables[t] || [];
         if (!rows.length) return;
@@ -4667,7 +4742,11 @@
       });
     });
 
-    return chain.then(function () { return done; });
+    return chain.then(function () { return done; }, function (e) {
+      // Beech mein ruka to purana lock wapas lagao, phir asal error dikhao
+      if (!lockOff) throw e;
+      return setLock(prevLock).then(function () { throw e; }, function () { throw e; });
+    });
   }
 
   /* ---------- Restore ke baad ginti milana ----------
@@ -4688,7 +4767,7 @@
       return fetchAllRows(function () {
         return sb.from(t).select(k).order(k, { ascending:true });
       }).then(function (have) {
-        var ok = mode === 'replace' ? have.length === want : have.length >= want;
+        var ok = (mode === 'replace' && !RESTORE_NO_DELETE[t]) ? have.length === want : have.length >= want;
         return ok ? null : { table:t, want:want, got:have.length, err:'' };
       }).catch(function (e) {
         return { table:t, want:want, got:null, err:(e && e.message) || String(e) };
@@ -4899,7 +4978,8 @@
           city: String(r.city || '').trim(),
           address: String(r.address || '').trim(),
           ntn: String(r.ntn || '').trim(),
-          opening: Number(r.opening) || 0,
+          // n() "5,000" jaise hazaar wale comma bhi samajhta hai — Number() wahan NaN (0) deta tha
+          opening: n(r.opening),
           opening_side: String(r.opening_side || 'dr').toLowerCase().trim() === 'cr' ? 'cr' : 'dr',
           active: true
         };
@@ -4912,12 +4992,13 @@
         return {
           name: String(r.name || '').trim(),
           unit: String(r.unit || 'pcs').trim(),
-          buy_rate: Number(r.buy_rate) || 0,
-          sale_rate: Number(r.sale_rate) || 0,
-          opening_qty: Number(r.opening_qty) || 0,
-          opening_rate: Number(r.opening_rate) || 0,
+          buy_rate: n(r.buy_rate),
+          sale_rate: n(r.sale_rate),
+          opening_qty: n(r.opening_qty),
+          opening_rate: n(r.opening_rate),
           hs_code: String(r.hs_code || '').trim(),
-          reorder_level: r.reorder_level === '' || r.reorder_level == null ? null : Number(r.reorder_level),
+          // Khali ho to 0 — database mein reorder_level NOT NULL hai (null bhejne se poora chunk fail hota tha)
+          reorder_level: n(r.reorder_level),
           active: true
         };
       }
