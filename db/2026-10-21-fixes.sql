@@ -53,6 +53,8 @@ create trigger trg_item_specs_id before insert on public.item_specs
   for each row execute function public.fill_uuid_id();
 
 alter table public.item_specs enable row level security;
+-- SQL Editor se bani nayi table ko Supabase khud grant nahi deta — RLS policies tabhi chalti hain
+grant select, insert, update, delete on public.item_specs to authenticated, service_role;
 
 -- ─── helper: sirf active app user ────────────────────────────────
 create or replace function public.is_active_user()
